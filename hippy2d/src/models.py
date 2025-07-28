@@ -19,9 +19,7 @@ class InvNet(L.LightningModule):
                  lr_hparams: Dict[str, Any] = dict(milestones=[3, 6, 9], gamma=0.1),
                  ):
         super().__init__()
-        self.save_hyperparameters(
-            ignore=['model']
-        )
+        self.save_hyperparameters(ignore=['model'])
         self.model = model
         self.loss_fnc = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
         self.input_shape = input_shape

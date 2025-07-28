@@ -181,15 +181,9 @@ class MnistRotTest(LightningDataModule, ABC):
         assert scale_factor >= 1, f"Scale factor must be higher or equal than one"
         if num_workers is None:
             num_workers = get_optimal_workers()
-        logger.warning(f"Using {num_workers} workers for DataLoader") 
         super().__init__()
         assert hasattr(InterpolationMode, scale_mode)
         scale_mode = getattr(InterpolationMode, scale_mode)
-        self.save_hyperparameters(ignore=['input_shape',
-                                          'data_dir',
-                                          'num_workers',
-                                          'input_shape',
-                                          'test_batch_size'])
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size

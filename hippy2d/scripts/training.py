@@ -1,6 +1,7 @@
 import ssl 
 import click
 import torch
+import lightning
 from loguru import logger
 from git import Repo
 from lovely_tensors import monkey_patch
@@ -46,6 +47,28 @@ def training_loop(run_name: str,
     seed_everything(seed, workers=True)
     # Fixing SSL certificate verification
     ssl._create_default_https_context = ssl._create_stdlib_context
+    # Get git commit sha
+    repo = Repo(search_parent_directories=True)
+    sha = repo.head.object.hexsha
+    # Logger
+    csv_logger = lightning.pytorch.loggers.CSVLogger('./logs/', name=run_name, version=sha)
+    logger.add(csv_logger.log_dir + '/training.log', level='DEBUG', format="{time} {level} {message}")
+    
+    csv_logger.log_hyperparams({
+        'run_name': run_name,
+        'early_stopping': early_stopping,
+        'epochs': epochs,
+        'debug': debug,
+        'dataset_name': dataset_name,
+        'd_hparams': d_hparams,
+        'model_name': model_name,
+        'm_param': m_param,
+        'optimizer_name': optimizer_name,
+        'optimizer_hparams': optimizer_hparams,
+        'lr_name': lr_name,
+        'lr_hparams': lr_hparams,
+        'seed': seed
+    })
 
     # List available gpu
     if torch.cuda.is_available():
@@ -74,8 +97,7 @@ def training_loop(run_name: str,
             detect_anomaly=False,
             deterministic=False,
         )
-    repo = Repo(search_parent_directories=True)
-    sha = repo.head.object.hexsha
+
 
     datamodule = get_datamodule(dataset_name, d_hparams)
     # Default model parameters 
@@ -109,7 +131,8 @@ def training_loop(run_name: str,
                       max_epochs=epochs,
                       **trainer_params,
                       enable_model_summary=False,
-                      callbacks=trainer_callbacks
+                      callbacks=trainer_callbacks,
+                      logger=csv_logger,
                       )
     # Run training loop
     try:

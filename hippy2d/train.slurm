@@ -1,7 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=hippy2d_train
 #SBATCH --output=./logs/%j_hippy2d_train.out
-#SBATCH --error=./logs/%j_hippy2d_train.err
 #SBATCH --time=10:00:00            # Job duration
 #SBATCH --partition=volta-x86      # GPU partition name
 #SBATCH --gres=gpu:1               # Number of GPUs
