@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=hippy2d_train
-#SBATCH --output=train_output_%j.out
-#SBATCH --error=train_error_%j.err
+#SBATCH --output=./logs/hippy2d_train_%j.out
+#SBATCH --error=./logs/hippy2d_train_%j.err
 #SBATCH --time=10:00:00            # Job duration
 #SBATCH --partition=volta-x86      # GPU partition name
 #SBATCH --gres=gpu:1               # Number of GPUs
@@ -26,4 +26,6 @@ fi
 
 # Run the training script
 echo "Running training script..."
+# Set PYTHONPATH to the project root
+export PYTHONPATH=$(pwd)
 CUDA_VISIBLE_DEVICES=1 python ./scripts/training.py --debug
