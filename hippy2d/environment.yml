@@ -1,0 +1,19 @@
+name: hippy-conv
+channels:
+  - defaults
+  - pytorch
+  - nvidia
+dependencies:
+  - python=3.11.7
+  - pip
+  - pip: 
+    - click==8.2.*
+    - torch==2.7.*
+    - torchvision==0.22.*
+    - loguru==0.7.*
+    - GitPython==3.1.*
+    - lovely-tensors==0.1.*
+    - einops==0.8.*
+    - lightning==2.5.*
+    - scipy==1.16.*
+    - pytest==8.4.*
