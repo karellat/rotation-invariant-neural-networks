@@ -1,4 +1,4 @@
-name: hippy-conv
+name: hippy2d
 channels:
   - defaults
   - pytorch
