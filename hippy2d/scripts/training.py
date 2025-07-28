@@ -21,13 +21,13 @@ SLURMEnvironment.detect = lambda: False
 @click.option('--epochs', default=10, type=int, help='Number of training epochs.')
 @click.option('--debug', is_flag=True, default=False, help='Run in debug mode with small datasets.')
 @click.option('--dataset_name', default='MnistRotTest', type=str, help='Name of the dataset.')
-@click.option('--d_hparams', default=dict(batch_size=32, data_dir='data', pad=0, to_complex=False), type=ClickDictionaryType(), help='Dataset hyperparameters.')
-@click.option('--model_name', default='Resnet18', type=str, help='Name of the model to use.')
+@click.option('--d_hparams', default=dict(batch_size=32, data_dir='data', pad=0, to_complex=True), type=ClickDictionaryType(), help='Dataset hyperparameters.')
+@click.option('--model_name', default='ResHNeXtv3', type=str, help='Name of the model to use.')
 @click.option('--m_param', default=dict(), type=ClickDictionaryType(), help='Model hyperparameters.')
 @click.option('--optimizer_name', default='AdamW', type=str, help='Optimizer name.')
 @click.option('--optimizer_hparams', default=dict(lr=1e-3), type=ClickDictionaryType(), help='Optimizer hyperparameters.')
 @click.option('--lr_name', default='MultiStepLR', type=str, help='Learning rate scheduler name.')
-@click.option('--lr_hparams', default=dict(milestones=[3, 6, 9], gamma=0.1), type=ClickDictionaryType(), help='Learning rate scheduler hyperparameters.')
+@click.option('--lr_hparams', default=dict(milestones=[10, 50, 90], gamma=0.1), type=ClickDictionaryType(), help='Learning rate scheduler hyperparameters.')
 @click.option('--seed', default=42, type=int)
 def training_loop(run_name: str,
                   seed: int,

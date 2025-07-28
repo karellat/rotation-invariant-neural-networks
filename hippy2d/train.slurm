@@ -7,6 +7,9 @@
 #SBATCH --cpus-per-task=16         # CPUs per task
 #SBATCH --mem=64G                  # RAM
 
+# Check the number of parameters 
+CONFIG_PATH="$1"
+
 # Set single NVIDIA GPU
 echo "Starting training job on $(hostname) with job ID: $SLURM_JOB_ID, partition: $SLURM_JOB_PARTITION"
 echo "Running in directory: $(pwd)"
@@ -27,4 +30,4 @@ fi
 echo "Running training script..."
 # Set PYTHONPATH to the project root
 export PYTHONPATH=$(pwd)
-CUDA_VISIBLE_DEVICES=0 python ./scripts/training.py --debug
+CUDA_VISIBLE_DEVICES=0 python ./scripts/training_with_config.py $CONFIG_PATH

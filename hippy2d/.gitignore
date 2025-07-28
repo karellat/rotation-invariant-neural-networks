@@ -124,3 +124,5 @@ dmypy.json
 lightning_logs/
 
 data/
+
+logs/
