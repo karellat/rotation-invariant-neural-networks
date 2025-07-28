@@ -61,7 +61,7 @@ def training_loop(run_name: str,
         monkey_patch()
         logger.warning("Running in debug mode (small datasets, offline, etc).")
         # NOTE: Debug does not work running parallel workers
-        d_hparams['num_workers'] = 0
+        d_hparams['num_workers'] = 1
         trainer_params = dict(
             limit_train_batches=0.125,
             limit_val_batches=0.125,
