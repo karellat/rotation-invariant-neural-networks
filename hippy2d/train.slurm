@@ -20,7 +20,7 @@ if conda info --envs | grep -q "hippy2d"; then
     echo "Activating conda environment 'hippy2d'..."
     source activate hippy2d
 else
-    echo "Conda environment 'hippy2d' not found. Please create it first
+    echo "Conda environment 'hippy2d' not found. Please create it first"
     exit 1
 fi
 
