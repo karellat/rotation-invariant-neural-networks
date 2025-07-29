@@ -19,7 +19,7 @@ SLURMEnvironment.detect = lambda: False
 @click.option('-n', '--run_name', default='default', help='Name of the experiment.')
 @click.option('--early_stopping', default=3, type=int, help='Early stopping patience.')
 @click.option('--epochs', default=10, type=int, help='Number of training epochs.')
-@click.option('--debug', is_flag=True, default=False, help='Run in debug mode with small datasets.')
+@click.option('--debug', is_flag=True, default=True, help='Run in debug mode with small datasets.')
 @click.option('--dataset_name', default='MnistRotTest', type=str, help='Name of the dataset.')
 @click.option('--d_hparams', default=dict(batch_size=32, data_dir='data', pad=0, to_complex=False), type=ClickDictionaryType(), help='Dataset hyperparameters.')
 @click.option('--model_name', default='PrototypeOptimalInvCNN', type=str, help='Name of the model to use.')

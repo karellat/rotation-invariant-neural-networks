@@ -112,10 +112,16 @@ class ComplexInvariantConv2D(torch.nn.Module):
         #assert not torch.isnan(normalization_moment).any(), "NaN detected in normalization moment"
         #assert not torch.isnan(moments).any(), "NaN detected in moments"
         moments = moments[:, 1:]
-         # NOTE: This might be an overkill for calculating such low powers, but it does not give NaN for 0 
+        # NOTE: This might be an overkill for calculating such low powers, but it does not give NaN for 0
         # Moivre's Theorem
-        normalization_factor = normalization_moment.abs() * (torch.cos(normalization_moment.angle() * self.exponents) +
-                                       torch.sin(normalization_moment.angle() * self.exponents) * 1j)
+        # Angle of small magnitudes can cause gradient to be NaN, so we add small epsilon
+        eps = 1e-8
+        norm_magnitude = normalization_moment.abs()
+        # Only compute angles for non-zero magnitudes
+        safe_normalization = torch.where(norm_magnitude > eps, normalization_moment, 
+                                        torch.complex(torch.tensor(eps), torch.tensor(0.0)))
+        normalization_factor = norm_magnitude * (torch.cos(safe_normalization.angle() * self.exponents) +
+                                       torch.sin(safe_normalization.angle() * self.exponents) * 1j)
         result = moments * normalization_factor
         result = rearrange(result, '(b c) n h w -> b (c n) h w', c=self.in_channels)
         # TODO: This should be normalized properly 
@@ -145,7 +151,7 @@ class ComplexBaseBlock(torch.nn.Module):
                                             basis_p0=basis_p0,
                                             basis_q0=basis_q0)
         self.batch_norm = torch.nn.BatchNorm2d(num_features=out_channels, affine=False)
-        self.activation = torch.nn.ReLU(inplace=True)
+        self.activation = torch.nn.ReLU()
         self.residual = residual
         self.valid_padding = (self.conv.filter_size - 1) // 2
         self.padding = conv_padding
@@ -165,7 +171,7 @@ class ComplexBaseBlock(torch.nn.Module):
             self.subsampling = torch.nn.Identity()
         # Note: This can be done by torch.masked.MaskedTensor, but it is not supported for complex
         # it's possible to rewrite the whole block using own complex convolution implementation
-        self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)), requires_grad=False)
+        self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -184,7 +190,7 @@ class ComplexBaseBlock(torch.nn.Module):
             # Use same padding
             identity = x
         # TODO: Here should be a circular masking for the whole feature map
-        x *= self.features_mask
+        x = x * self.features_mask
         x = self.conv(x)
         # Here we can use the Masked_tensor  instead zero masking
         # Apply batch normalization and activation
@@ -194,5 +200,5 @@ class ComplexBaseBlock(torch.nn.Module):
         if self.residual:
             identity = self.subsampling(identity)
             # Add the residual connection
-            x += self.residual_conv(identity)
+            x = x + self.residual_conv(identity)
         return x

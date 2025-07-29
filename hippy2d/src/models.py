@@ -247,14 +247,14 @@ class ResHNeXtv3(nn.Module):
         x = self.classifier(x)
         return x
 
-
+# Optimal Convolution
 class PrototypeOptimalInvCNN(torch.nn.Module): 
     def __init__(self, 
                  in_channels:int = 3,
                  input_size:int = 256,
                  num_classes:int = 10,
                  blocks = [3, 3, 3], 
-                 channels: [int] = [4, 8, 16],
+                 channels= [4, 8, 16],
                  classification:bool = True):
         super(PrototypeOptimalInvCNN, self).__init__()
         self.in_channels = in_channels
