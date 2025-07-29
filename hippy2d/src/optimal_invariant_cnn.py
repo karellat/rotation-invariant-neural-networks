@@ -165,7 +165,7 @@ class ComplexBaseBlock(torch.nn.Module):
             self.subsampling = torch.nn.Identity()
         # Note: This can be done by torch.masked.MaskedTensor, but it is not supported for complex
         # it's possible to rewrite the whole block using own complex convolution implementation
-        self.features_mask = torch.from_numpy(tukey_2d(self.input_size, 0.5))
+        self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)), requires_grad=False)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
