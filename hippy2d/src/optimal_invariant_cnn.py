@@ -75,7 +75,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                                           requires_grad=False) # Make it non-trainable parameter
 
         self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64)[1:] # Skip the normalization term
-        self.exponents = self.exponents[None, :, None, None] # Broadcasting dimension
+        self.exponents = torch.nn.Parameter(self.exponents[None, :, None, None], requires_grad=False) # Broadcasting dimension
         self.ind = torch.tensor(ind, dtype=torch.uint16)
         self.num_invariants = len(self.ind) - 1 # Number of invariants and skip the normalization term
         self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants*self.in_channels*2,
