@@ -15,6 +15,10 @@ import torchvision.transforms.v2 as transforms
 from torchvision.transforms.v2.functional import InterpolationMode
 from src.utils import get_optimal_workers, get_default_complex,tukey_2d
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
+from torchvision.datasets.utils import (
+    download_and_extract_archive,
+    verify_str_arg,
+)
 
 # Custom Transforms
 class NormalizeMagnitude(torch.nn.Module):
@@ -315,6 +319,294 @@ class MnistRotTest(LightningDataModule, ABC):
                                           num_workers=self.num_workers,
                                           persistent_workers=True),
         return CombinedLoader(loaders, mode="max_size_cycle")
+
+
+class RotMnist(LightningDataModule, ABC):
+
+    @property
+    def num_classes(self):
+        return self._dataset.num_classes
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+    # TODO: Add normalization
+    # TODO: Add masking
+    # other transforms
+    TRAIN_SIZE = 10000
+    TEST_SIZE = 50000
+    VAL_SIZE = 2000
+
+    def __init__(self,
+                 data_dir: str = "./data",
+                 pad: int = 2,
+                 batch_size: int = 32,
+                 test_batch_size: int = 256,
+                 scale_factor: int = 2,
+                 scale_mode="BILINEAR",
+                 limit_train_samples=None,
+                 normalize=True,
+                 to_complex=True,
+                 num_workers=get_optimal_workers()):
+        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
+        assert scale_factor >= 1, f"Scale factor must be higher or equal than one"
+        assert hasattr(InterpolationMode, scale_mode)
+        super().__init__()
+        scale_mode = getattr(InterpolationMode, scale_mode)
+        self.save_hyperparameters(ignore=['input_shape',
+                                          'data_dir',
+                                          'num_workers',
+                                          'input_shape',
+                                          'test_batch_size'])
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        self.num_workers = num_workers
+        self.valid_ds = None  # Multiple checking multiple angles
+        self.test_ds = None
+        self.train_ds = None
+        self.train_indices = list(range(RotMnist.TRAIN_SIZE))
+        self.valid_indices = list(range(RotMnist.VAL_SIZE))
+        self.test_indices = list(range(RotMnist.TEST_SIZE))
+
+        # Limit train samples
+        if limit_train_samples is not None:
+            assert limit_train_samples <= len(
+                self.train_indices), f"Limit is higher than train size. {limit_train_samples}"
+            assert limit_train_samples > 0, f"Limit must be higher than zero."
+            self.train_indices = self.train_indices[:limit_train_samples]
+
+        self._output_shape = [batch_size, 1, 28 + 2 * pad, 28 + 2 * pad]
+
+        rotmnist_transforms = [
+            transforms.ToImage(),
+            transforms.Pad(padding=pad, fill=0, padding_mode='constant'),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True),
+        ]
+
+        if scale_factor != 1:
+            self.output_shape[2] *= scale_factor
+            self.output_shape[3] *= scale_factor
+            rotmnist_transforms.append(transforms.Resize(
+                size=self.output_shape[2],
+                interpolation=scale_mode,
+                antialias=False))
+        # Taken from ./notebooks/15_rotated_mnist
+        rotmnist_transforms.append(transforms.Normalize(mean=[0.0998], std=[0.1770]))
+
+        if to_complex:
+            rotmnist_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+        # TODO: Add masking
+
+        self.train_transforms = transforms.Compose(rotmnist_transforms)
+        self.test_transforms = transforms.Compose(rotmnist_transforms)
+        self.val_transforms = {
+            'val': transforms.Compose(rotmnist_transforms)
+        }
+
+    @property
+    def _dataset(self):
+        return rotMnistDataset
+
+    def prepare_data(self):
+        self._dataset(root=self.data_dir,
+                      split='train',
+                      transform=self.train_transforms,
+                      download=True)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_ds,
+                          batch_size=self.test_batch_size,
+                          num_workers=self.num_workers,
+                          pin_memory=True,
+                          shuffle=False)
+
+    def setup(self, stage: Optional[str]):
+        self.train_ds = self._dataset(root=self.data_dir,
+                                      split='train',
+                                      transform=self.train_transforms)
+        # Test/Valid datasets
+        self.valid_ds = {}
+        for k, _transforms in self.val_transforms.items():
+            self.valid_ds[k] = self._dataset(root=self.data_dir,
+                                             split='valid',
+                                             transform=_transforms)
+        self.test_ds = self._dataset(root=self.data_dir,
+                                     split='test',
+                                     transform=self.test_transforms)
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds,
+                          sampler=RandomSampler(self.train_indices),
+                          batch_size=self.batch_size,
+                          pin_memory=True)
+
+    def val_dataloader(self):
+        loaders = {}
+        for k, ds in self.valid_ds.items():
+            ds_name = f"val_{k}" if k != 'val' else 'val'
+            loaders[ds_name] = DataLoader(ds,
+                                          sampler=SequentialSampler(self.valid_indices),
+                                          batch_size=self.test_batch_size,
+                                          pin_memory=True,
+                                          num_workers=self.num_workers),
+        return CombinedLoader(loaders, mode="max_size_cycle")
+
+# NOTE: For reproducibility, this was taken from
+# https://github.com/dwromero/g_selfatt/blob/14204b3eb2a9d70329ee8f33a04ac5965c11e8c6/datasets/mnist_rot.py
+# NOTE: Unlike the original code we use validation set for validation
+
+class rotMnistDataset(VisionDataset):
+    """Rotated MNIST datasets.
+
+    Download the datasets from https://sites.google.com/a/lisa.iro.umontreal.ca/public_static_twiki/variations-on-the-mnist-digits
+    and preprocess it as in (Cohen and Welling) https://github.com/tscohen/gconv_experiments/blob/master/gconv_experiments/MNIST_ROT/mnist_rot.py
+    """
+
+    resources = [
+        (
+            "http://www.iro.umontreal.ca/~lisa/icml2007data/mnist_rotation_new.zip",
+            "0f9a947ff3d30e95cd685462cbf3b847",
+        ),
+    ]
+
+    training_file = "training.pt"
+    test_file = "test.pt"
+    valid_file = "valid.pt"
+    classes = [
+        "0 - zero",
+        "1 - one",
+        "2 - two",
+        "3 - three",
+        "4 - four",
+        "5 - five",
+        "6 - six",
+        "7 - seven",
+        "8 - eight",
+        "9 - nine",
+    ]
+    num_classes = len(classes)
+
+    def __init__(self,
+                 root,
+                 split='train',
+                 transform=None,
+                 target_transform=None,
+                 download=False):
+        super().__init__(root, transform=transform, target_transform=target_transform)
+        self.split = verify_str_arg(split, "split", ("train", "test", 'valid'))
+
+        if download:
+            self.download()
+
+        if not self._check_exists():
+            raise RuntimeError("Dataset not found." + " You can use download=True to download it")
+
+        if self.split == 'train':
+            data_file = self.training_file
+        elif self.split == 'valid':
+            data_file = self.valid_file
+        else:
+            data_file = self.test_file
+        self.data, self.targets = torch.load(os.path.join(self.processed_folder, data_file))
+
+    def __getitem__(self, index):
+        """
+        Args:
+            index (int): Index
+
+        Returns:
+            tuple: (image, target) where target is index of the target class.
+        """
+        img, target = self.data[index], int(self.targets[index])
+
+        # doing this so that it is consistent with all other datasets
+        # to return a PIL Image
+        img = Image.fromarray(img.numpy(), mode="L")
+
+        if self.transform is not None:
+            img = self.transform(img)
+
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+
+        return img, target
+
+    def __len__(self):
+        return len(self.data)
+
+    @property
+    def raw_folder(self):
+        return os.path.join(self.root, self.__class__.__name__, "raw")
+
+    @property
+    def processed_folder(self):
+        return os.path.join(self.root, self.__class__.__name__, "processed")
+
+    @property
+    def class_to_idx(self):
+        return {_class: i for i, _class in enumerate(self.classes)}
+
+    def _check_exists(self):
+        return os.path.exists(
+            os.path.join(self.processed_folder, self.training_file)
+        ) and os.path.exists(os.path.join(self.processed_folder, self.test_file))
+
+    def download(self):
+        """Download the MNIST data if it doesn't exist in processed_folder already."""
+
+        if self._check_exists():
+            return
+
+        os.makedirs(self.raw_folder, exist_ok=True)
+        os.makedirs(self.processed_folder, exist_ok=True)
+
+        # download files
+        for url, md5 in self.resources:
+            filename = url.rpartition("/")[2]
+            download_and_extract_archive(
+                url, download_root=self.raw_folder, filename=filename, md5=md5
+            )
+
+        # process and save as torch files
+        print("Processing...")
+
+        train_filename = os.path.join(
+            self.raw_folder, "mnist_all_rotation_normalized_float_train_valid.amat"
+        )
+        test_filename = os.path.join(
+            self.raw_folder, "mnist_all_rotation_normalized_float_test.amat"
+        )
+
+        train_val = torch.from_numpy(np.loadtxt(train_filename))
+        test = torch.from_numpy(np.loadtxt(test_filename))
+
+        train_val_data = train_val[:, :-1].reshape(-1, 28, 28)
+        train_val_data = (train_val_data * 256).round().type(torch.uint8)
+        train_val_labels = train_val[:, -1].type(torch.uint8)
+        training_set = (train_val_data[:10000], train_val_labels[:10000])
+        # Init validation set unlike original code
+        validation_set = (train_val_data[10000:], train_val_labels[10000:])
+
+        test_data = test[:, :-1].reshape(-1, 28, 28)
+        test_data = (test_data * 256).round().type(torch.uint8)
+        test_labels = test[:, -1].type(torch.uint8)
+        test_set = (test_data, test_labels)
+
+        with open(os.path.join(self.processed_folder, self.training_file), "wb") as f:
+            torch.save(training_set, f)
+        with open(os.path.join(self.processed_folder, self.test_file), "wb") as f:
+            torch.save(test_set, f)
+        with open(os.path.join(self.processed_folder, self.valid_file), "wb") as f:
+            torch.save(validation_set, f)
+
+        print("Done!")
+
+    def extra_repr(self):
+        return f"Split: {self.split}"
 
 
 # Transformations

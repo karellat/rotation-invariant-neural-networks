@@ -17,3 +17,4 @@ dependencies:
     - lightning==2.5.*
     - scipy==1.16.*
     - pytest==8.4.*
+    - e2cnn==0.2.*
