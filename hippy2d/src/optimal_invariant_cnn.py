@@ -1,5 +1,6 @@
 import torch 
 from einops import rearrange
+from loguru import logger
 
 from src.complex_invariants_2d import get_complex_monomial
 from src.utils import tukey_2d, get_default_complex, get_circular_mask
@@ -32,11 +33,8 @@ class ComplexInvariantConv2D(torch.nn.Module):
         assert max_order >= 0, "Max order must be non-negative"
         assert in_channels > 0, "Number of input channels must be positive"
         assert out_channels > 0, "Number of output channels must be positive"
-        assert out_channels % 2 == 0, "Output channels must be even, we use complex dimension as 2xchannels"
         assert filter_size >= 5, "Filters must be decent size for complex invariants"
 
-        # Group convolution requires out_channels to be divisible by in_channels
-        assert out_channels % in_channels == 0, "Output channels must be divisible by input channels for group convolution"
         assert self.basis_p0 >= 0 and self.basis_q0 >= 0, "Basis indices must be non-negative integers"
         assert self.basis_p0 + self.basis_q0 <= max_order, "Basis indices must not exceed the maximum order"
         assert self.basis_p0 - self.basis_q0 == 1, "Basis indices must differ by 1 for the normalization term"
@@ -80,12 +78,11 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.exponents = self.exponents[None, :, None, None] # Broadcasting dimension
         self.ind = torch.tensor(ind, dtype=torch.uint16)
         self.num_invariants = len(self.ind) - 1 # Number of invariants and skip the normalization term
-        # Conv1x1 that mixes invariants together
-        self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants*self.in_channels,
-                                       out_channels=self.out_channels//2,
-                                       groups=self.in_channels,
+        self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants*self.in_channels*2,
+                                       out_channels=self.out_channels,
                                        kernel_size=1, 
-                                       dtype=get_default_complex())
+                                       dtype=torch.get_default_dtype())
+
         
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -97,23 +94,34 @@ class ComplexInvariantConv2D(torch.nn.Module):
         # Check input shape
         assert x.dim() == 4, "Input must be a 4D tensor"
         assert x.shape[1] == self.in_channels, f"Input channels {x.shape[1]} do not match expected {self.in_channels}"
+
+        assert x.dtype == torch.get_default_dtype(), f"Input dtype {x.dtype} does not match expected {torch.get_default_dtype()}"
         
-        
+        x = torch.complex(real=x, imag=torch.zeros_like(x))  # Convert to complex tensor
         # Act on batch and channels together
         x = rearrange(x, 'b c h w -> (b c) 1 h w', c=self.in_channels)
         # Apply the complex invariant convolution
+        # NOTE: This would be better as own implementation, but for now complex
         moments = torch.nn.functional.conv2d(x,
                                              weight=self.filters,
                                              padding=self.padding) # TODO: Solve padding
 
         normalization_moment = moments[:, 0:1]
+        # Assert there is not nan
+        
+        #assert not torch.isnan(normalization_moment).any(), "NaN detected in normalization moment"
+        #assert not torch.isnan(moments).any(), "NaN detected in moments"
         moments = moments[:, 1:]
-        result = moments * (normalization_moment ** self.exponents)
+         # NOTE: This might be an overkill for calculating such low powers, but it does not give NaN for 0 
+        # Moivre's Theorem
+        normalization_factor = normalization_moment.abs() * (torch.cos(normalization_moment.angle() * self.exponents) +
+                                       torch.sin(normalization_moment.angle() * self.exponents) * 1j)
+        result = moments * normalization_factor
         result = rearrange(result, '(b c) n h w -> b (c n) h w', c=self.in_channels)
         # TODO: This should be normalized properly 
+        result = rearrange(torch.view_as_real(result), 'b c h w co -> b (c co) h w')
         features = self.conv1x1(result) # Convert back to real
         # NOTE: We should find nicer way to do this, it should be just a view
-        features = rearrange(torch.view_as_real(features), 'b c h w co -> b (c co) h w')
         return features
 
 # Create a block 
@@ -166,21 +174,19 @@ class ComplexBaseBlock(torch.nn.Module):
         :param x: Input tensor of shape (batch_size, in_channels, height, width)
         :return: Output tensor of shape (batch_size, out_channels, height', width')
         """
+
         if self.padding == "valid":
             # Use valid padding
-            identity = torch.view_as_real(x)[..., 
-                                             self.valid_padding:-self.valid_padding,
-                                             self.valid_padding:-self.valid_padding,
-                                             0]
+            identity = x[..., 
+                         self.valid_padding:-self.valid_padding,
+                         self.valid_padding:-self.valid_padding]
         else:
             # Use same padding
-
-            identity = torch.view_as_real(x)[..., 
-                                         0]  # Store input for residual connection
+            identity = x
         # TODO: Here should be a circular masking for the whole feature map
+        x *= self.features_mask
         x = self.conv(x)
         # Here we can use the Masked_tensor  instead zero masking
-        x *= self.features_mask
         # Apply batch normalization and activation
         x = self.batch_norm(x)
         x = self.activation(x)

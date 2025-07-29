@@ -8,3 +8,7 @@ build/
 **/*.ipynb_checkpoints/
 **/__pycache__/
 **/*.png
+
+.vscode/
+.idea/
+.pytest_cache/

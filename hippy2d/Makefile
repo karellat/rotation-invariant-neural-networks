@@ -31,4 +31,4 @@ train_with_config:
 .PHONY: test
 test:
 	@echo "Using Python: $(PYTHON)"
-	@$(PYTHON) -m pytest --tb=short --disable-warnings -q $(ARGS) ./tests
+	@$(PYTHON) -m pytest -q $(ARGS) ./tests

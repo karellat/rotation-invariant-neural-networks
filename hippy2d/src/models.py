@@ -4,6 +4,7 @@ import lightning as L
 from typing import List, Any, Dict, Optional
 from loguru import logger
 from src.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
+from src.optimal_invariant_cnn import ComplexBaseBlock
 
 from src.utils import get_default_complex   
 
@@ -246,3 +247,52 @@ class ResHNeXtv3(nn.Module):
         x = self.classifier(x)
         return x
 
+
+class PrototypeOptimalInvCNN(torch.nn.Module): 
+    def __init__(self, 
+                 in_channels:int = 3,
+                 input_size:int = 256,
+                 num_classes:int = 10,
+                 blocks = [3, 3, 3], 
+                 channels: [int] = [4, 8, 16],
+                 classification:bool = True):
+        super(PrototypeOptimalInvCNN, self).__init__()
+        self.in_channels = in_channels
+        out_channels = in_channels
+        self.blocks = []
+        for block_idx, num_blocks in enumerate(blocks):
+            block = []
+            for _ in range(num_blocks):
+                out_channels = channels[block_idx]
+                block.append(ComplexBaseBlock(in_channels=in_channels,
+                                              out_channels=out_channels,
+                                              input_size=input_size,
+                                              subsampling=False))
+                in_channels = out_channels
+
+            out_channels = channels[block_idx + 1] if block_idx + 1 < len(channels) else out_channels
+            # Subsampling block at the end
+            block.append(ComplexBaseBlock(in_channels=in_channels,
+                                          out_channels=out_channels,
+                                          input_size=input_size,
+                                          subsampling=True if block_idx < len(blocks) - 1 else False))
+
+            in_channels = out_channels
+            input_size //= 2  # Reduce input size by half for the next block
+            self.blocks.append(torch.nn.Sequential(*block))
+        self.blocks = torch.nn.Sequential(*self.blocks)
+
+        self.classification = classification
+        if classification:
+            self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))
+            self.flat = torch.nn.Flatten()
+            self.classifier = torch.nn.Linear(in_features=out_channels, out_features=num_classes)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.blocks(x)
+        if self.classification:
+            x = self.pool(x)
+            x = self.flat(x)
+            x = self.classifier(x)
+    
+        return x
