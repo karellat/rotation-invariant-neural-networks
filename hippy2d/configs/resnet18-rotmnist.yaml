@@ -15,11 +15,10 @@ lr_hparams:
 lr_name: MultiStepLR
 m_param:
   in_channels: 1
-  input_size: 56
   num_classes: 10
-model_name: PrototypeOptimalInvCNN
+model_name: Resnet18
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
 seed: 42
-run_name: prototype-rotmnist
+run_name: resnet18-rotmnist

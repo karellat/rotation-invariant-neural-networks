@@ -5,7 +5,7 @@ d_hparams:
   pad: 0
   to_complex: true
 dataset_name: MnistRotTest
-early_stopping: 3
+early_stopping: 10
 epochs: 100
 lr_hparams:
   gamma: 0.1
