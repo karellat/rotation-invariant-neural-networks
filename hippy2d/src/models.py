@@ -175,7 +175,7 @@ class ResHNeXtv3(nn.Module):
                  activation_name="relu",
                  kernel_size: int = 15,
                  n_rings: int = 3,
-                 input_shape=64,
+                 input_size=64,
                  drop_path_rate: float = 0.0,
                  _return_phase_dim=False):
 
@@ -186,7 +186,7 @@ class ResHNeXtv3(nn.Module):
         self.maximum_order = maximum_order
         self.in_channels = in_channels
         img2input = ComplexImg2H(circular_mask=True,
-                                 input_shape=input_shape,
+                                 input_shape=input_size,
                                  alpha=0.4)
         self.activation_name = activation_name
         self.kernel_size = kernel_size
@@ -194,7 +194,7 @@ class ResHNeXtv3(nn.Module):
         network_layers = []
         _last_max_order = 0
         _last_out_channels = in_channels
-        _last_channel_size = input_shape
+        _last_channel_size = input_size
 
         block_idx = 0
         for idx, layer_str in enumerate(model_str):

@@ -1,8 +1,8 @@
 d_hparams:
   batch_size: 32
   data_dir: data
-  pad: 0
-  to_complex: false
+  pad: 2
+  to_complex: true
 dataset_name: RotMnist
 early_stopping: 10
 epochs: 100
@@ -16,6 +16,7 @@ lr_name: MultiStepLR
 m_param:
   in_channels: 1
   num_classes: 10
+  input_size: 64
 model_name: ResHNeXtv3
 optimizer_hparams:
   lr: 0.001
