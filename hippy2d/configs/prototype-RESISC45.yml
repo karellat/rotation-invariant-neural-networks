@@ -12,6 +12,7 @@ lr_hparams:
   - 50
   - 90
 lr_name: MultiStepLR
+debug: true
 m_param:
   in_channels: 3
   num_classes: 45
@@ -20,5 +21,5 @@ model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
-run_name: prototype-RESISC45
+run_name: prototype-RESISC45-debug
 seed: 42

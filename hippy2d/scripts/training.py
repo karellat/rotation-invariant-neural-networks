@@ -21,8 +21,8 @@ SLURMEnvironment.detect = lambda: False
 @click.option('--epochs', default=200, type=int, help='Number of training epochs.')
 @click.option('--debug', is_flag=True, default=False, help='Run in debug mode with small datasets.')
 @click.option('--dataset_name', default='RESISC45', type=str, help='Name of the dataset.')
-@click.option('--d_hparams', default=dict(batch_size=32 ), type=ClickDictionaryType(), help='Dataset hyperparameters.')
-@click.option('--model_name', default='Resnet18', type=str, help='Name of the model to use.')
+@click.option('--d_hparams', default=dict(batch_size=32, to_complex=True), type=ClickDictionaryType(), help='Dataset hyperparameters.')
+@click.option('--model_name', default='ResHNeXtv3', type=str, help='Name of the model to use.')
 @click.option('--m_param', default=dict(), type=ClickDictionaryType(), help='Model hyperparameters.')
 @click.option('--optimizer_name', default='AdamW', type=str, help='Optimizer name.')
 @click.option('--optimizer_hparams', default=dict(lr=1e-3), type=ClickDictionaryType(), help='Optimizer hyperparameters.')
@@ -131,7 +131,7 @@ def training_loop(run_name: str,
     if torch.cuda.is_available():
         accelerator = "gpu"
     elif torch.backends.mps.is_available():
-        accelerator = "mps"
+        accelerator = "cpu"
     else:
         logger.warning("No GPU or MPS detected, using CPU.")
         accelerator = "cpu"

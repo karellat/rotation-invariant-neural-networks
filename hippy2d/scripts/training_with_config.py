@@ -9,10 +9,18 @@ def run_with_config(yaml_path):
     # Convert YAML config into Click arguments
     args = []
     for key, value in config.items():
-        args.append(f'--{key}')
-        args.append(str(value))
+        print(key, value)
+        if key == 'debug': 
+            if value:
+                args.append('--debug')
+            else: 
+                continue
+        else:
+            args.append(f'--{key}')
+            args.append(str(value))
 
     # Invoke your training loop
+    print("args:", args)
     training_loop(args, standalone_mode=False)
 
 if __name__ == '__main__':
