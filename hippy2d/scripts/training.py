@@ -20,8 +20,8 @@ SLURMEnvironment.detect = lambda: False
 @click.option('--early_stopping', default=15, type=int, help='Early stopping patience.')
 @click.option('--epochs', default=200, type=int, help='Number of training epochs.')
 @click.option('--debug', is_flag=True, default=False, help='Run in debug mode with small datasets.')
-@click.option('--dataset_name', default='MnistRotTest', type=str, help='Name of the dataset.')
-@click.option('--d_hparams', default=dict(batch_size=32, data_dir='data', pad=0, to_complex=False), type=ClickDictionaryType(), help='Dataset hyperparameters.')
+@click.option('--dataset_name', default='RESISC45', type=str, help='Name of the dataset.')
+@click.option('--d_hparams', default=dict(batch_size=32 ), type=ClickDictionaryType(), help='Dataset hyperparameters.')
 @click.option('--model_name', default='Resnet18', type=str, help='Name of the model to use.')
 @click.option('--m_param', default=dict(), type=ClickDictionaryType(), help='Model hyperparameters.')
 @click.option('--optimizer_name', default='AdamW', type=str, help='Optimizer name.')
@@ -51,7 +51,8 @@ def training_loop(run_name: str,
     repo = Repo(search_parent_directories=True)
     sha = repo.head.object.hexsha
     # Logger
-    csv_logger = lightning.pytorch.loggers.CSVLogger('./logs/', name=run_name, version=sha)
+    csv_logger = lightning.pytorch.loggers.CSVLogger('./logs/csv', name=run_name, version=sha)
+    tensorboard_logger = lightning.pytorch.loggers.TensorBoardLogger('./logs/tensorboard', name=run_name, version=sha)
     logger.add(csv_logger.log_dir + '/training.log', level='DEBUG', format="{time} {level} {message}")
     
     csv_logger.log_hyperparams({
@@ -126,13 +127,22 @@ def training_loop(run_name: str,
                          callbacks.LearningRateMonitor(logging_interval='epoch')]
     if early_stopping > 0:
         trainer_callbacks.append(callbacks.EarlyStopping(monitor='val_loss', patience=early_stopping))
-    trainer = Trainer(accelerator="gpu" if torch.cuda.is_available() else "cpu",
+    # Set the accelerator based on available hardware
+    if torch.cuda.is_available():
+        accelerator = "gpu"
+    elif torch.backends.mps.is_available():
+        accelerator = "mps"
+    else:
+        logger.warning("No GPU or MPS detected, using CPU.")
+        accelerator = "cpu"
+
+    trainer = Trainer(accelerator=accelerator,
                       devices=-1 if torch.cuda.is_available() else "auto",
                       max_epochs=epochs,
                       **trainer_params,
                       enable_model_summary=False,
                       callbacks=trainer_callbacks,
-                      logger=csv_logger,
+                      logger=[csv_logger, tensorboard_logger],
                       )
     # Run training loop
     try:

@@ -19,6 +19,10 @@ from torchvision.datasets.utils import (
     download_and_extract_archive,
     verify_str_arg,
 )
+from torchvision.datasets import ImageFolder
+import torchvision
+from torch.utils.data import DataLoader
+from torchvision.datasets import ImageFolder
 
 # Custom Transforms
 class NormalizeMagnitude(torch.nn.Module):
@@ -608,6 +612,115 @@ class rotMnistDataset(VisionDataset):
     def extra_repr(self):
         return f"Split: {self.split}"
 
+
+class RESISC45(LightningDataModule):
+    _MD5SUM = "944a6a08ea97d50609df18ed1d8675b6" 
+    _URL = "https://owncloud.cesnet.cz/index.php/s/OofMmlJ6b84HH2l/download"
+    _FILE_NAME = f"NWPU-RESISC45"
+    num_classes = 45
+    total_samples = 31500
+    def __init__(self,
+                 data_dir: str = "./data",
+                 pad: int = 0,
+                 batch_size: int = 32,
+                 test_batch_size: int = 256,
+                 to_complex=False,
+                 num_workers=None):
+        super().__init__()
+        if num_workers is None:
+            num_workers = get_optimal_workers()
+        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        if not self._check_exists():
+            self.download()
+
+        # Transforms
+        self.transforms = [
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True)
+        ]
+
+        if to_complex:
+            self.transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+        
+        self.transforms = transforms.Compose(self.transforms)
+        
+        self.valid_ds = None  # Multiple checking multiple angles
+        self.test_ds = None
+        self.train_ds = None
+        self.output_shape = [batch_size, 3, 256, 256]
+        self.num_workers = num_workers
+        
+
+        # Prepare test, validation, and training datasets
+        self.test_size = int(0.2 * RESISC45.total_samples)
+        self.train_val_size = RESISC45.total_samples - self.test_size
+        self.train_size = int(0.8 * self.train_val_size)
+        self.val_size = self.train_val_size - self.train_size
+        
+    def prepare_data(self):
+        # Download 
+        self.ds = ImageFolder(root=os.path.join(self.data_dir, RESISC45._FILE_NAME),
+                              transform=self.transforms)
+
+    def setup(self, stage:str):
+        # TODO: Fix the indicies
+        ds_test, ds_train_val = torch.utils.data.random_split(self.ds, [self.test_size, self.train_val_size])
+        ds_train, ds_val = torch.utils.data.random_split(ds_train_val, [self.train_size, self.val_size])
+
+        self.ds_train = ds_train
+        self.ds_val = ds_val
+        self.ds_test = ds_test
+
+        
+    def train_dataloader(self):
+        return DataLoader(
+            self.ds_train, 
+            batch_size=self.batch_size, 
+            shuffle=True, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
+    
+    def val_dataloader(self):
+        return DataLoader(
+            self.ds_val, 
+            batch_size=self.batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
+    
+    def test_dataloader(self):
+        return DataLoader(
+            self.ds_test, 
+            batch_size=self.batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
+
+    @property
+    def _downloaded_file(self):
+        return os.path.join(self.data_dir, self._FILE_NAME)
+
+    def _check_exists(self) -> bool:
+        return check_integrity(self._downloaded_file, md5=self._MD5SUM)
+
+    def download(self) -> None:
+        """Download the RESISC45 data if it doesn't exist already."""
+
+        if self._check_exists():
+            return
+        logger.debug(f"Downloading {self._URL}")
+        download_and_extract_archive(self._URL,
+                                     download_root=self.data_dir,
+                                     filename=f"{self._FILE_NAME}.zip",
+                                     md5=self._MD5SUM)
 
 # Transformations
 class CircularPad:
