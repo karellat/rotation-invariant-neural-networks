@@ -17,5 +17,5 @@ model_name: Resnet18
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
-run_name: default
+run_name: resnet18-RESISC45
 seed: 42
