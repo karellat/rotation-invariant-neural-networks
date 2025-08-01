@@ -709,7 +709,7 @@ class RESISC45(LightningDataModule):
         return os.path.join(self.data_dir, self._FILE_NAME)
 
     def _check_exists(self) -> bool:
-        return check_integrity(self._downloaded_file, md5=self._MD5SUM)
+        return check_integrity(f"{self._downloaded_file}.zip", md5=self._MD5SUM)
 
     def download(self) -> None:
         """Download the RESISC45 data if it doesn't exist already."""
