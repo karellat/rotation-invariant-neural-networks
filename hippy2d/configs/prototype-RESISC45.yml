@@ -12,7 +12,7 @@ lr_hparams:
   - 50
   - 90
 lr_name: MultiStepLR
-debug: true
+debug: false
 m_param:
   in_channels: 3
   num_classes: 45
