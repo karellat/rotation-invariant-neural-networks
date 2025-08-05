@@ -3,10 +3,10 @@ from torch import nn
 import lightning as L
 from typing import List, Any, Dict, Optional
 from loguru import logger
-from src.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
-from src.optimal_invariant_cnn import ComplexBaseBlock
+from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
+from hippy2d.optimal_invariant_cnn import ComplexBaseBlock
 
-from src.utils import get_default_complex   
+from hippy2d.utils import get_default_complex   
 
 # Lightning wrapper
 class InvNet(L.LightningModule):

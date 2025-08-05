@@ -13,7 +13,7 @@ from torchvision.datasets import VisionDataset
 from torchvision.datasets.utils import check_integrity, download_url
 import torchvision.transforms.v2 as transforms
 from torchvision.transforms.v2.functional import InterpolationMode
-from src.utils import get_optimal_workers, get_default_complex,tukey_2d
+from hippy2d.utils import get_optimal_workers, get_default_complex,tukey_2d
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from torchvision.datasets.utils import (
     download_and_extract_archive,

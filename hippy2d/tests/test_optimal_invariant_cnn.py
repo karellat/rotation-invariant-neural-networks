@@ -4,9 +4,9 @@ from einops import repeat
 from warnings import warn
 import torchvision.transforms.v2 as transforms
 
-from src.optimal_invariant_cnn import ComplexInvariantConv2D, ComplexBaseBlock, FILTER_SIZE, BASIS_P0, BASIS_Q0, MAX_ORDER
-from src.models import PrototypeOptimalInvCNN
-from src.utils import get_testing_img, get_default_complex
+from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D, ComplexBaseBlock, FILTER_SIZE, BASIS_P0, BASIS_Q0, MAX_ORDER
+from hippy2d.models import PrototypeOptimalInvCNN
+from hippy2d.utils import get_testing_img, get_default_complex
 
 torch.set_default_dtype(torch.float64)
 # NOTE: The tests will likely fail with float32 due to numerical precision issues. We should think of suitable normalization.
@@ -99,6 +99,28 @@ class TestComplexOptimalInvariants:
             y,
             y_rot
         )
+
+    def test_network_gradient_nan(self, test_images, test_device): 
+        """Test if the gradient coming out of the network"""
+        net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
+                                     input_size=IMAGE_SIZE,
+                                     classification=True).to(test_device)
+        with torch.autograd.detect_anomaly(True):
+            input_rgb, _ = test_images
+            input = input_rgb.to(test_device)
+            # track the gradients with dummy loss
+            input.requires_grad = True
+            y = net(input)
+            loss = torch.mean(y)
+            loss.backward()
+
+        # Check if the gradients are NaN
+        assert not torch.isnan(input.grad).any(), "Gradients contain NaN values."
+        # Check if the gradients are finite
+        assert torch.isfinite(input.grad).all(), "Gradients contain non-finite values."
+        # Check if the gradients are not zero
+        assert not torch.all(input.grad == 0), "Gradients are all zero, which is unexpected."
+        
 
 if __name__ == "__main__":
     pytest.main([__file__])

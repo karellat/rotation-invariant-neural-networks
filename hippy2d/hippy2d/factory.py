@@ -1,4 +1,4 @@
-from src import datasets, models
+from hippy2d import datasets, models
 from typing import Dict
 
 

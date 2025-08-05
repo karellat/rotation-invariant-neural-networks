@@ -9,7 +9,7 @@ from einops import rearrange
 from collections import OrderedDict
 from torch.nn.modules.module import T
 
-from src.utils import get_default_complex, get_circular_mask, retrieve_elements_from_indices, tukey_2d
+from hippy2d.utils import get_default_complex, get_circular_mask, retrieve_elements_from_indices, tukey_2d
 
 
 class ComplexImg2H(nn.Module):

@@ -2,13 +2,34 @@ import torch
 from einops import rearrange
 from loguru import logger
 
-from src.complex_invariants_2d import get_complex_monomial
-from src.utils import tukey_2d, get_default_complex, get_circular_mask
+from hippy2d.complex_invariants_2d import get_complex_monomial
+from hippy2d.utils import tukey_2d, get_default_complex, get_circular_mask
 
 BASIS_P0 = 1
 BASIS_Q0 = 0
 FILTER_SIZE = 15
 MAX_ORDER = 4
+
+import torch
+
+class SafeAtan2(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, y, x, eps=1e-12):
+        ctx.save_for_backward(y, x)
+        ctx.eps = eps
+        return torch.atan2(y, x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        y, x = ctx.saved_tensors
+        denom = x*x + y*y + ctx.eps
+        # d/dx = -y/(x^2+y^2+eps)
+        # d/dy =  x/(x^2+y^2+eps)
+        grad_x = -y / denom * grad_output
+        grad_y =  x / denom * grad_output
+        return grad_y, grad_x, None
+
+
 
 class ComplexInvariantConv2D(torch.nn.Module):
     def __init__(self,
@@ -19,7 +40,8 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  basis_p0:int = 1,
                  basis_q0:int = 0, 
                  circular_padding:str ="tukey",
-                 conv_padding: str = "same"):
+                 conv_padding: str = "same", 
+                 eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
         self.filter_size = filter_size
         self.max_order = max_order
@@ -27,6 +49,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.out_channels = out_channels
         self.basis_p0 = basis_p0
         self.basis_q0 = basis_q0
+        self.eps = eps
 
         # Asserts 
         assert filter_size % 2 == 1, "Filter size must be odd"
@@ -56,7 +79,9 @@ class ComplexInvariantConv2D(torch.nn.Module):
 
         # NOTE: This part can be shared by all the layers, that can save memory 
         filters = rearrange(filters, 'n h w -> n 1 h w')
-
+        Ch, _, _, _ = filters.shape
+        self.complex_conv_groups = Ch
+        filters = torch.cat(dim=0, tensors=[filters.real, filters.imag])
         # Radial padding
         if circular_padding == "tukey":
             # Use Tukey window for circular padding
@@ -69,10 +94,10 @@ class ComplexInvariantConv2D(torch.nn.Module):
             mask = 1
         else:
             raise ValueError(f"Unknown circular padding type: {circular_padding}. Use 'tukey' or 'none'.")
+
         filters = filters * mask
         self.padding = conv_padding 
-        self.filters = torch.nn.Parameter(filters,
-                                          requires_grad=False) # Make it non-trainable parameter
+        self.register_buffer('filters', filters)
 
         self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64)[1:] # Skip the normalization term
         self.exponents = torch.nn.Parameter(self.exponents[None, :, None, None], requires_grad=False) # Broadcasting dimension
@@ -91,43 +116,45 @@ class ComplexInvariantConv2D(torch.nn.Module):
         :param x: Input tensor of shape (batch_size, in_channels, height, width)
         :return: Output tensor of shape (batch_size, out_channels, height', width')
         """
-        # Check input shape
-        assert x.dim() == 4, "Input must be a 4D tensor"
-        assert x.shape[1] == self.in_channels, f"Input channels {x.shape[1]} do not match expected {self.in_channels}"
 
-        assert x.dtype == torch.get_default_dtype(), f"Input dtype {x.dtype} does not match expected {torch.get_default_dtype()}"
+        # Check input shape, but only for debug
+        if __debug__:
+            assert x.dim() == 4, "Input must be a 4D tensor"
+            assert x.shape[1] == self.in_channels, f"Input channels {x.shape[1]} do not match expected {self.in_channels}"
+            assert x.dtype == torch.get_default_dtype(), f"Input dtype {x.dtype} does not match expected {torch.get_default_dtype()}"
         
-        x = torch.complex(real=x, imag=torch.zeros_like(x))  # Convert to complex tensor
         # Act on batch and channels together
         x = rearrange(x, 'b c h w -> (b c) 1 h w', c=self.in_channels)
+
         # Apply the complex invariant convolution
-        # NOTE: This would be better as own implementation, but for now complex
         moments = torch.nn.functional.conv2d(x,
                                              weight=self.filters,
-                                             padding=self.padding) # TODO: Solve padding
+                                             padding=self.padding)
 
-        normalization_moment = moments[:, 0:1]
-        # Assert there is not nan
-        
-        #assert not torch.isnan(normalization_moment).any(), "NaN detected in normalization moment"
-        #assert not torch.isnan(moments).any(), "NaN detected in moments"
-        moments = moments[:, 1:]
-        # NOTE: This might be an overkill for calculating such low powers, but it does not give NaN for 0
+        moments = rearrange(moments, 'b (co ch) h w -> b co ch h w', 
+                            ch=self.complex_conv_groups, co=2)
+
+        normalization_moment = moments[:,:, 0]
+        moments = moments[:, :, 1:]
         # Moivre's Theorem
-        # Angle of small magnitudes can cause gradient to be NaN, so we add small epsilon
-        eps = 1e-8
-        norm_magnitude = normalization_moment.abs()
-        # Only compute angles for non-zero magnitudes
-        safe_normalization = torch.where(norm_magnitude > eps, normalization_moment, 
-                                        torch.complex(torch.tensor(eps), torch.tensor(0.0)))
-        normalization_factor = norm_magnitude * (torch.cos(safe_normalization.angle() * self.exponents) +
-                                       torch.sin(safe_normalization.angle() * self.exponents) * 1j)
-        result = moments * normalization_factor
-        result = rearrange(result, '(b c) n h w -> b (c n) h w', c=self.in_channels)
-        # TODO: This should be normalized properly 
-        result = rearrange(torch.view_as_real(result), 'b c h w co -> b (c co) h w')
+        # Note: Sqrt of 0 has infty gradient, so we use eps to avoid it
+        # Same for angles: atan2(0, 0) is also problematic
+        norm_magnitude = torch.norm(normalization_moment, dim=1)  # Calculate the norm of the normalization moment
+
+        # Avoid NaN output and NaN gradients
+        norm_angle = SafeAtan2.apply(normalization_moment[:, 1:2],
+                                     normalization_moment[:, 0:1],
+                                     self.eps)
+        norm_angle = norm_angle * self.exponents
+        normalization_factor_real = norm_magnitude[:, None] * torch.cos(norm_angle)
+        normalization_factor_imag = norm_magnitude[:, None] * torch.sin(norm_angle)
+
+        result = torch.cat(tensors=[
+            moments[:, 0] * normalization_factor_real - moments[:, 1] * normalization_factor_imag,
+            moments[:, 0] * normalization_factor_imag + moments[:, 1] * normalization_factor_real
+        ], dim=1)  # Stack along the channel dimension
+        result = rearrange(result, '(b ch) n h w -> b (ch n) h w', ch=self.in_channels)
         features = self.conv1x1(result) # Convert back to real
-        # NOTE: We should find nicer way to do this, it should be just a view
         return features
 
 # Create a block 

@@ -4,8 +4,8 @@ import torch
 import numpy as np
 import torchvision.transforms as transforms
 
-from src.complex_invariants_2d import get_complex_invariants 
-from src.utils import get_testing_img
+from hippy2d.complex_invariants_2d import get_complex_invariants 
+from hippy2d.utils import get_testing_img
 
 MAX_R = 20  # Maximum degree of invariants to compute
 

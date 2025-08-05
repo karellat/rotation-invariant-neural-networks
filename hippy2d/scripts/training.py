@@ -7,9 +7,9 @@ from git import Repo
 from lovely_tensors import monkey_patch
 from lightning.pytorch import seed_everything, callbacks, Trainer
 
-from src.factory import get_datamodule, get_model
-from src.models import InvNet
-from src.utils import ClickDictionaryType
+from hippy2d.factory import get_datamodule, get_model
+from hippy2d.models import InvNet
+from hippy2d.utils import ClickDictionaryType
 
 # Work arround for automatic SLURM detection
 from lightning.pytorch.plugins.environments import SLURMEnvironment
@@ -131,7 +131,7 @@ def training_loop(run_name: str,
     if torch.cuda.is_available():
         accelerator = "gpu"
     elif torch.backends.mps.is_available():
-        accelerator = "cpu"
+        accelerator = "mps"
     else:
         logger.warning("No GPU or MPS detected, using CPU.")
         accelerator = "cpu"
