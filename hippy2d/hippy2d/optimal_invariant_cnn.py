@@ -41,6 +41,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  basis_q0:int = 0, 
                  circular_padding:str ="tukey",
                  conv_padding: str = "same", 
+                 zero_order_scaling: bool = False,
                  eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
         self.filter_size = filter_size
@@ -50,6 +51,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.basis_p0 = basis_p0
         self.basis_q0 = basis_q0
         self.eps = eps
+        self.zero_order_scaling = zero_order_scaling
 
         # Asserts 
         assert filter_size % 2 == 1, "Filter size must be odd"
@@ -65,7 +67,12 @@ class ComplexInvariantConv2D(torch.nn.Module):
         # Prepare the fixed filters corresponding to the complex monomials
         filters = []
         ind = []
-        # Add the normalizition term
+        # Add scaling term 
+        if self.zero_order_scaling:
+            filters.append(torch.complex(real=torch.ones(filter_size, filter_size),
+                                         imag=torch.zeros(filter_size, filter_size)))
+            ind.append((0, 0))  # Zero order term
+        # Add the p0q0 term
         filters.append(get_complex_monomial(self.filter_size,
                                              self.basis_q0,
                                              self.basis_p0,
@@ -98,11 +105,14 @@ class ComplexInvariantConv2D(torch.nn.Module):
         filters = filters * mask
         self.padding = conv_padding 
         self.register_buffer('filters', filters)
-
-        self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64)[1:] # Skip the normalization term
+        self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64) # Skip the normalization and scaling term
+        if self.zero_order_scaling:
+            self.exponents = self.exponents[2:] # Skip the zero order term and normalization
+        else:
+            self.exponents = self.exponents[1:] # Skip the normalization term
         self.exponents = torch.nn.Parameter(self.exponents[None, :, None, None], requires_grad=False) # Broadcasting dimension
         self.ind = torch.tensor(ind, dtype=torch.uint16)
-        self.num_invariants = len(self.ind) - 1 # Number of invariants and skip the normalization term
+        self.num_invariants = self.exponents.shape[1] # Number of invariants and skip the normalization and scaling term
         self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants*self.in_channels*2,
                                        out_channels=self.out_channels,
                                        kernel_size=1, 
@@ -137,7 +147,10 @@ class ComplexInvariantConv2D(torch.nn.Module):
             assert moments.dtype == torch.get_default_dtype(), f"Output dtype {moments.dtype} does not match expected {torch.get_default_dtype()}"
             assert torch.all(~torch.isnan(moments)), "Output contains NaN values"
 
-        normalization_moment = moments[:,:, 0]
+        if self.zero_order_scaling:
+            zero_order_moment = moments[:, 0:1, 0:1] # Take out the imaginary part, because it's zero anyway
+            moments = moments[:, :, 1:] / torch.clamp(zero_order_moment, min=self.eps)  # Remove the zero order moment and safe normalize by zero order
+        normalization_moment = moments[:, :, 0]
         moments = moments[:, :, 1:]
         # Moivre's Theorem
         # Note: Sqrt of 0 has infty gradient, so we use eps to avoid it
