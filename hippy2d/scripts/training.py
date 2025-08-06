@@ -43,7 +43,7 @@ def training_loop(run_name: str,
                   lr_name: str,
                   lr_hparams: dict):
     # Set default float precision
-    torch.set_default_dtype(torch.float32)
+    torch.set_default_dtype(torch.float64)
     seed_everything(seed, workers=True)
     # Fixing SSL certificate verification
     ssl._create_default_https_context = ssl._create_stdlib_context
@@ -130,10 +130,9 @@ def training_loop(run_name: str,
     # Set the accelerator based on available hardware
     if torch.cuda.is_available():
         accelerator = "gpu"
-    elif torch.backends.mps.is_available():
-        accelerator = "mps"
     else:
-        logger.warning("No GPU or MPS detected, using CPU.")
+        logger.warning("MPS does not support float64") 
+        logger.warning("No GPU detected, using CPU.")
         accelerator = "cpu"
 
     trainer = Trainer(accelerator=accelerator,
