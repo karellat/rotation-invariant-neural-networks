@@ -133,6 +133,9 @@ class ComplexInvariantConv2D(torch.nn.Module):
 
         moments = rearrange(moments, 'b (co ch) h w -> b co ch h w', 
                             ch=self.complex_conv_groups, co=2)
+        if __debug__:
+            assert moments.dtype == torch.get_default_dtype(), f"Output dtype {moments.dtype} does not match expected {torch.get_default_dtype()}"
+            assert torch.all(~torch.isnan(moments)), "Output contains NaN values"
 
         normalization_moment = moments[:,:, 0]
         moments = moments[:, :, 1:]
@@ -145,6 +148,11 @@ class ComplexInvariantConv2D(torch.nn.Module):
         norm_angle = SafeAtan2.apply(normalization_moment[:, 1:2],
                                      normalization_moment[:, 0:1],
                                      self.eps)
+        if __debug__:
+            assert torch.all(~torch.isnan(norm_angle)), "Normalization angle contains NaN values"
+            assert torch.all(~torch.isinf(norm_angle)), "Normalization angle contains Inf values"
+            # Magnitudes 
+            assert torch.all(~torch.isnan(norm_magnitude)), "Normalization magnitude contains NaN values"
         norm_angle = norm_angle * self.exponents
         normalization_factor_real = norm_magnitude[:, None] * torch.cos(norm_angle)
         normalization_factor_imag = norm_magnitude[:, None] * torch.sin(norm_angle)
@@ -153,6 +161,9 @@ class ComplexInvariantConv2D(torch.nn.Module):
             moments[:, 0] * normalization_factor_real - moments[:, 1] * normalization_factor_imag,
             moments[:, 0] * normalization_factor_imag + moments[:, 1] * normalization_factor_real
         ], dim=1)  # Stack along the channel dimension
+        if __debug__:
+            assert result.dtype == torch.get_default_dtype(), f"Output dtype {result.dtype} does not match expected {torch.get_default_dtype()}"
+            assert torch.all(~torch.isnan(result)), "Output contains NaN values"
         result = rearrange(result, '(b ch) n h w -> b (ch n) h w', ch=self.in_channels)
         features = self.conv1x1(result) # Convert back to real
         return features
@@ -177,7 +188,9 @@ class ComplexBaseBlock(torch.nn.Module):
                                             out_channels=out_channels,
                                             basis_p0=basis_p0,
                                             basis_q0=basis_q0)
-        self.batch_norm = torch.nn.BatchNorm2d(num_features=out_channels, affine=False)
+        self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, input_size, input_size),
+                                       elementwise_affine=False,
+                                       dtype=torch.get_default_dtype())
         self.activation = torch.nn.ReLU()
         self.residual = residual
         self.valid_padding = (self.conv.filter_size - 1) // 2
@@ -221,7 +234,7 @@ class ComplexBaseBlock(torch.nn.Module):
         x = self.conv(x)
         # Here we can use the Masked_tensor  instead zero masking
         # Apply batch normalization and activation
-        x = self.batch_norm(x)
+        x = self.norm(x)
         x = self.activation(x)
         x = self.subsampling(x)
         if self.residual:
