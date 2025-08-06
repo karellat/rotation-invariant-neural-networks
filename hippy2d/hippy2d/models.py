@@ -252,7 +252,7 @@ class ResHNeXtv3(nn.Module):
 class PrototypeOptimalInvCNN(torch.nn.Module): 
     def __init__(self, 
                  in_channels:int = 3,
-                 input_size:int = 256,
+                 input_size:int = 64,
                  num_classes:int = 10,
                  blocks = [3, 3, 3], 
                  channels= [4, 8, 16],

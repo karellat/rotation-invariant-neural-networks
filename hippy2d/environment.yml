@@ -21,3 +21,4 @@ dependencies:
     - tensorboard==2.20.*
     - pandas==2.3.*
     - datasets==2.14.*
+    - ray[tune]==2.48.*

@@ -29,7 +29,15 @@ class TestComplexOptimalInvariants:
 
     @pytest.fixture
     def test_device(self):
-        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+        #elif torch.backends.mps.is_available():
+        #    return torch.device("mps")
+        else:
+            warn("No GPU detected, using CPU.")
+            # Fallback to CPU if no GPU is available
+            return torch.device("cpu")
+        #return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     @staticmethod
     def _test_90_module(module, test_images, test_device):
