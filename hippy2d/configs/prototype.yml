@@ -19,7 +19,7 @@ m_param:
   num_classes: 10
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
-  lr: 0.001
+  lr: 0.01
 optimizer_name: AdamW
 run_name: prototype-mnistrottest
 seed: 42

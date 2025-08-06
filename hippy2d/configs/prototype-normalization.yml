@@ -20,7 +20,7 @@ m_param:
   zero_order_scaling: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
-  lr: 0.001
+  lr: 0.01
 optimizer_name: AdamW
 run_name: prototype-mnistrottest-normalization
 seed: 42

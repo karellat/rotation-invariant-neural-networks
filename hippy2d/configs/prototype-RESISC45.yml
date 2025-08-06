@@ -19,7 +19,7 @@ m_param:
   input_size: 256
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
-  lr: 0.001
+  lr: 0.01
 optimizer_name: AdamW
 run_name: prototype-RESISC45-debug
 seed: 42
