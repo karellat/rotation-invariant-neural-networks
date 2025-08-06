@@ -1,0 +1,26 @@
+d_hparams:
+  batch_size: 32
+  data_dir: data
+  pad: 0
+  to_complex: false
+dataset_name: MnistRotTest
+early_stopping: 10
+epochs: 100
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 10
+  - 50
+  - 90
+lr_name: MultiStepLR
+m_param:
+  in_channels: 1
+  input_size: 64
+  num_classes: 10
+  zero_order_scaling: true
+model_name: PrototypeOptimalInvCNN
+optimizer_hparams:
+  lr: 0.001
+optimizer_name: AdamW
+run_name: prototype-mnistrottest-normalization
+seed: 42
