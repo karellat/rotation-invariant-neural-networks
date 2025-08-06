@@ -193,12 +193,14 @@ class ComplexBaseBlock(torch.nn.Module):
                  max_order:int = MAX_ORDER, 
                  residual:bool = True, 
                  subsampling:bool = True, 
+                 zero_order_scaling:bool = False,
                  conv_padding: str = "same"): 
         super(ComplexBaseBlock, self).__init__()
         self.conv = ComplexInvariantConv2D(filter_size=filter_size,
                                             max_order=max_order,
                                             in_channels=in_channels,
                                             out_channels=out_channels,
+                                            zero_order_scaling=zero_order_scaling,
                                             basis_p0=basis_p0,
                                             basis_q0=basis_q0)
         self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, input_size, input_size),
