@@ -34,7 +34,7 @@ def train_func(config):
                           optimizer_hparams=config["optimizer_hparams"],
                           lr_name=config["lr_name"],
                           lr_hparams=config["lr_hparams"],
-                          accelerator="cpu",
+                          accelerator="auto",
                           trainer_callbacks=[RayTrainReportCallback()],
                           trainer_params=dict(strategy=RayDDPStrategy(),
                                               plugins=[RayLightningEnvironment()],
@@ -60,7 +60,7 @@ search_space = {
     "optimizer_name": "AdamW",
     "dataset_hparams": {
         "batch_size": tune.choice([32, 64, 128]),
-        "data_dir" : "/Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data",
+        "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
         "pad" : 0,
         "to_complex" : False
     },
@@ -81,13 +81,13 @@ num_samples = 10
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig
 
 scaling_config = ScalingConfig(
-    num_workers=3, use_gpu=False, resources_per_worker={"CPU": 1}
+        num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU":1}
 )
 
 run_config = RunConfig(
     checkpoint_config=CheckpointConfig(
         num_to_keep=2,
-        checkpoint_score_attribute="ptl/val_accuracy",
+        checkpoint_score_attribute="val_acc",
         checkpoint_score_order="max",
     ),
 )
@@ -108,11 +108,11 @@ tuner = tune.Tuner(
         ray_trainer,
         param_space={"train_loop_config": search_space},
         tune_config=tune.TuneConfig(
-            metric="ptl/val_accuracy",
+            metric="val_acc",
             mode="max",
             num_samples=num_samples,
             scheduler=scheduler,
         ),
 )
 results = tuner.fit()
-results.get_best_result(metric="ptl/val_accuracy", mode="max")
+results.get_best_result(metric="val_acc", mode="max")

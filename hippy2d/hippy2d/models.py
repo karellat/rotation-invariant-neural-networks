@@ -54,8 +54,8 @@ class InvNet(L.LightningModule):
         x, y = batch
         _, loss, acc = self.shared_step(x, y)
 
-        self.log('train_loss', loss, prog_bar=True)
-        self.log('train_acc', acc, on_step=False, on_epoch=True, prog_bar=True)
+        self.log('train_loss', loss, prog_bar=True, sync_dist=True)
+        self.log('train_acc', acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
 
         return loss
 
@@ -69,8 +69,8 @@ class InvNet(L.LightningModule):
             preds, loss, acc = self.shared_step(x, y)
             # NOTE: Return the validation loss with key 'val'
             # Other datasets are only for debugging purposes
-            self.log(f'{k}_loss', loss)
-            self.log(f'{k}_acc', acc, prog_bar=True)
+            self.log(f'{k}_loss', loss, sync_dist=True)
+            self.log(f'{k}_acc', acc, prog_bar=True, sync_dist=True)
             if k == 'val':
                 res_preds = preds
                 res_loss = loss
@@ -88,8 +88,8 @@ class InvNet(L.LightningModule):
             _, loss, acc = self.shared_step(x, y)
             # NOTE: Return the validation loss with key 'val'
             # Other datasets are only for debugging purposes
-            self.log(f'{k}_loss', loss)
-            self.log(f'{k}_acc', acc)
+            self.log(f'{k}_loss', loss, sync_dist=True)
+            self.log(f'{k}_acc', acc, sync_dist=True)
 
 # Model Zoo
 class Resnet18(nn.Module): 

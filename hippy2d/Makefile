@@ -27,6 +27,11 @@ train_with_config:
 	@echo "Using Python: $(PYTHON)"
 	@CUDA_VISIBLE_DEVICES=0 $(PYTHON) ./scripts/training_with_config.py $(ARGS)
 
+.PHONY: train_with_config
+train_ray:
+        @echo "Using Python: $(PYTHON)"
+        @$(PYTHON) ./scripts/training_ray.py $(ARGS)
+
 # Run tests
 .PHONY: test
 test:
