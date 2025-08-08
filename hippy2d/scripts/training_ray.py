@@ -1,111 +1,115 @@
-import ray
+import os
+import torch
+import pytorch_lightning as pl
+from torch.utils.data import DataLoader, random_split
+from torchvision import transforms
+from torchvision.datasets import MNIST
+
 from ray import tune
+from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
-from ray.tune import RunConfig, CheckpointConfig
-from ray.train import ScalingConfig
-from ray.train.lightning import (
-    RayDDPStrategy,
-    RayLightningEnvironment,
-    RayTrainReportCallback,
-    prepare_trainer,
-)
-from ray.train import get_context
+from ray.tune.integration.pytorch_lightning import TuneReportCallback
+from pytorch_lightning.loggers import CSVLogger
 
-from hippy2d.trainer import get_trainer
+# 1) Define your LightningModule, consuming a `config` dict
+class LitMNIST(pl.LightningModule):
+    def __init__(self, config):
+        super().__init__()
+        self.save_hyperparameters(config)
+        self.model = torch.nn.Sequential(
+            torch.nn.Flatten(),
+            torch.nn.Linear(28*28, config["hidden_size"]),
+            torch.nn.ReLU(),
+            torch.nn.Linear(config["hidden_size"], 10)
+        )
+        self.criterion = torch.nn.CrossEntropyLoss()
 
-def _config_test(config):
-    assert "seed" in config, "Training function requires 'seed' in config."
-    assert "epochs" in config, "Training function requires 'epochs' in config."
-    assert "dataset_name" in config, "Training function requires 'dataset_name' in config."
-    assert "dataset_hparams" in config, "Training function requires 'dataset_hparams' in config."
-    assert "model_name" in config, "Training function requires 'model_name' in config."
-    assert "m_param" in config, "Training function requires 'm_param' in config."
-    assert "optimizer_name" in config, "Training function requires 'optimizer_name' in config."
-    assert "optimizer_hparams" in config, "Training function requires 'optimizer_hparams' in config."
-    assert "lr_name" in config, "Training function requires 'lr_name' in config."
-    assert "lr_hparams" in config, "Training function requires 'lr_hparams' in config."
+    def forward(self, x):
+        return self.model(x)
 
-def train_func(config): 
-    # Add debugging to check if we're using multiple workers
-    
-    train_context = get_context()
-    world_size = train_context.get_world_size()
-    local_rank = train_context.get_local_rank()
-    
-    print(f"Worker {local_rank}/{world_size} starting training")
-    
-    # Test the keys 
-    _config_test(config)
-    trainer, model, dm = get_trainer(seed=config["seed"],
-                          epochs=config["epochs"],
-                          dataset_name=config["dataset_name"],
-                          d_hparams=config["dataset_hparams"],
-                          model_name=config["model_name"],
-                          m_param=config["m_param"],
-                          optimizer_name=config["optimizer_name"],
-                          optimizer_hparams=config["optimizer_hparams"],
-                          lr_name=config["lr_name"],
-                          lr_hparams=config["lr_hparams"],
-                          accelerator="auto",
-                          trainer_callbacks=[RayTrainReportCallback()],
-                          trainer_params=dict(strategy=RayDDPStrategy(),
-                                              plugins=[RayLightningEnvironment()],
-                                              devices=1,  # Each worker should use exactly 1 device
-                                              enable_progress_bar=False,
-                          ))
-    trainer = prepare_trainer(trainer)
-    trainer.fit(model, datamodule=dm)   
+    def training_step(self, batch, _):
+        x, y = batch
+        logits = self(x)
+        loss = self.criterion(logits, y)
+        self.log("train_loss", loss)
+        return loss
 
-search_space = {
-    "seed": 42,
-    "epochs": 100,
-    "dataset_name": "MnistRotTest", 
-    "model_name" : "PrototypeOptimalInvCNN",
-    "m_param": {
-        "in_channels" : 1,
-        "input_size" : 64,
-        "num_classes" : 10,
-        "zero_order_scaling" : False,
-        "n_blocks": tune.choice([2, 3, 4, 5]),
-        "init_channels": tune.choice([4, 8, 16, 32]),
+    def validation_step(self, batch, _):
+        x, y = batch
+        logits = self(x)
+        loss = self.criterion(logits, y)
+        acc = (logits.argmax(dim=-1) == y).float().mean()
+        self.log_dict({"val_loss": loss, "val_acc": acc}, prog_bar=True)
 
-    },
-    "optimizer_hparams": {
-            "lr": 0.01525,
-    }, 
-    "optimizer_name": "AdamW",
-    "dataset_hparams": {
-        "batch_size": 128,
-        "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
-        "pad" : 0,
-        "to_complex" : False,
-        "normalize" : tune.choice([True, False]),
-    },
-    "lr_name": "MultiStepLR",
-    "lr_hparams": {
-        "milestones": [30, 80],
-        "gamma": 0.1
+    def configure_optimizers(self):
+        return torch.optim.Adam(self.parameters(), lr=self.hparams["lr"])
+
+# 2) Data loaders factory
+def get_data_loaders(batch_size):
+    transform = transforms.Compose([transforms.ToTensor()])
+    mnist = MNIST(os.getcwd(), train=True, download=True, transform=transform)
+    train, val = random_split(mnist, [55000, 5000])
+    return (
+        DataLoader(train, batch_size=batch_size, num_workers=4, shuffle=True),
+        DataLoader(val, batch_size=batch_size, num_workers=4),
+    )
+
+# 3) Training function that Ray Tune will call
+def train_tune(config):
+    # Model + data
+    model = LitMNIST(config)
+    train_loader, val_loader = get_data_loaders(config["batch_size"])
+
+    # Logger and callback to report metrics back to Tune
+    logger = CSVLogger(save_dir="logs", name="tune_pl")
+    tune_callback = TuneReportCallback(
+        {"val_loss": "val_loss", "val_acc": "val_acc"},
+        on="validation_end"
+    )
+
+    # Each Trainer here will use 1 GPU
+    trainer = pl.Trainer(
+        max_epochs=10,
+        gpus=1,
+        logger=logger,
+        callbacks=[tune_callback],
+        enable_progress_bar=False
+    )
+    trainer.fit(model, train_loader, val_loader)
+
+if __name__ == "__main__":
+    # 4) Define the search space
+    config = {
+        "lr": tune.loguniform(1e-4, 1e-1),
+        "batch_size": tune.choice([32, 64, 128]),
+        "hidden_size": tune.choice([64, 128, 256]),
     }
-}
-_config_test(search_space)
 
-# The maximum training epochs
-num_epochs = 5
+    # 5) Scheduler & reporter
+    scheduler = ASHAScheduler(
+        metric="val_loss",
+        mode="min",
+        max_t=10,
+        grace_period=1,
+        reduction_factor=2
+    )
+    reporter = CLIReporter(
+        parameter_columns=["lr", "batch_size", "hidden_size"],
+        metric_columns=["val_loss", "val_acc", "training_iteration"]
+    )
 
-# Number of samples from parameter space
-num_samples = 10
+    # 6) Launch tuning: allocate 1 GPU per trial → with 2 GPUs available, you get 2 concurrent trials
+    analysis = tune.run(
+        train_tune,
+        resources_per_trial={"cpu": 2, "gpu": 1},
+        config=config,
+        num_samples=20,
+        scheduler=scheduler,
+        progress_reporter=reporter,
+        local_dir="ray_results",
+        name="mnist_tuning",
+    )
 
-ray.init(num_cpus=21, num_gpus=2)  # Reduced CPU count to match worker requirements
-
-
-
-scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
-
-# If you have 8 GPUs, this will run 8 trials at once.
-trainable_with_gpu = tune.with_resources(train_func, {"gpu": 1})
-tuner = tune.Tuner(
-    trainable_with_gpu,
-    tune_config=tune.TuneConfig(num_samples=10)
-)
-results = tuner.fit()
-results.get_best_result(metric="val_acc", mode="max")
+    print("Best hyperparameters found were: ", analysis.get_best_config(
+        metric="val_loss", mode="min"
+    ))
