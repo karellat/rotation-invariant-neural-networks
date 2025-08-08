@@ -109,7 +109,7 @@ tuner = tune.Tuner(
         num_samples=num_samples,
         scheduler=scheduler,
     ),
-    param_space={"train_loop_config": search_space},
+    param_space=search_space,
 )
 
 results = tuner.fit()
