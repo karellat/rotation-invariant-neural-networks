@@ -101,16 +101,11 @@ ray.init(num_cpus=21, num_gpus=2)  # Reduced CPU count to match worker requireme
 
 scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 
+# If you have 8 GPUs, this will run 8 trials at once.
+trainable_with_gpu = tune.with_resources(train_func, {"gpu": 1})
 tuner = tune.Tuner(
-    tune.with_resources(trainable=train_func, resources={"cpu": 10, "gpu": 1}),
-    tune_config=tune.TuneConfig(
-        metric="val_acc",
-        mode="max",
-        num_samples=num_samples,
-        scheduler=scheduler,
-    ),
-    param_space=search_space,
+    trainable_with_gpu,
+    tune_config=tune.TuneConfig(num_samples=10)
 )
-
 results = tuner.fit()
 results.get_best_result(metric="val_acc", mode="max")
