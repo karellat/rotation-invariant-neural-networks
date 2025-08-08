@@ -25,6 +25,16 @@ def _config_test(config):
     assert "lr_hparams" in config, "Training function requires 'lr_hparams' in config."
 
 def train_func(config): 
+    # Add debugging to check if we're using multiple workers
+    import ray.train
+    from ray.train import get_context
+    
+    train_context = get_context()
+    world_size = train_context.get_world_size()
+    local_rank = train_context.get_local_rank()
+    
+    print(f"Worker {local_rank}/{world_size} starting training")
+    
     # Test the keys 
     _config_test(config)
     trainer, model, dm = get_trainer(seed=config["seed"],
@@ -41,7 +51,7 @@ def train_func(config):
                           trainer_callbacks=[RayTrainReportCallback()],
                           trainer_params=dict(strategy=RayDDPStrategy(),
                                               plugins=[RayLightningEnvironment()],
-                                              devices="auto",
+                                              devices=1,  # Each worker should use exactly 1 device
                                               enable_progress_bar=False,
                           ))
     trainer = prepare_trainer(trainer)
@@ -86,12 +96,12 @@ num_epochs = 5
 # Number of samples from parameter space
 num_samples = 10
 
-ray.init(num_cpus=64, num_gpus=2)
+ray.init(num_cpus=20, num_gpus=2)  # Reduced CPU count to match worker requirements
 
 scaling_config = ScalingConfig(
         num_workers=2,
         use_gpu=True,
-        resources_per_worker={"CPU": 10, "GPU":1}
+        resources_per_worker={"CPU": 10, "GPU": 1}  # This should total 20 CPUs, 2 GPUs
 )
 
 run_config = RunConfig(
