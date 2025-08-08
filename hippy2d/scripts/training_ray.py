@@ -106,7 +106,6 @@ if __name__ == "__main__":
         num_samples=20,
         scheduler=scheduler,
         progress_reporter=reporter,
-        local_dir="ray_results",
         name="mnist_tuning",
     )
 
