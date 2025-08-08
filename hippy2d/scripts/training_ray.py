@@ -94,7 +94,7 @@ from ray.train.torch import TorchTrainer
 
 scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 
-trainable_with_gpu = tune.with_resources(trainable=train_func, {"gpu": 1})
+trainable_with_gpu = tune.with_resources(train_func, {"gpu": 1})
 tuner = tune.Tuner(
         trainable_with_gpu,
         param_space={"train_loop_config": search_space},
