@@ -34,10 +34,12 @@ def train_func(config):
                           optimizer_hparams=config["optimizer_hparams"],
                           lr_name=config["lr_name"],
                           lr_hparams=config["lr_hparams"],
-                          accelerator="auto",
+                          accelerator="gpu",
                           trainer_callbacks=[RayTrainReportCallback()],
-                          trainer_params=dict(plugins=[RayLightningEnvironment()],
+                          trainer_params=dict(strategy=RayDDPStrategy(),
+                                              plugins=[RayLightningEnvironment()],
                                               enable_progress_bar=False,
+                                              devices=1
                           ))
     trainer = prepare_trainer(trainer)
     trainer.fit(model, datamodule=dm)   
@@ -77,32 +79,21 @@ num_epochs = 5
 # Number of samples from parameter space
 num_samples = 10
 
-from ray.tune import RunConfig, ScalingConfig, CheckpointConfig
+from ray import tune
+from ray.tune.schedulers import ASHAScheduler
+from ray.tune import Tuner, TuneConfig, RunConfig
 
-run_config = RunConfig(
-    checkpoint_config=CheckpointConfig(
-        num_to_keep=2,
-        checkpoint_score_attribute="val_acc",
-        checkpoint_score_order="max",
+
+tuner = Tuner(
+    train_func,
+    param_space=search_space,    
+    tune_config=TuneConfig(
+        num_samples=10,
+        scheduler=ASHAScheduler(),
+    ),
+    run_config=RunConfig(
+        resources_per_trial={"cpu":2, "gpu":1}, 
     ),
 )
-
-from ray.train.torch import TorchTrainer
-
-
-
-scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
-
-trainable_with_gpu = tune.with_resources(train_func, {"gpu": 1})
-tuner = tune.Tuner(
-        trainable_with_gpu,
-        param_space=search_space,
-        tune_config=tune.TuneConfig(
-            metric="val_acc",
-            mode="max",
-            num_samples=num_samples,
-            scheduler=scheduler,
-        ),
-)
 results = tuner.fit()
-results.get_best_result(metric="val_acc", mode="max")
+
