@@ -1,3 +1,4 @@
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune import RunConfig, CheckpointConfig
@@ -40,6 +41,7 @@ def train_func(config):
                           trainer_callbacks=[RayTrainReportCallback()],
                           trainer_params=dict(strategy=RayDDPStrategy(),
                                               plugins=[RayLightningEnvironment()],
+                                              devices="auto",
                                               enable_progress_bar=False,
                           ))
     trainer = prepare_trainer(trainer)
@@ -84,9 +86,12 @@ num_epochs = 5
 # Number of samples from parameter space
 num_samples = 10
 
+ray.init(num_cpus=64, num_gpus=2)
 
 scaling_config = ScalingConfig(
-        num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU":1}
+        num_workers=2,
+        use_gpu=True,
+        resources_per_worker={"CPU": 10, "GPU":1}
 )
 
 run_config = RunConfig(
