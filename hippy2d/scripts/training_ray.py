@@ -112,10 +112,6 @@ tuner = Tuner(
         num_samples=10,
         scheduler=ASHAScheduler(),
     ),
-    run_config=ray.tune.RunConfig(
-        num_workers=2, 
-        resources_per_worker={"cpu":10, "gpu":1}, 
-    ),
 )
 results = tuner.fit()
 
