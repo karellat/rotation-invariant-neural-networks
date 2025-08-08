@@ -1,3 +1,4 @@
+import ray 
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.train.lightning import (
@@ -6,6 +7,7 @@ from ray.train.lightning import (
     RayTrainReportCallback,
     prepare_trainer,
 )
+from ray.train.torch import TorchTrainer
 
 from hippy2d.trainer import get_trainer
 
@@ -84,15 +86,28 @@ from ray.tune.schedulers import ASHAScheduler
 from ray.tune import Tuner, TuneConfig, RunConfig
 
 
-tuner = Tuner(
+ray_trainer = TorchTrainer(
     train_func,
-    param_space=search_space,    
+    scaling_config=ray.train.ScalingConfig(num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU": 1}),
+    run_config=ray.train.RunConfig(
+        checkpoint_config=ray.train.CheckpointConfig(
+            num_to_keep=3,
+            checkpoint_score_attribute="val_accuracy",
+            checkpoint_score_order="max",
+        ),
+    )
+)
+
+
+tuner = Tuner(
+    ray_trainer,
+    param_space=search_space,
     tune_config=TuneConfig(
         num_samples=10,
         scheduler=ASHAScheduler(),
     ),
     run_config=RunConfig(
-        resources_per_trial={"cpu":2, "gpu":1}, 
+        resources_per_trial={"cpu":10, "gpu":1}, 
     ),
 )
 results = tuner.fit()
