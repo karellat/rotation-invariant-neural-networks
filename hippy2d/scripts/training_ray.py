@@ -9,6 +9,7 @@ from ray.train.lightning import (
 )
 
 from hippy2d.trainer import get_trainer
+from ray.train.torch import TorchTrainer
 
 def _config_test(config):
     assert "seed" in config, "Training function requires 'seed' in config."
@@ -95,7 +96,7 @@ run_config = RunConfig(
     ),
 )
 
-ray_trainer = ray.train.torch.TorchTrainer(
+ray_trainer =TorchTrainer(
     train_func,
     scaling_config=scaling_config,
     run_config=run_config,
