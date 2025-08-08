@@ -82,7 +82,7 @@ num_samples = 10
 
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
-from ray.tune import Tuner, TuneConfig, RunConfig
+from ray.tune import Tuner, RunConfig
 
 scaling_config = ray.train.ScalingConfig(
         num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU":1}
@@ -107,7 +107,7 @@ scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 
 tuner = Tuner(
     ray_trainer,
-    param_space=search_space,
+    param_space={"train_loop_config": search_space},
     tune_config=tune.TuneConfig(
             metric="val_acc",
             mode="max",
