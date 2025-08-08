@@ -108,9 +108,11 @@ scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 tuner = Tuner(
     ray_trainer,
     param_space=search_space,
-    tune_config=TuneConfig(
-        num_samples=10,
-        scheduler=ASHAScheduler(),
+    tune_config=tune.TuneConfig(
+            metric="val_acc",
+            mode="max",
+            num_samples=num_samples,
+            scheduler=scheduler,
     ),
 )
 results = tuner.fit()
