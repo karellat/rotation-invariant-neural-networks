@@ -254,17 +254,19 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                  in_channels:int = 3,
                  input_size:int = 64,
                  num_classes:int = 10,
-                 blocks = [3, 3, 3], 
-                 channels= [4, 8, 16],
+                 n_blocks=3, 
+                 m_layers=3,
+                 init_channels=4,
                  zero_order_scaling:bool = False,
                  classification:bool = True):
         super(PrototypeOptimalInvCNN, self).__init__()
+        channels = [init_channels * (2 ** i) for i in range(n_blocks + 1)]
         self.in_channels = in_channels
         out_channels = in_channels
         self.blocks = []
-        for block_idx, num_blocks in enumerate(blocks):
+        for block_idx in range(n_blocks):
             block = []
-            for _ in range(num_blocks):
+            for _ in range(m_layers):
                 out_channels = channels[block_idx]
                 block.append(ComplexBaseBlock(in_channels=in_channels,
                                               out_channels=out_channels,
@@ -279,7 +281,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                           out_channels=out_channels,
                                           zero_order_scaling=zero_order_scaling,
                                           input_size=input_size,
-                                          subsampling=True if block_idx < len(blocks) - 1 else False))
+                                          subsampling=True if block_idx < n_blocks - 1 else False))
 
             in_channels = out_channels
             input_size //= 2  # Reduce input size by half for the next block

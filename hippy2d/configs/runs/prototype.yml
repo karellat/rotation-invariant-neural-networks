@@ -1,5 +1,5 @@
 d_hparams:
-  batch_size: 32
+  batch_size: 128
   data_dir: data
   pad: 0
   to_complex: false
@@ -19,7 +19,7 @@ m_param:
   num_classes: 10
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
-  lr: 0.01
+  lr: 0.01525
 optimizer_name: AdamW
 run_name: prototype-mnistrottest
 seed: 42

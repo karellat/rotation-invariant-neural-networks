@@ -29,8 +29,8 @@ train_with_config:
 
 .PHONY: train_with_config
 train_ray:
-        @echo "Using Python: $(PYTHON)"
-        @$(PYTHON) ./scripts/training_ray.py $(ARGS)
+	@echo "Using Python: $(PYTHON)"
+	@$(PYTHON) ./scripts/training_ray.py $(ARGS)
 
 # Run tests
 .PHONY: test

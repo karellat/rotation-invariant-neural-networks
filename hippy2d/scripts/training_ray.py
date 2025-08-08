@@ -1,5 +1,7 @@
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
+from ray.tune import RunConfig, CheckpointConfig
+from ray.train import ScalingConfig
 from ray.train.lightning import (
     RayDDPStrategy,
     RayLightningEnvironment,
@@ -52,17 +54,21 @@ search_space = {
         "in_channels" : 1,
         "input_size" : 64,
         "num_classes" : 10,
-        "zero_order_scaling" : tune.choice([True, False]),
+        "zero_order_scaling" : False,
+        "n_blocks": tune.choice([2, 3, 4, 5]),
+        "init_channels": tune.choice([4, 8, 16, 32]),
+
     },
     "optimizer_hparams": {
-            "lr": tune.loguniform(1e-4, 1e-1),
+            "lr": 0.01525,
     }, 
     "optimizer_name": "AdamW",
     "dataset_hparams": {
-        "batch_size": tune.choice([32, 64, 128]),
+        "batch_size": 128,
         "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
         "pad" : 0,
-        "to_complex" : False
+        "to_complex" : False,
+        "normalize" : tune.choice([True, False]),
     },
     "lr_name": "MultiStepLR",
     "lr_hparams": {
@@ -78,7 +84,6 @@ num_epochs = 5
 # Number of samples from parameter space
 num_samples = 10
 
-from ray.train import RunConfig, ScalingConfig, CheckpointConfig
 
 scaling_config = ScalingConfig(
         num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU":1}
