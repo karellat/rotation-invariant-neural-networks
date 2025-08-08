@@ -36,12 +36,11 @@ def train_func(config):
                           optimizer_hparams=config["optimizer_hparams"],
                           lr_name=config["lr_name"],
                           lr_hparams=config["lr_hparams"],
-                          accelerator="gpu",
+                          accelerator="auto",
                           trainer_callbacks=[RayTrainReportCallback()],
                           trainer_params=dict(strategy=RayDDPStrategy(),
                                               plugins=[RayLightningEnvironment()],
                                               enable_progress_bar=False,
-                                              devices=1
                           ))
     trainer = prepare_trainer(trainer)
     trainer.fit(model, datamodule=dm)   
