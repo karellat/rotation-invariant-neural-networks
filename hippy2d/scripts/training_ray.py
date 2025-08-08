@@ -70,7 +70,8 @@ def train_tune(config):
     # Each Trainer here will use 1 GPU
     trainer = pl.Trainer(
         max_epochs=10,
-        gpus=1,
+        accelerator="gpu",
+        devices=1,
         logger=logger,
         callbacks=[tune_callback],
         enable_progress_bar=False
