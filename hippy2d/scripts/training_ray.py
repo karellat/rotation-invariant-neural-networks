@@ -50,8 +50,8 @@ def get_data_loaders(batch_size):
     mnist = MNIST(os.getcwd(), train=True, download=True, transform=transform)
     train, val = random_split(mnist, [55000, 5000])
     return (
-        DataLoader(train, batch_size=batch_size, num_workers=4, shuffle=True),
-        DataLoader(val, batch_size=batch_size, num_workers=4),
+        DataLoader(train, batch_size=batch_size, num_workers=1, shuffle=True),
+        DataLoader(val, batch_size=batch_size, num_workers=1),
     )
 
 # 3) Training function that Ray Tune will call
