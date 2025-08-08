@@ -36,8 +36,7 @@ def train_func(config):
                           lr_hparams=config["lr_hparams"],
                           accelerator="auto",
                           trainer_callbacks=[RayTrainReportCallback()],
-                          trainer_params=dict(strategy=RayDDPStrategy(),
-                                              plugins=[RayLightningEnvironment()],
+                          trainer_params=dict(plugins=[RayLightningEnvironment()],
                                               enable_progress_bar=False,
                           ))
     trainer = prepare_trainer(trainer)
@@ -78,7 +77,7 @@ num_epochs = 5
 # Number of samples from parameter space
 num_samples = 10
 
-from ray.train import RunConfig, ScalingConfig, CheckpointConfig
+from ray.tune import RunConfig, ScalingConfig, CheckpointConfig
 
 run_config = RunConfig(
     checkpoint_config=CheckpointConfig(
