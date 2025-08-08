@@ -7,7 +7,6 @@ from ray.train.lightning import (
     RayTrainReportCallback,
     prepare_trainer,
 )
-from ray.train.torch import TorchTrainer
 
 from hippy2d.trainer import get_trainer
 
@@ -84,7 +83,7 @@ from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune import Tuner, TuneConfig, RunConfig
 
-scaling_config = ray.tune.ScalingConfig(
+scaling_config = ray.train.ScalingConfig(
         num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU":1}
 )
 
