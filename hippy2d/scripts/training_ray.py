@@ -5,6 +5,10 @@ from torch.utils.data import DataLoader, random_split
 from torchvision import transforms
 from torchvision.datasets import MNIST
 
+# Work arround for automatic SLURM detection
+from lightning.pytorch.plugins.environments import SLURMEnvironment
+SLURMEnvironment.detect = lambda: False
+
 from ray import tune
 from ray.tune import CLIReporter
 from ray.tune.schedulers import ASHAScheduler
