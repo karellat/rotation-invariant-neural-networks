@@ -80,12 +80,6 @@ num_samples = 10
 
 from ray.train import RunConfig, ScalingConfig, CheckpointConfig
 
-scaling_config = ScalingConfig(
-        num_workers=2, 
-        use_gpu=True,
-        resources_per_worker={"CPU": 10, "GPU":1}
-)
-
 run_config = RunConfig(
     checkpoint_config=CheckpointConfig(
         num_to_keep=2,
@@ -100,14 +94,14 @@ from ray.train.torch import TorchTrainer
 # Define a TorchTrainer without hyper-parameters for Tuner
 ray_trainer = TorchTrainer(
     train_func,
-    scaling_config=scaling_config,
     run_config=run_config,
 )
 
 scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 
+trainable_with_gpu = tune.with_resources(ray_trainer, {"gpu": 1})
 tuner = tune.Tuner(
-        ray_trainer,
+        trainable_with_gpu,
         param_space={"train_loop_config": search_space},
         tune_config=tune.TuneConfig(
             metric="val_acc",
