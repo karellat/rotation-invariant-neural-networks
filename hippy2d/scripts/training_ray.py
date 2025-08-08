@@ -9,6 +9,7 @@ from ray.train.lightning import (
     RayTrainReportCallback,
     prepare_trainer,
 )
+from ray.train import get_context
 
 from hippy2d.trainer import get_trainer
 
@@ -26,8 +27,6 @@ def _config_test(config):
 
 def train_func(config): 
     # Add debugging to check if we're using multiple workers
-    import ray.train
-    from ray.train import get_context
     
     train_context = get_context()
     world_size = train_context.get_world_size()
@@ -96,43 +95,22 @@ num_epochs = 5
 # Number of samples from parameter space
 num_samples = 10
 
-ray.init(num_cpus=20, num_gpus=2)  # Reduced CPU count to match worker requirements
-
-scaling_config = ScalingConfig(
-        num_workers=2,
-        use_gpu=True,
-        resources_per_worker={"CPU": 10, "GPU": 1}  # This should total 20 CPUs, 2 GPUs
-)
-
-run_config = RunConfig(
-    checkpoint_config=CheckpointConfig(
-        num_to_keep=2,
-        checkpoint_score_attribute="val_acc",
-        checkpoint_score_order="max",
-    ),
-)
-
-from ray.train.torch import TorchTrainer
+ray.init(num_cpus=21, num_gpus=2)  # Reduced CPU count to match worker requirements
 
 
-# Define a TorchTrainer without hyper-parameters for Tuner
-ray_trainer = TorchTrainer(
-    train_func,
-    scaling_config=scaling_config,
-    run_config=run_config,
-)
 
 scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 
 tuner = tune.Tuner(
-        ray_trainer,
-        param_space={"train_loop_config": search_space},
-        tune_config=tune.TuneConfig(
-            metric="val_acc",
-            mode="max",
-            num_samples=num_samples,
-            scheduler=scheduler,
-        ),
+    tune.with_resources(trainable=train_func, resources={"cpu": 10, "gpu": 1}),
+    tune_config=tune.TuneConfig(
+        metric="val_acc",
+        mode="max",
+        num_samples=num_samples,
+        scheduler=scheduler,
+    ),
+    param_space={"train_loop_config": search_space},
 )
+
 results = tuner.fit()
 results.get_best_result(metric="val_acc", mode="max")
