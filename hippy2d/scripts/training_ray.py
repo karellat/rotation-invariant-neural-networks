@@ -43,7 +43,7 @@ def train_func(config):
     trainer = prepare_trainer(trainer)
     trainer.fit(model, datamodule=dm)   
 
-search_space = {
+search_space = dict(train_loop_config={
     "seed": 42,
     "epochs": 100,
     "dataset_name": "MnistRotTest", 
@@ -69,8 +69,8 @@ search_space = {
         "milestones": [30, 80],
         "gamma": 0.1
     }
-}
-_config_test(search_space)
+})
+_config_test(search_space["train_loop_config"])
 
 # The maximum training epochs
 num_epochs = 5
