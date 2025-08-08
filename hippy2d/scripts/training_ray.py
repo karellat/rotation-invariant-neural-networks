@@ -84,19 +84,26 @@ from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 from ray.tune import Tuner, TuneConfig, RunConfig
 
-
-ray_trainer = TorchTrainer(
-    train_func,
-    scaling_config=ray.train.ScalingConfig(num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU": 1}),
-    run_config=ray.train.RunConfig(
-        checkpoint_config=ray.train.CheckpointConfig(
-            num_to_keep=3,
-            checkpoint_score_attribute="val_accuracy",
-            checkpoint_score_order="max",
-        ),
-    )
+scaling_config = ray.tune.ScalingConfig(
+        num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU":1}
 )
 
+run_config = RunConfig(
+    checkpoint_config=ray.tune.CheckpointConfig(
+        num_to_keep=2,
+        checkpoint_score_attribute="val_acc",
+        checkpoint_score_order="max",
+    ),
+)
+
+ray_trainer = ray.train.torch.TorchTrainer(
+    train_func,
+    scaling_config=scaling_config,
+    run_config=run_config,
+)
+
+
+scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 
 tuner = Tuner(
     ray_trainer,
@@ -105,7 +112,7 @@ tuner = Tuner(
         num_samples=10,
         scheduler=ASHAScheduler(),
     ),
-    run_config=RunConfig(
+    run_config=ray.tune.RunConfig(
         resources_per_trial={"cpu":10, "gpu":1}, 
     ),
 )
