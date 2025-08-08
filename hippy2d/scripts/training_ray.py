@@ -91,15 +91,10 @@ run_config = RunConfig(
 from ray.train.torch import TorchTrainer
 
 
-# Define a TorchTrainer without hyper-parameters for Tuner
-ray_trainer = TorchTrainer(
-    train_func,
-    run_config=run_config,
-)
 
 scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 
-trainable_with_gpu = tune.with_resources(ray_trainer, {"gpu": 1})
+trainable_with_gpu = tune.with_resources(trainable=train_func, {"gpu": 1})
 tuner = tune.Tuner(
         trainable_with_gpu,
         param_space={"train_loop_config": search_space},
