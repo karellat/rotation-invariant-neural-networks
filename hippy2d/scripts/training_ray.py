@@ -43,7 +43,7 @@ def train_func(config):
     trainer = prepare_trainer(trainer)
     trainer.fit(model, datamodule=dm)   
 
-search_space = dict(train_loop_config={
+search_space = {
     "seed": 42,
     "epochs": 100,
     "dataset_name": "MnistRotTest", 
@@ -69,8 +69,8 @@ search_space = dict(train_loop_config={
         "milestones": [30, 80],
         "gamma": 0.1
     }
-})
-_config_test(search_space["train_loop_config"])
+}
+_config_test(search_space)
 
 # The maximum training epochs
 num_epochs = 5
@@ -97,7 +97,7 @@ scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
 trainable_with_gpu = tune.with_resources(train_func, {"gpu": 1})
 tuner = tune.Tuner(
         trainable_with_gpu,
-        param_space={"train_loop_config": search_space},
+        param_space=search_space,
         tune_config=tune.TuneConfig(
             metric="val_acc",
             mode="max",
