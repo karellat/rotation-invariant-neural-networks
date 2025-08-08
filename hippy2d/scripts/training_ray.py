@@ -48,13 +48,13 @@ def train_func(config):
 search_space = {
     "seed": 42,
     "epochs": 100,
-    "dataset_name": "MnistRotTest", 
+    "dataset_name": "RotMnist", 
     "model_name" : "PrototypeOptimalInvCNN",
     "m_param": {
         "in_channels" : 1,
-        "input_size" : 64,
+        "input_size" : 56,
         "num_classes" : 10,
-        "zero_order_scaling" : tune.choice([True, False]),
+        "init_channels": 4
     },
     "optimizer_hparams": {
             "lr": tune.loguniform(1e-4, 1e-1),
@@ -64,7 +64,8 @@ search_space = {
         "batch_size": tune.choice([32, 64, 128]),
         "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
         "pad" : 0,
-        "to_complex" : False
+        "to_complex" : False, 
+        "normalize" : True
     },
     "lr_name": "MultiStepLR",
     "lr_hparams": {
@@ -78,7 +79,7 @@ _config_test(search_space)
 num_epochs = 5
 
 # Number of samples from parameter space
-num_samples = 10
+num_samples = 20
 
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
