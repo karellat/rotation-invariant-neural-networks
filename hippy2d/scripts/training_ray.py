@@ -8,6 +8,7 @@ from torchvision.datasets import MNIST
 # Work arround for automatic SLURM detection
 from lightning.pytorch.plugins.environments import SLURMEnvironment
 SLURMEnvironment.detect = lambda: False
+from lightning.pytorch.plugins.environments import LightningEnvironment
 
 from ray import tune
 from ray.tune import CLIReporter
@@ -78,7 +79,8 @@ def train_tune(config):
         devices=1,
         logger=logger,
         callbacks=[tune_callback],
-        enable_progress_bar=False
+        enable_progress_bar=False,
+        plugins=LightningEnvironment(),
     )
     trainer.fit(model, train_loader, val_loader)
 
