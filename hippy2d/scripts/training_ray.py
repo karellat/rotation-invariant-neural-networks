@@ -54,14 +54,14 @@ search_space = {
         "in_channels" : 1,
         "input_size" : 56,
         "num_classes" : 10,
-        "init_channels": 4
+        "init_channels": tune.choice([4, 6, 8, 10])
     },
     "optimizer_hparams": {
-            "lr": tune.loguniform(1e-4, 1e-1),
+            "lr": 0.00301772,
     }, 
     "optimizer_name": "AdamW",
     "dataset_hparams": {
-        "batch_size": tune.choice([32, 64, 128]),
+        "batch_size": tune.choice([8, 16, 32]),
         "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
         "pad" : 0,
         "to_complex" : False, 
