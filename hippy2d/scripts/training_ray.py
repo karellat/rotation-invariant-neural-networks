@@ -54,14 +54,17 @@ search_space = {
         "in_channels" : 3,
         "input_size" : 256,
         "num_classes" : 45,
-        "init_channels": tune.choice([8, 12, 16])
+        "init_channels": tune.choice([4, 8]), 
+        "n_blocks": tune.choice([3, 4]),
+        "m_layers": tune.choice([2, 3, 4]),
+
     },
     "optimizer_hparams": {
             "lr": 0.01,
     }, 
     "optimizer_name": "AdamW",
     "dataset_hparams": {
-        "batch_size": tune.choice([8,64, 256]),
+        "batch_size": 8,
         "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
         "to_complex" : False, 
     },
@@ -74,10 +77,10 @@ search_space = {
 _config_test(search_space)
 
 # The maximum training epochs
-num_epochs = 5
+num_epochs = 10
 
 # Number of samples from parameter space
-num_samples = 20
+num_samples = 10
 
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
