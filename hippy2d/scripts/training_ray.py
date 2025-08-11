@@ -48,24 +48,22 @@ def train_func(config):
 search_space = {
     "seed": 42,
     "epochs": 100,
-    "dataset_name": "RotMnist", 
+    "dataset_name": "RESISC45", 
     "model_name" : "PrototypeOptimalInvCNN",
     "m_param": {
-        "in_channels" : 1,
-        "input_size" : 56,
-        "num_classes" : 10,
-        "init_channels": tune.choice([4, 6, 8, 10])
+        "in_channels" : 3,
+        "input_size" : 256,
+        "num_classes" : 45,
+        "init_channels": tune.choice([8, 12, 16])
     },
     "optimizer_hparams": {
-            "lr": 0.00301772,
+            "lr": 0.01,
     }, 
     "optimizer_name": "AdamW",
     "dataset_hparams": {
-        "batch_size": tune.choice([8, 16, 32]),
+        "batch_size": tune.choice([8,64, 256]),
         "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
-        "pad" : 0,
         "to_complex" : False, 
-        "normalize" : True
     },
     "lr_name": "MultiStepLR",
     "lr_hparams": {
