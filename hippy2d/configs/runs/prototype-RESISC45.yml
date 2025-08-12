@@ -1,5 +1,5 @@
 d_hparams:
-  batch_size: 256
+  batch_size: 8
   data_dir: data
   to_complex: false
 dataset_name: RESISC45
