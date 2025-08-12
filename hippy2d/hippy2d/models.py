@@ -257,11 +257,14 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                  n_blocks=3, 
                  m_layers=3,
                  init_channels=4,
+                 max_order=4,
+                 circular_padding: str = "tukey",
                  zero_order_scaling:bool = False,
                  classification:bool = True):
         super(PrototypeOptimalInvCNN, self).__init__()
         channels = [init_channels * (2 ** i) for i in range(n_blocks + 1)]
         self.in_channels = in_channels
+        self.max_order = max_order
         out_channels = in_channels
         self.blocks = []
         for block_idx in range(n_blocks):
@@ -270,8 +273,10 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                 out_channels = channels[block_idx]
                 block.append(ComplexBaseBlock(in_channels=in_channels,
                                               out_channels=out_channels,
+                                              max_order=self.max_order,
                                               zero_order_scaling=zero_order_scaling,
                                               input_size=input_size,
+                                              circular_padding=circular_padding,
                                               subsampling=False))
                 in_channels = out_channels
 
@@ -279,6 +284,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
             # Subsampling block at the end
             block.append(ComplexBaseBlock(in_channels=in_channels,
                                           out_channels=out_channels,
+                                          max_order=self.max_order,
                                           zero_order_scaling=zero_order_scaling,
                                           input_size=input_size,
                                           subsampling=True if block_idx < n_blocks - 1 else False))

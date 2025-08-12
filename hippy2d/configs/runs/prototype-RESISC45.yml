@@ -1,5 +1,5 @@
 d_hparams:
-  batch_size: 32
+  batch_size: 256
   data_dir: data
   to_complex: false
 dataset_name: RESISC45
@@ -17,6 +17,9 @@ m_param:
   in_channels: 3
   num_classes: 45
   input_size: 256
+  init_channels: 4
+  n_blocks: 4
+  m_layers: 2
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01

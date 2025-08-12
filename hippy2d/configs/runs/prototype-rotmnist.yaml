@@ -1,7 +1,7 @@
 d_hparams:
-  batch_size: 32
+  batch_size: 16
   data_dir: data
-  pad: 0
+  pad: 2
   to_complex: false
 dataset_name: RotMnist
 early_stopping: 15
@@ -10,16 +10,20 @@ lr_hparams:
   gamma: 0.1
   milestones:
   - 10
-  - 50
+  - 20
   - 90
 lr_name: MultiStepLR
 m_param:
   in_channels: 1
-  input_size: 56
+  input_size: 64
   num_classes: 10
+  init_channels: 4
+  max_order: 4
+  circular_padding: none
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01
+  weight_decay: 0.05
 optimizer_name: AdamW
 seed: 42
 run_name: prototype-rotmnist
