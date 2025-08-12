@@ -1,8 +1,9 @@
 d_hparams:
   batch_size: 16
   data_dir: data
-  pad: 2
+  pad: 0
   to_complex: false
+  augment: true
 dataset_name: RotMnist
 early_stopping: 15
 epochs: 100
@@ -11,15 +12,15 @@ lr_hparams:
   milestones:
   - 10
   - 20
-  - 90
+  - 30
 lr_name: MultiStepLR
 m_param:
   in_channels: 1
-  input_size: 64
+  input_size: 56
   num_classes: 10
   init_channels: 4
   max_order: 4
-  circular_padding: none
+  circular_padding: tukey
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01

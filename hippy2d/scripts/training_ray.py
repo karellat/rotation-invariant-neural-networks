@@ -10,6 +10,10 @@ from ray.train.lightning import (
 
 from hippy2d.trainer import get_trainer
 from ray.train.torch import TorchTrainer
+import click
+import importlib.util
+import sys
+import os
 
 def _config_test(config):
     assert "seed" in config, "Training function requires 'seed' in config."
@@ -22,6 +26,22 @@ def _config_test(config):
     assert "optimizer_hparams" in config, "Training function requires 'optimizer_hparams' in config."
     assert "lr_name" in config, "Training function requires 'lr_name' in config."
     assert "lr_hparams" in config, "Training function requires 'lr_hparams' in config."
+
+def load_search_space(search_space_file):
+    """Load search space configuration from a Python file."""
+    if not os.path.exists(search_space_file):
+        raise FileNotFoundError(f"Search space file not found: {search_space_file}")
+    
+    # Load the module from file
+    spec = importlib.util.spec_from_file_location("search_space_module", search_space_file)
+    search_space_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(search_space_module)
+    
+    # Get the search_space variable from the module
+    if not hasattr(search_space_module, 'search_space'):
+        raise AttributeError(f"The file {search_space_file} must contain a 'search_space' variable")
+    
+    return search_space_module.search_space
 
 def train_func(config): 
     # Test the keys 
@@ -45,77 +65,57 @@ def train_func(config):
     trainer = prepare_trainer(trainer)
     trainer.fit(model, datamodule=dm)   
 
-search_space = {
-    "seed": 42,
-    "epochs": 100,
-    "dataset_name": "RESISC45", 
-    "model_name" : "PrototypeOptimalInvCNN",
-    "m_param": {
-        "in_channels" : 3,
-        "input_size" : 256,
-        "num_classes" : 45,
-        "init_channels": tune.choice([4, 8]), 
-        "n_blocks": tune.choice([3, 4]),
-        "m_layers": tune.choice([2, 3, 4]),
+@click.command()
+@click.option('--search_space', required=True, type=click.Path(exists=True),
+              help='Path to Python file containing search_space configuration')
+@click.option('--num_epochs', default=10, type=int,
+              help='Maximum training epochs (default: 10)')
+@click.option('--num_samples', default=20, type=int,
+              help='Number of samples from parameter space (default: 20)')
+def main(search_space, num_epochs, num_samples):
+    """Ray Tune hyperparameter optimization for neural networks"""
+    
+    # Load search space from file
+    search_space_config = load_search_space(search_space)
+    _config_test(search_space_config)
 
-    },
-    "optimizer_hparams": {
-            "lr": 0.01,
-    }, 
-    "optimizer_name": "AdamW",
-    "dataset_hparams": {
-        "batch_size": 8,
-        "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
-        "to_complex" : False, 
-    },
-    "lr_name": "MultiStepLR",
-    "lr_hparams": {
-        "milestones": [30, 80],
-        "gamma": 0.1
-    }
-}
-_config_test(search_space)
+    from ray import tune
+    from ray.tune.schedulers import ASHAScheduler
+    from ray.tune import Tuner, RunConfig
 
-# The maximum training epochs
-num_epochs = 10
+    scaling_config = ray.train.ScalingConfig(
+            num_workers=1, use_gpu=False, resources_per_worker={"CPU": 10}
+    )
 
-# Number of samples from parameter space
-num_samples = 10
+    run_config = RunConfig(
+        checkpoint_config=ray.tune.CheckpointConfig(
+            num_to_keep=2,
+            checkpoint_score_attribute="val_acc",
+            checkpoint_score_order="max",
+        ),
+    )
 
-from ray import tune
-from ray.tune.schedulers import ASHAScheduler
-from ray.tune import Tuner, RunConfig
+    ray_trainer =TorchTrainer(
+        train_func,
+        scaling_config=scaling_config,
+        run_config=run_config,
+    )
 
-scaling_config = ray.train.ScalingConfig(
-        num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10, "GPU":1}
-)
+    scheduler = ASHAScheduler(max_t=num_epochs, grace_period=5, reduction_factor=2)
 
-run_config = RunConfig(
-    checkpoint_config=ray.tune.CheckpointConfig(
-        num_to_keep=2,
-        checkpoint_score_attribute="val_acc",
-        checkpoint_score_order="max",
-    ),
-)
+    tuner = Tuner(
+        ray_trainer,
+        param_space={"train_loop_config": search_space_config},
+        tune_config=tune.TuneConfig(
+                metric="val_acc",
+                mode="max",
+                num_samples=num_samples,
+                scheduler=scheduler,
+        ),
+    )
+    results = tuner.fit()
+    results.get_best_result()
 
-ray_trainer =TorchTrainer(
-    train_func,
-    scaling_config=scaling_config,
-    run_config=run_config,
-)
-
-
-scheduler = ASHAScheduler(max_t=num_epochs, grace_period=1, reduction_factor=2)
-
-tuner = Tuner(
-    ray_trainer,
-    param_space={"train_loop_config": search_space},
-    tune_config=tune.TuneConfig(
-            metric="val_acc",
-            mode="max",
-            num_samples=num_samples,
-            scheduler=scheduler,
-    ),
-)
-results = tuner.fit()
+if __name__ == "__main__":
+    main()
 

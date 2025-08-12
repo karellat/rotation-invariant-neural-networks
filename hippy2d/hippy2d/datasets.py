@@ -350,6 +350,7 @@ class RotMnist(LightningDataModule, ABC):
                  scale_factor: int = 2,
                  scale_mode="BILINEAR",
                  limit_train_samples=None,
+                 augment=False,
                  normalize=True,
                  to_complex=True,
                  num_workers=get_optimal_workers()):
@@ -395,17 +396,27 @@ class RotMnist(LightningDataModule, ABC):
             rotmnist_transforms.append(transforms.Resize(
                 size=self.output_shape[2],
                 interpolation=scale_mode,
-                antialias=False))
+                antialias=True))
+        # Add augmentation only for test 
         # Taken from ./notebooks/15_rotated_mnist
+        train_transforms = rotmnist_transforms.copy()
+        if augment:
+            train_transforms.append(transforms.RandomVerticalFlip())
+            train_transforms.append(transforms.RandomHorizontalFlip())
+            train_transforms.append(transforms.RandomRotation(degrees=(0, 359), interpolation=transforms.InterpolationMode.BILINEAR))
         rotmnist_transforms.append(transforms.Normalize(mean=[0.0998], std=[0.1770]))
+        train_transforms.append(transforms.Normalize(mean=[0.0998], std=[0.1770]))
 
         if to_complex:
             rotmnist_transforms.append(
                 transforms.ToDtype(dtype=get_default_complex())
             )
-        # TODO: Add masking
+            train_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+        # TODO: Add masking H
 
-        self.train_transforms = transforms.Compose(rotmnist_transforms)
+        self.train_transforms = transforms.Compose(train_transforms)
         self.test_transforms = transforms.Compose(rotmnist_transforms)
         self.val_transforms = {
             'val': transforms.Compose(rotmnist_transforms)
