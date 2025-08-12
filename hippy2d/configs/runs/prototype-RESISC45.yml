@@ -2,7 +2,6 @@ d_hparams:
   batch_size: 8
   data_dir: data
   to_complex: false
-  augment: false
 dataset_name: RESISC45
 early_stopping: 15
 epochs: 200
