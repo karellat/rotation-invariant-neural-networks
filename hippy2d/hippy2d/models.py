@@ -287,7 +287,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
             # Subsampling block at the end
             block.append(ComplexBaseBlock(in_channels=in_channels,
                                           out_channels=out_channels,
-                                          filter_size=kernels_size,
+                                          filter_size=filter_size,
                                           max_order=self.max_order,
                                           zero_order_scaling=zero_order_scaling,
                                           input_size=input_size,
