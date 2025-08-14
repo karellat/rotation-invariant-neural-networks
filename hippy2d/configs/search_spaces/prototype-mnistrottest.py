@@ -22,7 +22,6 @@ search_space = {
         "batch_size": 128,
         "data_dir" : "/vast/home/karella/rotation-invariant-neural-networks/hippy2d/data",
         "to_complex" : False,
-        "augment" : True 
     },
     "lr_name": "MultiStepLR",
     "lr_hparams": {
