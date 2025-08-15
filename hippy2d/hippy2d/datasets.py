@@ -424,20 +424,34 @@ class RESISC45(LightningDataModule):
         if not self._check_exists():
             self.download()
 
-        # Transforms
-        self.transforms = [
+        self.train_transforms = [
             transforms.ToImage(),
-            transforms.Resize((128, 128)),
+            #transforms.RandomCrop((224, 224)),
+            # TODO: Setup the split 
+            transforms.CenterCrop((224, 224)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True)
+
+        ]
+
+        self.valid_transforms = [
+            transforms.ToImage(),
+            transforms.CenterCrop((224, 224)),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
         ]
 
         if to_complex:
-            self.transforms.append(
+            self.valid_transforms.append(
                 transforms.ToDtype(dtype=get_default_complex())
             )
-        
-        self.transforms = transforms.Compose(self.transforms)
-        
+            self.train_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+
+        self.train_transforms = transforms.Compose(self.train_transforms)
+        self.valid_transforms = transforms.Compose(self.valid_transforms)
+
         self.valid_ds = None  # Multiple checking multiple angles
         self.test_ds = None
         self.train_ds = None
