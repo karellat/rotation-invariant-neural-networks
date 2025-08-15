@@ -314,55 +314,56 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
 class PrototypeTiny(torch.nn.Module):
     def __init__(self,
                  in_channels: int = 1,
-                 num_classes: int = 10):
+                 num_classes: int = 10, 
+                 scale_channels: int = 2 ):
         super(PrototypeTiny, self).__init__()
 
         # 28 px
         self.layer_1 = ComplexBaseBlock(in_channels=in_channels,
                                         input_size=28,
-                                        out_channels=16, 
+                                        out_channels=16 * scale_channels, 
                                         max_order=3, 
                                         filter_size=7,
                                         conv_padding=1,
                                         subsampling=False)
         # 24 px 
-        self.layer_2 = ComplexBaseBlock(in_channels=16,
+        self.layer_2 = ComplexBaseBlock(in_channels=16 * scale_channels,
                                         input_size=24,
-                                        out_channels=32,
+                                        out_channels=32 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
                                         subsampling=True)
                                         
         # 12 px 
-        self.layer_3 = ComplexBaseBlock(in_channels=32,
+        self.layer_3 = ComplexBaseBlock(in_channels=32 * scale_channels,
                                         input_size=12,
-                                        out_channels=32,
-                                        max_order=3, 
-                                        filter_size=5,
-                                        conv_padding=2,
-                                        subsampling=False)
-
-        self.layer_4 = ComplexBaseBlock(in_channels=32,
-                                        input_size=12,
-                                        out_channels=32,
-                                        max_order=3, 
-                                        filter_size=5,
-                                        conv_padding=2,
-                                        subsampling=True)
-        
-        # 6 px 
-        self.layer_5 = ComplexBaseBlock(in_channels=32,
-                                        input_size=6,
-                                        out_channels=48,
+                                        out_channels=32 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
                                         subsampling=False)
-        
-        self.layer_6 = ComplexBaseBlock(in_channels=48,
+
+        self.layer_4 = ComplexBaseBlock(in_channels=32 * scale_channels,
+                                        input_size=12,
+                                        out_channels=32 * scale_channels,
+                                        max_order=3,
+                                        filter_size=5,
+                                        conv_padding=2,
+                                        subsampling=True)
+
+        # 6 px
+        self.layer_5 = ComplexBaseBlock(in_channels=32 * scale_channels,
                                         input_size=6,
-                                        out_channels=64,
+                                        out_channels=48 * scale_channels,
+                                        max_order=3,
+                                        filter_size=5,
+                                        conv_padding=2,
+                                        subsampling=False)
+
+        self.layer_6 = ComplexBaseBlock(in_channels=48 * scale_channels,
+                                        input_size=6,
+                                        out_channels=64 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
@@ -371,10 +372,10 @@ class PrototypeTiny(torch.nn.Module):
         self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))
         self.flat = torch.nn.Flatten()
         self.classifier = torch.nn.Sequential(
-            torch.nn.Linear(in_features=64, out_features=64),
-            torch.nn.BatchNorm1d(num_features=64),
+            torch.nn.Linear(in_features=64 * scale_channels, out_features=64 * scale_channels),
+            torch.nn.BatchNorm1d(num_features=64 * scale_channels),
             torch.nn.ELU(),
-            torch.nn.Linear(in_features=64, out_features=num_classes)
+            torch.nn.Linear(in_features=64 * scale_channels, out_features=num_classes)
         )
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # 28 px

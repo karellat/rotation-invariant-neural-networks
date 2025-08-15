@@ -1,9 +1,10 @@
 d_hparams:
-  batch_size: 16
+  batch_size: 8
   data_dir: data
-dataset_name: RotMnist
+  to_complex: false
+dataset_name: RESISC45
 early_stopping: 15
-epochs: 100
+epochs: 200
 lr_hparams:
   gamma: 0.1
   milestones:
@@ -12,9 +13,12 @@ lr_hparams:
   - 30
 lr_name: MultiStepLR
 model_name: PrototypeTiny
+m_param:
+  scale_channels: 5
+  in_channels: 3
 optimizer_hparams:
   lr: 0.01
   weight_decay: 0.05
 optimizer_name: AdamW
 seed: 42
-run_name: prototype-rotmnist
+run_name: tiny-resisc45
