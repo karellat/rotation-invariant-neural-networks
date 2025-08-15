@@ -5,13 +5,11 @@ dataset_name: RotMnist
 early_stopping: 15
 epochs: 100
 lr_hparams:
-  gamma: 0.1
-  milestones:
-  - 10
-  - 20
-  - 30
-lr_name: MultiStepLR
+  gamma: 0.95
+lr_name: ExponentialLR
 model_name: PrototypeTiny
+m_param:
+  scale_channels: 4
 optimizer_hparams:
   lr: 0.01
   weight_decay: 0.05

@@ -316,7 +316,7 @@ class PrototypeTiny(torch.nn.Module):
                  in_channels: int = 1,
                  num_classes: int = 10, 
                  input_size: int = 28,
-                 scale_channels: int = 2 ):
+                 scale_channels: int = 1):
         super(PrototypeTiny, self).__init__()
 
         # 28 px
