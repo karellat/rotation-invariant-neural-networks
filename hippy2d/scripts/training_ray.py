@@ -86,7 +86,7 @@ def main(search_space, num_epochs, num_samples, grace_period):
     from ray.tune import Tuner, RunConfig
 
     scaling_config = ray.train.ScalingConfig(
-            num_workers=1, use_gpu=False, resources_per_worker={"CPU": 10}
+            num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10}
     )
 
     run_config = RunConfig(
