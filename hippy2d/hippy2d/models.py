@@ -313,6 +313,87 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
     
         return x
 
+class PrototypeTiny(torch.nn.Module):
+    def __init__(self,
+                 in_channels: int = 1,
+                 num_classes: int = 10):
+        super(PrototypeTiny, self).__init__()
+
+        # 28 px
+        self.layer_1 = ComplexBaseBlock(in_channels=in_channels,
+                                        input_size=28,
+                                        out_channels=16, 
+                                        max_order=3, 
+                                        filter_size=7,
+                                        conv_padding=1,
+                                        subsampling=False)
+        # 24 px 
+        self.layer_2 = ComplexBaseBlock(in_channels=16,
+                                        input_size=24,
+                                        out_channels=32,
+                                        max_order=3,
+                                        filter_size=5,
+                                        conv_padding=2,
+                                        subsampling=True)
+                                        
+        # 12 px 
+        self.layer_3 = ComplexBaseBlock(in_channels=32,
+                                        input_size=12,
+                                        out_channels=32,
+                                        max_order=3, 
+                                        filter_size=5,
+                                        conv_padding=2,
+                                        subsampling=False)
+
+        self.layer_4 = ComplexBaseBlock(in_channels=32,
+                                        input_size=12,
+                                        out_channels=32,
+                                        max_order=3, 
+                                        filter_size=5,
+                                        conv_padding=2,
+                                        subsampling=True)
+        
+        # 6 px 
+        self.layer_5 = ComplexBaseBlock(in_channels=32,
+                                        input_size=6,
+                                        out_channels=48,
+                                        max_order=3,
+                                        filter_size=5,
+                                        conv_padding=2,
+                                        subsampling=False)
+        
+        self.layer_6 = ComplexBaseBlock(in_channels=48,
+                                        input_size=6,
+                                        out_channels=64,
+                                        max_order=3,
+                                        filter_size=5,
+                                        conv_padding=2,
+                                        subsampling=False)
+
+        self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))
+        self.flat = torch.nn.Flatten()
+        self.classifier = torch.nn.Sequential(
+            torch.nn.Linear(in_features=64, out_features=64),
+            torch.nn.BatchNorm1d(num_features=64),
+            torch.nn.ELU(),
+            torch.nn.Linear(in_features=64, out_features=num_classes)
+        )
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # 28 px
+        x = self.layer_1(x)
+        # 24 px
+        x = self.layer_2(x)
+        # 12 px 
+        x = self.layer_3(x)
+        x = self.layer_4(x)
+        # 6 px
+        x = self.layer_5(x)
+        x = self.layer_6(x)
+        x = self.pool(x)
+        x = self.flat(x)
+        x = self.classifier(x)
+        return x
+
 class RotMNISTE2CNN(ExpE2SFCNN):
     def __init__(self,
                  in_channels: int=1,

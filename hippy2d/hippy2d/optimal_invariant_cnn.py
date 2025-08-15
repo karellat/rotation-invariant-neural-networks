@@ -194,7 +194,7 @@ class ComplexBaseBlock(torch.nn.Module):
                  residual:bool = True, 
                  subsampling:bool = True, 
                  zero_order_scaling:bool = False,
-                 circular_padding: str = "tukey", 
+                 channels_masking: str = "tukey",
                  conv_padding: str = "same"): 
         super(ComplexBaseBlock, self).__init__()
         self.conv = ComplexInvariantConv2D(filter_size=filter_size,
@@ -202,16 +202,22 @@ class ComplexBaseBlock(torch.nn.Module):
                                             in_channels=in_channels,
                                             out_channels=out_channels,
                                             zero_order_scaling=zero_order_scaling,
-                                            circular_padding=circular_padding,
+                                            conv_padding=conv_padding,
                                             basis_p0=basis_p0,
                                             basis_q0=basis_q0)
-        self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, input_size, input_size),
+        if conv_padding == "same":
+            conv_output_shape = input_size
+        else:
+            conv_output_shape = input_size + (2 * conv_padding) - filter_size + 1
+        
+        self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, conv_output_shape, conv_output_shape),
                                        elementwise_affine=False,
                                        dtype=torch.get_default_dtype())
         self.activation = torch.nn.ReLU()
         self.residual = residual
-        self.valid_padding = (self.conv.filter_size - 1) // 2
         self.padding = conv_padding
+        assert (input_size - conv_output_shape) % 2 == 0, "Input size must be even for valid padding"
+        self.identity_pad = (input_size - conv_output_shape) // 2 
         self.input_size = input_size
 
         if in_channels != out_channels:
@@ -228,7 +234,10 @@ class ComplexBaseBlock(torch.nn.Module):
             self.subsampling = torch.nn.Identity()
         # Note: This can be done by torch.masked.MaskedTensor, but it is not supported for complex
         # it's possible to rewrite the whole block using own complex convolution implementation
-        self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
+        assert channels_masking in ["tukey", "none"], f"Unknown channels_masking: {channels_masking}"
+        self.channels_masking = channels_masking
+        if channels_masking == "tukey":
+            self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -238,16 +247,15 @@ class ComplexBaseBlock(torch.nn.Module):
         :return: Output tensor of shape (batch_size, out_channels, height', width')
         """
 
-        if self.padding == "valid":
-            # Use valid padding
-            identity = x[..., 
-                         self.valid_padding:-self.valid_padding,
-                         self.valid_padding:-self.valid_padding]
-        else:
-            # Use same padding
+        if self.padding == "same" or self.identity_pad == 0:
             identity = x
+        else:
+            identity = x[..., 
+                         self.identity_pad: -self.identity_pad,
+                         self.identity_pad: -self.identity_pad]
         # TODO: Here should be a circular masking for the whole feature map
-        x = x * self.features_mask
+        if self.channels_masking == "tukey":
+            x = x * self.features_mask
         x = self.conv(x)
         # Here we can use the Masked_tensor  instead zero masking
         # Apply batch normalization and activation
@@ -257,5 +265,5 @@ class ComplexBaseBlock(torch.nn.Module):
         if self.residual:
             identity = self.subsampling(identity)
             # Add the residual connection
-            x = x + self.residual_conv(identity)
+            x = x+ self.residual_conv(identity)
         return x

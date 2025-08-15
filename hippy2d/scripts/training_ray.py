@@ -72,7 +72,9 @@ def train_func(config):
               help='Maximum training epochs (default: 10)')
 @click.option('--num_samples', default=20, type=int,
               help='Number of samples from parameter space (default: 20)')
-def main(search_space, num_epochs, num_samples):
+@click.option('--grace-period', default=5, type=int,
+              help='Grace period for early stopping (default: 5)')
+def main(search_space, num_epochs, num_samples, grace_period):
     """Ray Tune hyperparameter optimization for neural networks"""
     
     # Load search space from file
@@ -101,7 +103,7 @@ def main(search_space, num_epochs, num_samples):
         run_config=run_config,
     )
 
-    scheduler = ASHAScheduler(max_t=num_epochs, grace_period=5, reduction_factor=2)
+    scheduler = ASHAScheduler(max_t=num_epochs, grace_period=grace_period, reduction_factor=2)
 
     tuner = Tuner(
         ray_trainer,
