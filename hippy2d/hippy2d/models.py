@@ -325,6 +325,7 @@ class PrototypeTiny(torch.nn.Module):
                                         max_order=3, 
                                         filter_size=7,
                                         conv_padding=1,
+                                        channels_masking=False,
                                         subsampling=False)
         # 24 px 
         self.layer_2 = ComplexBaseBlock(in_channels=16 * scale_channels,
@@ -333,6 +334,7 @@ class PrototypeTiny(torch.nn.Module):
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
+                                        channels_masking=False,
                                         subsampling=True)
                                         
         # 12 px 
@@ -342,6 +344,7 @@ class PrototypeTiny(torch.nn.Module):
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
+                                        channels_masking=False,
                                         subsampling=False)
 
         self.layer_4 = ComplexBaseBlock(in_channels=32 * scale_channels,
@@ -350,6 +353,7 @@ class PrototypeTiny(torch.nn.Module):
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
+                                        channels_masking=False,
                                         subsampling=True)
 
         # 6 px
@@ -359,6 +363,7 @@ class PrototypeTiny(torch.nn.Module):
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
+                                        channels_masking=False,
                                         subsampling=False)
 
         self.layer_6 = ComplexBaseBlock(in_channels=48 * scale_channels,
@@ -367,6 +372,7 @@ class PrototypeTiny(torch.nn.Module):
                                         max_order=3,
                                         filter_size=5,
                                         conv_padding=2,
+                                        channels_masking=False,
                                         subsampling=False)
 
         self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))
