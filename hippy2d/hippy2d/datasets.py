@@ -427,6 +427,7 @@ class RESISC45(LightningDataModule):
         # Transforms
         self.transforms = [
             transforms.ToImage(),
+            transforms.Resize((128, 128)),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
         ]
 
@@ -440,7 +441,7 @@ class RESISC45(LightningDataModule):
         self.valid_ds = None  # Multiple checking multiple angles
         self.test_ds = None
         self.train_ds = None
-        self.output_shape = [batch_size, 3, 256, 256]
+        self.output_shape = [batch_size, 3, 128, 128]
         self.num_workers = num_workers
         
 
