@@ -315,12 +315,13 @@ class PrototypeTiny(torch.nn.Module):
     def __init__(self,
                  in_channels: int = 1,
                  num_classes: int = 10, 
+                 input_size: int = 28,
                  scale_channels: int = 2 ):
         super(PrototypeTiny, self).__init__()
 
         # 28 px
         self.layer_1 = ComplexBaseBlock(in_channels=in_channels,
-                                        input_size=28,
+                                        input_size=input_size,
                                         out_channels=16 * scale_channels, 
                                         max_order=3, 
                                         filter_size=7,
@@ -329,7 +330,7 @@ class PrototypeTiny(torch.nn.Module):
                                         subsampling=False)
         # 24 px 
         self.layer_2 = ComplexBaseBlock(in_channels=16 * scale_channels,
-                                        input_size=24,
+                                        input_size=input_size - 4,
                                         out_channels=32 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
@@ -339,7 +340,7 @@ class PrototypeTiny(torch.nn.Module):
                                         
         # 12 px 
         self.layer_3 = ComplexBaseBlock(in_channels=32 * scale_channels,
-                                        input_size=12,
+                                        input_size=(input_size - 4) // 2,
                                         out_channels=32 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
@@ -348,7 +349,7 @@ class PrototypeTiny(torch.nn.Module):
                                         subsampling=False)
 
         self.layer_4 = ComplexBaseBlock(in_channels=32 * scale_channels,
-                                        input_size=12,
+                                        input_size=(input_size - 4) // 2,
                                         out_channels=32 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
@@ -358,7 +359,7 @@ class PrototypeTiny(torch.nn.Module):
 
         # 6 px
         self.layer_5 = ComplexBaseBlock(in_channels=32 * scale_channels,
-                                        input_size=6,
+                                        input_size=(input_size - 4) // 4,
                                         out_channels=48 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
@@ -367,7 +368,7 @@ class PrototypeTiny(torch.nn.Module):
                                         subsampling=False)
 
         self.layer_6 = ComplexBaseBlock(in_channels=48 * scale_channels,
-                                        input_size=6,
+                                        input_size=(input_size - 4) // 4,
                                         out_channels=64 * scale_channels,
                                         max_order=3,
                                         filter_size=5,
