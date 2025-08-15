@@ -11,7 +11,6 @@ search_space = {
         "num_classes" : 10,
         "max_order": tune.choice([1, 2, 3, 4]),
         "filter_size" : tune.choice([5, 7, 9, 11, 13, 15]),
-        "circular_padding": "tukey"
     },
     "optimizer_hparams": {
             "lr": 0.01525,
