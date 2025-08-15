@@ -260,7 +260,6 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                  m_layers=3,
                  init_channels=4,
                  max_order=4,
-                 circular_padding: str = "tukey",
                  zero_order_scaling:bool = False,
                  classification:bool = True):
         super(PrototypeOptimalInvCNN, self).__init__()
@@ -279,7 +278,6 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                               filter_size=filter_size,
                                               zero_order_scaling=zero_order_scaling,
                                               input_size=input_size,
-                                              circular_padding=circular_padding,
                                               subsampling=False))
                 in_channels = out_channels
 
