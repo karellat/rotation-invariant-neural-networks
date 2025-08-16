@@ -20,5 +20,5 @@ dependencies:
     - e2cnn==0.2.*
     - tensorboard==2.20.*
     - pandas==2.3.*
-    - datasets==2.14.*
+    - datasets[vision]
     - ray[tune]==2.48.*

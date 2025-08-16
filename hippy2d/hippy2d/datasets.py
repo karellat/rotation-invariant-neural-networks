@@ -4,12 +4,13 @@ import os
 from lightning import LightningDataModule
 from loguru import logger
 import torch
+import datasets
 import numpy as np
 from PIL import Image
 from PIL.Image import Resampling
 from typing import Optional, Callable, Tuple, Any, Dict
 
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, default_collate
 from torchvision.datasets import VisionDataset
 from torchvision.datasets.utils import check_integrity, download_url
 import torchvision.transforms.v2 as transforms
@@ -400,12 +401,16 @@ class RotMnist(LightningDataModule, ABC):
     def val_dataloader(self):
         return CombinedLoader(self._valid_dataloader, mode="max_size_cycle")
 
+def collate_tuple(batch):
+    # Let PyTorch stack dicts first, then return a tuple
+    b = default_collate(batch)
+    return b["image"], b["label"]
 
 class RESISC45(LightningDataModule):
-    _MD5SUM = "944a6a08ea97d50609df18ed1d8675b6" 
-    _URL = "https://owncloud.cesnet.cz/index.php/s/OofMmlJ6b84HH2l/download"
-    _FILE_NAME = f"NWPU-RESISC45"
-    num_classes = 45
+    #_MD5SUM = "944a6a08ea97d50609df18ed1d8675b6" 
+    #_URL = "https://owncloud.cesnet.cz/index.php/s/OofMmlJ6b84HH2l/download"
+    #_FILE_NAME = f"NWPU-RESISC45"
+    #num_classes = 45
     total_samples = 31500
     def __init__(self,
                  data_dir: str = "./data",
@@ -421,13 +426,10 @@ class RESISC45(LightningDataModule):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size
-        if not self._check_exists():
-            self.download()
+
 
         self.train_transforms = [
             transforms.ToImage(),
-            #transforms.RandomCrop((224, 224)),
-            # TODO: Setup the split 
             transforms.CenterCrop((224, 224)),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
@@ -455,38 +457,29 @@ class RESISC45(LightningDataModule):
         self.valid_ds = None  # Multiple checking multiple angles
         self.test_ds = None
         self.train_ds = None
-        self.output_shape = [batch_size, 3, 128, 128]
+        self.output_shape = [batch_size, 3, 224, 224]
         self.num_workers = num_workers
         
 
-        # Prepare test, validation, and training datasets
-        self.test_size = int(0.2 * RESISC45.total_samples)
-        self.train_val_size = RESISC45.total_samples - self.test_size
-        self.train_size = int(0.8 * self.train_val_size)
-        self.val_size = self.train_val_size - self.train_size
-        
     def prepare_data(self):
         # Download 
-        self.ds = ImageFolder(root=os.path.join(self.data_dir, RESISC45._FILE_NAME),
-                              transform=self.transforms)
+        self.hg_dataset_train = datasets.load_dataset("timm/resisc45", split='train')
+        self.hg_dataset_valid = datasets.load_dataset("timm/resisc45", split='validation')
+        self.hg_dataset_test = datasets.load_dataset("timm/resisc45", split='test')
 
     def setup(self, stage:str):
-        # TODO: Fix the indicies
-        ds_test, ds_train_val = torch.utils.data.random_split(self.ds, [self.test_size, self.train_val_size])
-        ds_train, ds_val = torch.utils.data.random_split(ds_train_val, [self.train_size, self.val_size])
+        self.ds_train = self.hg_dataset_train.with_transform(self.train_transforms)
+        self.ds_val = self.hg_dataset_valid.with_transform(self.valid_transforms)
+        self.ds_test = self.hg_dataset_test.with_transform(self.valid_transforms)
 
-        self.ds_train = ds_train
-        self.ds_val = ds_val
-        self.ds_test = ds_test
-
-        
     def train_dataloader(self):
         return DataLoader(
             self.ds_train, 
             batch_size=self.batch_size, 
             shuffle=True, 
             num_workers=self.num_workers,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=collate_tuple
         )
     
     def val_dataloader(self):
@@ -495,7 +488,8 @@ class RESISC45(LightningDataModule):
             batch_size=self.batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=collate_tuple
         )
     
     def test_dataloader(self):
@@ -504,26 +498,10 @@ class RESISC45(LightningDataModule):
             batch_size=self.batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=collate_tuple
         )
 
-    @property
-    def _downloaded_file(self):
-        return os.path.join(self.data_dir, self._FILE_NAME)
-
-    def _check_exists(self) -> bool:
-        return check_integrity(f"{self._downloaded_file}.zip", md5=self._MD5SUM)
-
-    def download(self) -> None:
-        """Download the RESISC45 data if it doesn't exist already."""
-
-        if self._check_exists():
-            return
-        logger.debug(f"Downloading {self._URL}")
-        download_and_extract_archive(self._URL,
-                                     download_root=self.data_dir,
-                                     filename=f"{self._FILE_NAME}.zip",
-                                     md5=self._MD5SUM)
 
 # Transformations
 class CircularPad:
