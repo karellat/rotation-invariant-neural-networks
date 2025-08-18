@@ -22,3 +22,4 @@ dependencies:
     - pandas==2.3.*
     - datasets[vision]
     - ray[tune]==2.48.*
+    - scikit-learn==1.7.*

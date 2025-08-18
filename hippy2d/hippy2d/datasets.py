@@ -3,6 +3,7 @@ import os
 
 from lightning import LightningDataModule
 from loguru import logger
+from sklearn.model_selection import train_test_split
 import torch
 import datasets
 import numpy as np
@@ -407,10 +408,7 @@ def collate_tuple(batch):
     return b["image"], b["label"]
 
 class RESISC45(LightningDataModule):
-    #_MD5SUM = "944a6a08ea97d50609df18ed1d8675b6" 
-    #_URL = "https://owncloud.cesnet.cz/index.php/s/OofMmlJ6b84HH2l/download"
-    #_FILE_NAME = f"NWPU-RESISC45"
-    #num_classes = 45
+    # Hugging face bridge
     total_samples = 31500
     def __init__(self,
                  data_dir: str = "./data",
@@ -495,6 +493,102 @@ class RESISC45(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(
             self.ds_test, 
+            batch_size=self.batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_tuple
+        )
+
+class ColorectalHistology(LightningDataModule):
+    # Hugging face bridge to https://huggingface.co/datasets/dpdl-benchmark/colorectal_histology
+    
+    @property
+    def num_classes(self):
+        return 7
+
+    def __init__(self, 
+                 data_dir: str = "./data",
+                 batch_size: int = 32,
+                 test_batch_size: int = 256,
+                 to_complex=False,
+                 num_workers=None):
+        super().__init__()
+        if num_workers is None:
+            num_workers = get_optimal_workers()
+
+        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        
+        self.train_transforms = [
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True)
+        ]
+
+        self.valid_transforms = [
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True)
+        ]
+
+        if to_complex:
+            self.valid_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+            self.train_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+
+        self.train_transforms = transforms.Compose(self.train_transforms)
+        self.valid_transforms = transforms.Compose(self.valid_transforms)
+
+        self.valid_ds = None  # Multiple checking multiple angles
+        self.test_ds = None
+        self.train_ds = None
+        self.output_shape = [batch_size, 3, 150, 150]
+        self.num_workers = num_workers
+
+    def prepare_data(self): 
+        # Download and prepare the dataset
+        self.hg_dataset = datasets.load_dataset("dpdl-benchmark/colorectal_histology", split='train')
+        labels = np.array([example['label'] for example in self.hg_dataset])
+        self.train_idx, test_valid_idx = train_test_split(np.arange(len(labels)),
+                                             test_size=0.2, 
+                                             random_state=42,
+                                             stratify=labels)
+        self.valid_idx, self.test_idx = train_test_split(test_valid_idx,
+                                       test_size=0.5,
+                                       random_state=42,
+                                       stratify=labels[test_valid_idx])
+    def setup(self, stage: str):
+        self.train_ds = self.hg_dataset.select(self.train_idx).with_transform(self.train_transforms)
+        self.valid_ds = self.hg_dataset.select(self.valid_idx).with_transform(self.valid_transforms)
+        self.test_ds = self.hg_dataset.select(self.test_idx).with_transform(self.valid_transforms)
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_ds, 
+            batch_size=self.batch_size, 
+            shuffle=True, 
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_tuple
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.valid_ds, 
+            batch_size=self.batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_tuple
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_ds, 
             batch_size=self.batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,

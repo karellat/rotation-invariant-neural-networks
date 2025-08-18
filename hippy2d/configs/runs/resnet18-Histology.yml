@@ -1,0 +1,20 @@
+d_hparams:
+  batch_size: 32
+dataset_name: ColorectalHistology
+early_stopping: 15
+epochs: 50
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 10
+  - 25
+  - 40
+m_param:
+  in_channels: 3
+  num_classes: 7
+model_name: Resnet18
+optimizer_hparams:
+  lr: 0.001
+optimizer_name: AdamW
+run_name: resnet18-histology
+seed: 42

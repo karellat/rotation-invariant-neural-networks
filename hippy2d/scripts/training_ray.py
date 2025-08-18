@@ -66,6 +66,8 @@ def train_func(config):
     trainer.fit(model, datamodule=dm)   
 
 @click.command()
+@click.option('--name', default='hippy2d_tune', type=str,
+              help='Name of the Ray Tune experiment (default: hippy2d_tune)')
 @click.option('--search_space', required=True, type=click.Path(exists=True),
               help='Path to Python file containing search_space configuration')
 @click.option('--num_epochs', default=10, type=int,
@@ -74,7 +76,7 @@ def train_func(config):
               help='Number of samples from parameter space (default: 20)')
 @click.option('--grace_period', default=5, type=int,
               help='Grace period for early stopping (default: 5)')
-def main(search_space, num_epochs, num_samples, grace_period):
+def main(name, search_space, num_epochs, num_samples, grace_period):
     """Ray Tune hyperparameter optimization for neural networks"""
     
     # Load search space from file
@@ -86,10 +88,13 @@ def main(search_space, num_epochs, num_samples, grace_period):
     from ray.tune import Tuner, RunConfig
 
     scaling_config = ray.train.ScalingConfig(
-            num_workers=1, use_gpu=True, resources_per_worker={"CPU": 10}
+            num_workers=1, 
+            use_gpu=True,
+            resources_per_worker={"CPU": 10}
     )
 
     run_config = RunConfig(
+        name=name,
         checkpoint_config=ray.tune.CheckpointConfig(
             num_to_keep=2,
             checkpoint_score_attribute="val_acc",
