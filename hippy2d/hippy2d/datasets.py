@@ -524,11 +524,13 @@ class ColorectalHistology(LightningDataModule):
         
         self.train_transforms = [
             transforms.ToImage(),
+            transforms.Resize((128, 128), transforms.InterpolationMode.BILINEAR),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
         ]
 
         self.valid_transforms = [
             transforms.ToImage(),
+            transforms.Resize((128, 128), transforms.InterpolationMode.BILINEAR),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
         ]
 
