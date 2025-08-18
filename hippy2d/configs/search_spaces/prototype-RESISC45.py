@@ -9,9 +9,9 @@ search_space = {
         "in_channels" : 3, 
         "input_size" : 224,
         "num_classes" : 45,
-        "filter_size" : tune.choice([4, 8, 16, 32]),
         "n_blocks": tune.choice([3, 4]),
         "m_layers": tune.choice([2, 3, 4]),
+        "init_channels": tune.choice([4, 8, 16, 32]), 
     },
     "optimizer_hparams": {
             "lr": 0.01525,
