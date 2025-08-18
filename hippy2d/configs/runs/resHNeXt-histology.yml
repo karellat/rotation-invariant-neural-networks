@@ -15,7 +15,7 @@ lr_name: MultiStepLR
 m_param:
   in_channels: 1
   num_classes: 7
-  input_size: 150
+  input_size: 128
 model_name: ResHNeXtv3
 optimizer_hparams:
   lr: 0.001

@@ -548,7 +548,7 @@ class ColorectalHistology(LightningDataModule):
         self.valid_ds = None  # Multiple checking multiple angles
         self.test_ds = None
         self.train_ds = None
-        self.output_shape = [batch_size, 3, 150, 150]
+        self.output_shape = [batch_size, 3, 128, 128]
         self.num_workers = num_workers
 
     def prepare_data(self): 
