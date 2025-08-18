@@ -72,7 +72,7 @@ def train_func(config):
               help='Maximum training epochs (default: 10)')
 @click.option('--num_samples', default=20, type=int,
               help='Number of samples from parameter space (default: 20)')
-@click.option('--grace-period', default=5, type=int,
+@click.option('--grace_period', default=5, type=int,
               help='Grace period for early stopping (default: 5)')
 def main(search_space, num_epochs, num_samples, grace_period):
     """Ray Tune hyperparameter optimization for neural networks"""
