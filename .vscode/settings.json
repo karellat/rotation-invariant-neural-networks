@@ -1,0 +1,26 @@
+{
+    "python.defaultInterpreterPath": "/Users/karella/.conda/envs/hippy2d/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+        "hippy2d/tests",
+        "--verbose"
+    ],
+    "python.testing.cwd": "${workspaceFolder}",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/hippy2d"
+    ],
+    "terminal.integrated.cwd": "${workspaceFolder}/hippy2d",
+    "powershell.cwd": "${workspaceFolder}/hippy2d",
+    "terminal.integrated.env.osx": {
+        "PYTHONPATH": "${workspaceFolder}/hippy2d:${env:PYTHONPATH}"
+    },
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}/hippy2d:${env:PYTHONPATH}"
+    },
+    "terminal.integrated.env.windows": {
+        "PYTHONPATH": "${workspaceFolder}/hippy2d;${env:PYTHONPATH}"
+    }
+    
+}
