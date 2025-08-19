@@ -300,7 +300,12 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
         if classification:
             self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))
             self.flat = torch.nn.Flatten()
-            self.classifier = torch.nn.Linear(in_features=out_channels, out_features=num_classes)
+            self.classifier = torch.nn.Sequential(
+                torch.nn.Linear(in_features=out_channels, out_features=64),
+                torch.nn.BatchNorm1d(num_features=64),
+                torch.nn.ELU(),
+                torch.nn.Linear(in_features=64, out_features=num_classes)
+            )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.blocks(x)

@@ -213,7 +213,7 @@ class ComplexBaseBlock(torch.nn.Module):
         self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, conv_output_shape, conv_output_shape),
                                        elementwise_affine=False,
                                        dtype=torch.get_default_dtype())
-        self.activation = torch.nn.ReLU()
+        self.activation = torch.nn.ELU()
         self.residual = residual
         self.padding = conv_padding
         assert (input_size - conv_output_shape) % 2 == 0, "Input size must be even for valid padding"
