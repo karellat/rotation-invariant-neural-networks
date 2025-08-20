@@ -1,10 +1,10 @@
 d_hparams:
-  batch_size: 8
+  batch_size: 32
   data_dir: data
   to_complex: false
 dataset_name: RESISC45
 early_stopping: 15
-epochs: 1
+epochs: 100
 lr_hparams:
   gamma: 0.1
   milestones:
@@ -16,13 +16,13 @@ debug: false
 m_param:
   in_channels: 3
   num_classes: 45
-  input_size: 256
+  input_size: 160
   init_channels: 8
   n_blocks: 4
   m_layers: 3
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
-  lr: 0.01
+  lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-RESISC45-debug
+run_name: prototype-RESISC45
 seed: 42

@@ -31,7 +31,7 @@ def get_trainer(seed: int,
     ssl._create_default_https_context = ssl._create_stdlib_context
 
     datamodule = get_datamodule(dataset_name, d_hparams)
-    if "in_channels" not in m_param:
+    if ("in_channels" in m_param) and (m_param["in_channels"] != "auto"):
         m_param["in_channels"] = datamodule.output_shape[1]
     if "num_classes" not in m_param:
         m_param["num_classes"] = datamodule.num_classes

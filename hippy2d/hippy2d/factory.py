@@ -1,3 +1,4 @@
+import timm
 from hippy2d import datasets, models
 from typing import Dict
 
@@ -16,6 +17,8 @@ def get_datamodule(dataset_name: str, d_hparams: Dict):
 
 
 def get_model(model_name: str, b_hparams: Dict):
+    if model_name.startswith('timm:'):
+        return timm.create_model(model_name.split(':')[1], **b_hparams)
     return _get_by_name(models, model_name, b_hparams)
 
 

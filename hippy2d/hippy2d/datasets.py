@@ -428,7 +428,7 @@ class RESISC45(LightningDataModule):
 
         self.train_transforms = [
             transforms.ToImage(),
-            transforms.CenterCrop((224, 224)),
+            transforms.Resize((160, 160)),
             transforms.RandomHorizontalFlip(),
             transforms.RandomVerticalFlip(),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
@@ -437,7 +437,7 @@ class RESISC45(LightningDataModule):
 
         self.valid_transforms = [
             transforms.ToImage(),
-            transforms.CenterCrop((224, 224)),
+            transforms.Resize((160, 160)),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
         ]
 
