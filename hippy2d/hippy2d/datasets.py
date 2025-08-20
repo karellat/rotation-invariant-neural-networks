@@ -505,7 +505,7 @@ class ColorectalHistology(LightningDataModule):
     
     @property
     def num_classes(self):
-        return 7
+        return 8
 
     def __init__(self, 
                  data_dir: str = "./data",

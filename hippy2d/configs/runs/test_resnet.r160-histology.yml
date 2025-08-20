@@ -10,7 +10,6 @@ lr_hparams:
   - 25
   - 40
 m_param:
-  num_classes: 7
   pretrained: false
 model_name: timm:test_resnet 
 optimizer_hparams:

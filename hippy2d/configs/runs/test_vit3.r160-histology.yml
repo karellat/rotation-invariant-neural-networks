@@ -10,7 +10,6 @@ lr_hparams:
   - 25
   - 40
 m_param:
-  num_classes: 7
   pretrained: false
   patch_size: 15
 model_name: timm:test_vit4
