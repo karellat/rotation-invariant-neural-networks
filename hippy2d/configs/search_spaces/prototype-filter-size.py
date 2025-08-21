@@ -10,7 +10,6 @@ search_space = {
         "input_size" : 64,
         "num_classes" : 10,
         "init_channels": 4,
-        "circular_padding": "tukey",
         "filter_size": tune.choice([5, 7, 9, 11, 13]),
 
     },
