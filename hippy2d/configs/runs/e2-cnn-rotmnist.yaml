@@ -1,0 +1,15 @@
+d_hparams:
+  batch_size: 8
+  data_dir: data
+dataset_name: RotMnist
+early_stopping: 15
+epochs: 100
+lr_hparams:
+  gamma: 0.95
+lr_name: ExponentialLR
+model_name: RotMNISTE2CNN
+optimizer_hparams:
+  lr: 0.001
+optimizer_name: AdamW
+seed: 42
+run_name: e2-cnn-rotmnist

@@ -410,6 +410,11 @@ def collate_tuple(batch):
 class RESISC45(LightningDataModule):
     # Hugging face bridge
     total_samples = 31500
+
+    @property
+    def num_classes(self):
+        return 45
+
     def __init__(self,
                  data_dir: str = "./data",
                  pad: int = 0,

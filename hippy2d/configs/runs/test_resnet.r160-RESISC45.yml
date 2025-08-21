@@ -1,6 +1,8 @@
 d_hparams:
   batch_size: 32
-dataset_name: ColorectalHistology
+  data_dir: data
+  to_complex: false
+dataset_name: RESISC45
 early_stopping: 15
 epochs: 100
 lr_hparams:
@@ -11,10 +13,9 @@ lr_hparams:
   - 40
 m_param:
   pretrained: false
-  patch_size: 15
-model_name: timm:test_vit4.r160_in1k 
+model_name: timm:test_resnet.r160_in1k 
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
-run_name: test_vit3.r160_in1k-histology
+run_name: test_resnet.r160_in1k-resisc45
 seed: 42
