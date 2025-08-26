@@ -7,7 +7,7 @@ from git import Repo
 from lovely_tensors import monkey_patch
 from lightning.pytorch import seed_everything, callbacks, Trainer
 
-from hippy2d.trainer import get_trainer
+from hippy2d.trainer import get_trainer, EpochTimeLogger
 from hippy2d.models import InvNet
 from hippy2d.utils import ClickDictionaryType
 
@@ -108,7 +108,8 @@ def training_loop(run_name: str,
                                                     save_weights_only=True)
     trainer_callbacks = [checkpoint_callback,
                          callbacks.ModelSummary(max_depth=-1),
-                         callbacks.LearningRateMonitor(logging_interval='epoch')]
+                         callbacks.LearningRateMonitor(logging_interval='epoch'),
+                         EpochTimeLogger()]
     if early_stopping > 0:
         trainer_callbacks.append(callbacks.EarlyStopping(monitor='val_loss', patience=early_stopping))
 

@@ -2,10 +2,21 @@ import ssl
 import torch 
 from loguru import logger
 from lightning.pytorch import seed_everything, Trainer
-
+from lightning import Callback
 from typing import List
 from hippy2d.factory import get_datamodule, get_model
 from hippy2d.models import InvNet
+
+import time
+
+class EpochTimeLogger(Callback):
+    def on_train_epoch_start(self, trainer, pl_module):
+        self.epoch_start_time = time.time()
+
+    def on_train_epoch_end(self, trainer, pl_module):
+        epoch_time = time.time() - self.epoch_start_time
+        # Log using Lightning’s logger
+        pl_module.log("train_epoch_time", epoch_time, prog_bar=True, logger=True)
 
 def get_trainer(seed: int,
                epochs: int,
