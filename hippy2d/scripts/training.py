@@ -49,8 +49,9 @@ def training_loop(run_name: str,
     repo = Repo(search_parent_directories=True)
     sha = repo.head.object.hexsha
     # Logger
-    csv_logger = lightning.pytorch.loggers.CSVLogger('./logs/csv', name=run_name, version=sha)
-    tensorboard_logger = lightning.pytorch.loggers.TensorBoardLogger('./logs/tensorboard', name=run_name, version=sha)
+    version = f"{sha}-{seed}"
+    csv_logger = lightning.pytorch.loggers.CSVLogger('./logs/csv', name=run_name, version=version)
+    tensorboard_logger = lightning.pytorch.loggers.TensorBoardLogger('./logs/tensorboard', name=run_name, version=version)
     logger.add(csv_logger.log_dir + '/training.log', level='DEBUG', format="{time} {level} {message}")
     
     csv_logger.log_hyperparams({
