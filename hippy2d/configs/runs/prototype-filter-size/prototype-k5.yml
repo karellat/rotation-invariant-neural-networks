@@ -25,4 +25,4 @@ optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
 run_name: prototype-mnistrottest-k5
-seed: 102
+seed: 234
