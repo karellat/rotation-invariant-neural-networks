@@ -1,6 +1,9 @@
 import torch 
+import math
 from einops import rearrange
 from loguru import logger
+from typing import Sequence, Union
+
 
 from hippy2d.complex_invariants_2d import get_complex_monomial
 from hippy2d.utils import tukey_2d, get_default_complex, get_circular_mask
@@ -29,7 +32,103 @@ class SafeAtan2(torch.autograd.Function):
         grad_y =  x / denom * grad_output
         return grad_y, grad_x, None
 
+def escnn_style_rings_sigmas(kernel_size: int, n_rings: int):
+    """
+    Rings: linearly spaced from 0 to floor((k-1)/2).
+    Sigmas: 0.005 at the center (if present), 0.6 on interior, 0.4 on outermost.
+    """
+    assert kernel_size % 2 == 1
+    rmax = (kernel_size - 1) // 2
+    rings = torch.linspace(0.0, float(rmax), steps=n_rings).tolist()
+    if rings[0] == 0.0:
+        sigma = [0.005] + [0.6] * (n_rings - 2) + [0.4] if n_rings > 1 else [0.4]
+    else:
+        sigma = [0.6] * (n_rings - 1) + [0.4]
+    return rings, sigma
 
+
+class RadialGaussianConv2d(torch.nn.Module):
+    """
+    2D convolution with a radially symmetric kernel parameterized as a
+    linear combination of Gaussian rings.
+
+    Kernel(x, y) = sum_j coeff[out, in, j] * exp(-(r - rings[j])^2 / (2*sigma[j]^2)),
+    where r = sqrt(x^2 + y^2) on the kernel grid.
+
+    Simplified: stride=1, padding=0 (valid), groups=1, dilation=1, bias=None.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        rings: Sequence[float],
+        sigma: Union[float, Sequence[float]],
+    ):
+        super().__init__()
+        if isinstance(sigma, (int, float)):
+            sigma = [float(sigma)] * len(rings)
+        assert len(rings) == len(sigma) and len(rings) > 0, "rings and sigma must match and be non-empty"
+        for r in rings:
+            assert r >= 0.0
+        for s in sigma:
+            assert s > 0.0
+
+
+        self.in_channels = int(in_channels)
+        self.out_channels = int(out_channels)
+        self.kernel_size = int(kernel_size)
+        self.padding = (self.kernel_size - 1) // 2
+
+        # Learnable ring coefficients: (out, in, R)
+        R = len(rings)
+        self.coeff = torch.nn.Parameter(torch.zeros(out_channels, in_channels, R))
+
+        # Fixed ring parameters (buffers)
+        self.register_buffer("rings", torch.tensor(rings, dtype=torch.get_default_dtype()))   # (R,)
+        self.register_buffer("sigma", torch.tensor(sigma, dtype=torch.get_default_dtype()))   # (R,)
+
+        # Pre-sample the radial basis on the kernel grid: (R, k, k)
+        basis = self._build_radial_basis(self.kernel_size, self.rings, self.sigma)
+        self.register_buffer("_basis", basis)  # (R, k, k)
+
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        fan_in = self.in_channels * self.coeff.shape[-1]  # in_channels * n_rings
+        bound = 1.0 / math.sqrt(max(1, fan_in))
+        torch.nn.init.uniform_(self.coeff, -bound, bound)
+
+    @staticmethod
+    def _radius_grid(k: int, device=None, dtype=None) -> torch.Tensor:
+        """Radius r = sqrt(x^2 + y^2) over a k×k grid centered at 0."""
+        ys = torch.arange(k, device=device, dtype=dtype) - (k - 1) / 2.0
+        xs = torch.arange(k, device=device, dtype=dtype) - (k - 1) / 2.0
+        yy, xx = torch.meshgrid(ys, xs, indexing="ij")
+        return torch.sqrt(yy ** 2 + xx ** 2)  # (k, k)
+
+    @classmethod
+    def _build_radial_basis(cls, k: int, rings: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+        r = cls._radius_grid(k, device=rings.device, dtype=rings.dtype)  # (k, k)
+        rings = rings.view(-1, 1, 1)   # (R,1,1)
+        sigma = sigma.view(-1, 1, 1)   # (R,1,1)
+        return torch.exp(-0.5 * (r.unsqueeze(0) - rings) ** 2 / (sigma ** 2))  # (R,k,k)
+
+    def _assemble_weight(self, dtype=None) -> torch.Tensor:
+        # (out, in, R) × (R, k, k) -> (out, in, k, k)
+        basis = self._basis.to(dtype=dtype if dtype is not None else self._basis.dtype)
+        return torch.einsum("oir,rhw->oihw", self.coeff, basis)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        w = self._assemble_weight(dtype=x.dtype)
+        # Valid convolution: stride=1, padding=0, dilation=1, groups=1, bias=None
+        return torch.nn.functional.conv2d(x, w, bias=None, stride=1, padding=self.padding, dilation=1, groups=1)
+
+    @torch.no_grad()
+    def current_kernel(self) -> torch.Tensor:
+        """Get the assembled kernel: (out_channels, in_channels, k, k)."""
+        return self._assemble_weight()
 
 class ComplexInvariantConv2D(torch.nn.Module):
     def __init__(self,
@@ -195,7 +294,8 @@ class ComplexBaseBlock(torch.nn.Module):
                  subsampling:bool = True, 
                  zero_order_scaling:bool = False,
                  channels_masking: str = "tukey",
-                 conv_padding: str = "same"): 
+                 conv_padding: str = "same",
+                 learnable_radial_basis: int = 5): 
         super(ComplexBaseBlock, self).__init__()
         self.conv = ComplexInvariantConv2D(filter_size=filter_size,
                                             max_order=max_order,
@@ -238,6 +338,20 @@ class ComplexBaseBlock(torch.nn.Module):
         self.channels_masking = channels_masking
         if channels_masking == "tukey":
             self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
+        
+        # Radial part
+        assert learnable_radial_basis >= 0, "Learnable radial basis must be non-negative"
+        self.has_radial_conv = True if learnable_radial_basis > 0 else False
+
+        if self.has_radial_conv:
+            rings, sigma = escnn_style_rings_sigmas(filter_size, learnable_radial_basis)
+            self.radial_conv = RadialGaussianConv2d(in_channels=in_channels,
+                                                    out_channels=in_channels,
+                                                    kernel_size=filter_size,
+                                                    rings=rings,
+                                                    sigma=sigma)
+        else:
+            self.radial_conv = torch.nn.Identity()
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -256,6 +370,8 @@ class ComplexBaseBlock(torch.nn.Module):
         # TODO: Here should be a circular masking for the whole feature map
         if self.channels_masking == "tukey":
             x = x * self.features_mask
+        # Radial Part
+        x = self.radial_conv(x)
         x = self.conv(x)
         # Here we can use the Masked_tensor  instead zero masking
         # Apply batch normalization and activation

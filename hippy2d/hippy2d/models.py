@@ -279,6 +279,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                  m_layers=3,
                  init_channels=4,
                  max_order=4,
+                 learnable_radial_basis: int = 0, 
                  zero_order_scaling:bool = False,
                  classification:bool = True, 
                  channels_masking:bool = True):
@@ -312,6 +313,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                               filter_size=filter_size[block_idx],
                                               zero_order_scaling=zero_order_scaling,
                                               input_size=input_size,
+                                              learnable_radial_basis=learnable_radial_basis,
                                               channels_masking=self.masking_channels,
                                               subsampling=False))
                 in_channels = out_channels
@@ -324,6 +326,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                           max_order=self.max_order,
                                           zero_order_scaling=zero_order_scaling,
                                           input_size=input_size,
+                                          learnable_radial_basis=learnable_radial_basis,
                                           channels_masking=self.masking_channels,
                                           subsampling=True if block_idx < n_blocks - 1 else False))
 
