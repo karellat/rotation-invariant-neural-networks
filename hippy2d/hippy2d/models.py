@@ -8,6 +8,7 @@ from hippy2d.optimal_invariant_cnn import ComplexBaseBlock
 from hippy2d.e2sfcnn import ExpE2SFCNN
 
 from hippy2d.utils import get_default_complex   
+from torch.nn import functional as F
 
 # Lightning wrapper
 class InvNet(L.LightningModule):
@@ -86,11 +87,29 @@ class InvNet(L.LightningModule):
         batch = batch if type(batch) is dict else {'test': batch}
         for k, v in batch.items():
             x, y = v
-            _, loss, acc = self.shared_step(x, y)
+            y_hat, loss, acc = self.shared_step(x, y)
             # NOTE: Return the validation loss with key 'val'
             # Other datasets are only for debugging purposes
             self.log(f'{k}_loss', loss, sync_dist=True)
             self.log(f'{k}_acc', acc, sync_dist=True)
+            x_90, x_180, x_270 = torch.rot90(x, 1, [-2, -1]), torch.rot90(x, 2, [-2, -1]), torch.rot90(x, 3, [-2, -1])
+            y_hat_90, _, _ = self.shared_step(x_90, y)
+            y_hat_180, _, _ = self.shared_step(x_180, y)
+            y_hat_270, _, _ = self.shared_step(x_270, y)
+
+            y_hat_rd = torch.stack([y_hat_90, y_hat_180, y_hat_270], dim=1)
+            norm = torch.norm(y_hat_rd - y_hat[:, None], dim=-1)
+            sim = F.cosine_similarity(y_hat_rd, y_hat[:, None], dim=-1) 
+            norm_max = norm.max()
+            cos_min = sim.min()
+
+            norm = norm.mean()
+            cos_sim = sim.mean()
+
+            self.log(f'{k}_rci_norm', norm, sync_dist=True)
+            self.log(f'{k}_rci_sim', cos_sim, sync_dist=True)
+            self.log(f'{k}_rci_norm_max', norm_max, sync_dist=True, reduce_fx="max")
+            self.log(f'{k}_rci_sim_min', cos_min, sync_dist=True, reduce_fx="min")
 
 # Model Zoo
 class Resnet18(nn.Module): 
@@ -261,9 +280,11 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                  init_channels=4,
                  max_order=4,
                  zero_order_scaling:bool = False,
-                 classification:bool = True):
+                 classification:bool = True, 
+                 channels_masking:bool = True):
         super(PrototypeOptimalInvCNN, self).__init__()
         channels = [init_channels * (2 ** i) for i in range(n_blocks + 1)]
+        self.masking_channels = "tukey" if channels_masking else "none"
         self.in_channels = in_channels
         self.max_order = max_order
         out_channels = in_channels
@@ -278,6 +299,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                               filter_size=filter_size,
                                               zero_order_scaling=zero_order_scaling,
                                               input_size=input_size,
+                                              channels_masking=self.masking_channels,
                                               subsampling=False))
                 in_channels = out_channels
 
@@ -289,6 +311,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                           max_order=self.max_order,
                                           zero_order_scaling=zero_order_scaling,
                                           input_size=input_size,
+                                          channels_masking=self.masking_channels,
                                           subsampling=True if block_idx < n_blocks - 1 else False))
 
             in_channels = out_channels

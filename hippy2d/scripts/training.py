@@ -20,10 +20,10 @@ SLURMEnvironment.detect = lambda: False
 @click.option('--early_stopping', default=15, type=int, help='Early stopping patience.')
 @click.option('--epochs', default=30, type=int, help='Number of training epochs.')
 @click.option('--debug', is_flag=True, default=False, help='Run in debug mode with small datasets.')
-@click.option('--dataset_name', default='RESISC45', type=str, help='Name of the dataset.')
-@click.option('--d_hparams', default=dict(batch_size=8 ), type=ClickDictionaryType(), help='Dataset hyperparameters.')
-@click.option('--model_name', default='Resnet18', type=str, help='Name of the model to use.')
-@click.option('--m_param', default=dict(in_channels=3, num_classes=45), type=ClickDictionaryType(), help='Model hyperparameters.')
+@click.option('--dataset_name', default='ColorectalHistology', type=str, help='Name of the dataset.')
+@click.option('--d_hparams', default=dict(batch_size=32), type=ClickDictionaryType(), help='Dataset hyperparameters.')
+@click.option('--model_name', default="PrototypeOptimalInvCNN", type=str, help='Name of the model to use.')
+@click.option('--m_param', default=dict(in_channels=3, num_classes=7, input_size=150, init_channels=7, n_blocks=4, m_layers=3, filter_size=11), type=ClickDictionaryType(), help='Model hyperparameters.')
 @click.option('--optimizer_name', default='AdamW', type=str, help='Optimizer name.')
 @click.option('--optimizer_hparams', default=dict(lr=1e-2), type=ClickDictionaryType(), help='Optimizer hyperparameters.')
 @click.option('--lr_name', default='MultiStepLR', type=str, help='Learning rate scheduler name.')
@@ -84,7 +84,7 @@ def training_loop(run_name: str,
         accelerator = "cpu"
     # Convert dictionary parameters
     if debug:
-        logger.setLevel("DEBUG")
+        #logger.setLevel("DEBUG")
         monkey_patch()
         logger.warning("Running in debug mode (small datasets, offline, etc).")
         # NOTE: Debug does not work running parallel workers
