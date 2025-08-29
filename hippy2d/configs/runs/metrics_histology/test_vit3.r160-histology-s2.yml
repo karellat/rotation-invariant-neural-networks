@@ -17,4 +17,4 @@ optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
 run_name: test_vit3.r160_in1k-histology-metric
-seed: 42
+seed: 24

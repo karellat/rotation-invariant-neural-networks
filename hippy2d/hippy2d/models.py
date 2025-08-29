@@ -283,7 +283,20 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                  classification:bool = True, 
                  channels_masking:bool = True):
         super(PrototypeOptimalInvCNN, self).__init__()
-        channels = [init_channels * (2 ** i) for i in range(n_blocks + 1)]
+        if type(filter_size) is int:
+            filter_size = [filter_size] * n_blocks
+        elif type(filter_size) is list:
+            assert len(filter_size) == n_blocks, "If a list of filter sizes is provided, it must have length n_blocks"
+        else:
+            raise TypeError("filter_size must be an int or a list of ints")
+        if type(init_channels) is int:
+            channels = [init_channels * (2 ** i) for i in range(n_blocks + 1)]
+        elif type(init_channels) is list:
+            channels = init_channels
+            assert len(channels) == n_blocks, "If a list of channels is provided, it must have length n_blocks + 1"
+        else: 
+            raise TypeError("init_channels must be an int or a list of ints")
+
         self.masking_channels = "tukey" if channels_masking else "none"
         self.in_channels = in_channels
         self.max_order = max_order
@@ -296,7 +309,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                 block.append(ComplexBaseBlock(in_channels=in_channels,
                                               out_channels=out_channels,
                                               max_order=self.max_order,
-                                              filter_size=filter_size,
+                                              filter_size=filter_size[block_idx],
                                               zero_order_scaling=zero_order_scaling,
                                               input_size=input_size,
                                               channels_masking=self.masking_channels,
@@ -307,7 +320,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
             # Subsampling block at the end
             block.append(ComplexBaseBlock(in_channels=in_channels,
                                           out_channels=out_channels,
-                                          filter_size=filter_size,
+                                          filter_size=filter_size[block_idx],
                                           max_order=self.max_order,
                                           zero_order_scaling=zero_order_scaling,
                                           input_size=input_size,

@@ -14,7 +14,7 @@ model_name: PrototypeOptimalInvCNN
 m_param:
   in_channels: 3
   input_size: 150
-  init_channels: 7
+  init_channels: [8, 16, 32, 58]
   n_blocks: 4
   m_layers: 3
   filter_size: 11

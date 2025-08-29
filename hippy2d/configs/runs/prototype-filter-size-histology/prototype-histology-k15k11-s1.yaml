@@ -1,29 +1,25 @@
 d_hparams:
   batch_size: 32
-  data_dir: data
-  to_complex: false
-dataset_name: RESISC45
+dataset_name: ColorectalHistology
 early_stopping: 15
-epochs: 100
+epochs: 50
 lr_hparams:
   gamma: 0.1
   milestones:
   - 10
-  - 50
-  - 90
+  - 15
+  - 25
 lr_name: MultiStepLR
-debug: false
+model_name: PrototypeOptimalInvCNN
 m_param:
-  filter_size: 11
   in_channels: 3
-  num_classes: 45
-  input_size: 160
+  input_size: 150
   init_channels: [8, 16, 32, 58]
   n_blocks: 4
   m_layers: 3
-model_name: PrototypeOptimalInvCNN
+  filter_size: [15, 11, 11, 11]
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-RESISC45
-seed: 42
+seed: 122
+run_name: prototype-histology-k11
