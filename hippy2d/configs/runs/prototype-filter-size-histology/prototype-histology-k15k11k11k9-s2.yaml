@@ -21,5 +21,5 @@ m_param:
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-seed: 38
+seed: 444
 run_name: prototype-histology-k15k11k11k9
