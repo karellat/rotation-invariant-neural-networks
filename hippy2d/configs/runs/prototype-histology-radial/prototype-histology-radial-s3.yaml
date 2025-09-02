@@ -1,0 +1,25 @@
+d_hparams:
+  batch_size: 32
+dataset_name: ColorectalHistology
+early_stopping: 15
+epochs: 50
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 10
+  - 15
+  - 25
+lr_name: MultiStepLR
+model_name: PrototypeOptimalInvCNN
+m_param:
+  in_channels: 3
+  input_size: 150
+  n_blocks: 4
+  m_layers: 3
+  learnable_radial_basis: 5
+  init_channels: [8, 16, 32, 58]
+optimizer_hparams:
+  lr: 0.01525
+optimizer_name: AdamW
+seed: 232
+run_name: prototype-histology-radial
