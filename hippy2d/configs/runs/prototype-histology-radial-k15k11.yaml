@@ -22,5 +22,5 @@ m_param:
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-seed: 42
+seed: 25
 run_name: prototype-histology-radial-k15k11
