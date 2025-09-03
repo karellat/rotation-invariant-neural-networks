@@ -140,7 +140,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  basis_q0:int = 0, 
                  circular_padding:str ="tukey",
                  conv_padding: str = "same", 
-                 zero_order_scaling: bool = False,
+                 prenormalize: str = "none",
                  eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
         self.filter_size = filter_size
@@ -150,7 +150,6 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.basis_p0 = basis_p0
         self.basis_q0 = basis_q0
         self.eps = eps
-        self.zero_order_scaling = zero_order_scaling
 
         # Asserts 
         assert filter_size % 2 == 1, "Filter size must be odd"
@@ -166,11 +165,6 @@ class ComplexInvariantConv2D(torch.nn.Module):
         # Prepare the fixed filters corresponding to the complex monomials
         filters = []
         ind = []
-        # Add scaling term 
-        if self.zero_order_scaling:
-            filters.append(torch.complex(real=torch.ones(filter_size, filter_size),
-                                         imag=torch.zeros(filter_size, filter_size)))
-            ind.append((0, 0))  # Zero order term
         # Add the p0q0 term
         filters.append(get_complex_monomial(self.filter_size,
                                              self.basis_q0,
@@ -205,13 +199,20 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.padding = conv_padding 
         self.register_buffer('filters', filters)
         self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64) # Skip the normalization and scaling term
-        if self.zero_order_scaling:
-            self.exponents = self.exponents[2:] # Skip the zero order term and normalization
-        else:
-            self.exponents = self.exponents[1:] # Skip the normalization term
+        self.exponents = self.exponents[1:] # Skip the normalization term
         self.exponents = torch.nn.Parameter(self.exponents[None, :, None, None], requires_grad=False) # Broadcasting dimension
         self.ind = torch.tensor(ind, dtype=torch.uint16)
         self.num_invariants = self.exponents.shape[1] # Number of invariants and skip the normalization and scaling term
+        # Prenormalization 
+        if prenormalize == "none": 
+            self.norm = torch.nn.Identity()
+        elif prenormalize == "batch":
+            self.norm = torch.nn.BatchNorm2d(self.num_invariants*self.in_channels*2,
+                                             affine=False,
+                                             dtype=torch.get_default_dtype())
+        else: 
+            raise ValueError(f"Unknown prenormalization type: {prenormalize}. Use 'none', 'batch', or 'layer(not implemented)'.")
+            
         self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants*self.in_channels*2,
                                        out_channels=self.out_channels,
                                        kernel_size=1, 
@@ -246,10 +247,6 @@ class ComplexInvariantConv2D(torch.nn.Module):
             assert moments.dtype == torch.get_default_dtype(), f"Output dtype {moments.dtype} does not match expected {torch.get_default_dtype()}"
             assert torch.all(~torch.isnan(moments)), "Output contains NaN values"
 
-        # TODO: Test different normalization scheme
-        if self.zero_order_scaling:
-            zero_order_moment = moments[:, 0:1, 0:1] # Take out the imaginary part, because it's zero anyway
-            moments = moments[:, :, 1:] / torch.clamp(zero_order_moment, min=self.eps)  # Remove the zero order moment and safe normalize by zero order
         normalization_moment = moments[:, :, 0]
         moments = moments[:, :, 1:]
         # Moivre's Theorem
@@ -274,10 +271,12 @@ class ComplexInvariantConv2D(torch.nn.Module):
             moments[:, 0] * normalization_factor_real - moments[:, 1] * normalization_factor_imag,
             moments[:, 0] * normalization_factor_imag + moments[:, 1] * normalization_factor_real
         ], dim=1)  # Stack along the channel dimension
+
         if __debug__:
             assert result.dtype == torch.get_default_dtype(), f"Output dtype {result.dtype} does not match expected {torch.get_default_dtype()}"
             assert torch.all(~torch.isnan(result)), "Output contains NaN values"
         result = rearrange(result, '(b ch) n h w -> b (ch n) h w', ch=self.in_channels)
+        result = self.norm(result)
         features = self.conv1x1(result) # Convert back to real
         return features
 
@@ -294,16 +293,17 @@ class ComplexBaseBlock(torch.nn.Module):
                  max_order:int = MAX_ORDER, 
                  residual:bool = True, 
                  subsampling:bool = True, 
-                 zero_order_scaling:bool = False,
+                 prenormalize:str = "none",
                  channels_masking: str = "tukey",
                  conv_padding: str = "same",
                  learnable_radial_basis: int = 5): 
         super(ComplexBaseBlock, self).__init__()
+        assert prenormalize in ["none", "batch", "layer"], f"Unknown prenormalize type: {prenormalize}"
         self.conv = ComplexInvariantConv2D(filter_size=filter_size,
                                             max_order=max_order,
                                             in_channels=in_channels,
                                             out_channels=out_channels,
-                                            zero_order_scaling=zero_order_scaling,
+                                            prenormalize=prenormalize,
                                             conv_padding=conv_padding,
                                             basis_p0=basis_p0,
                                             basis_q0=basis_q0)

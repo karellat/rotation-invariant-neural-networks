@@ -16,4 +16,4 @@ optimizer_hparams:
   weight_decay: 0.05
 optimizer_name: AdamW
 seed: 42
-run_name: prototype-rotmnist
+run_name: prototype-rotmnist-radial
