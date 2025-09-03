@@ -246,6 +246,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
             assert moments.dtype == torch.get_default_dtype(), f"Output dtype {moments.dtype} does not match expected {torch.get_default_dtype()}"
             assert torch.all(~torch.isnan(moments)), "Output contains NaN values"
 
+        # TODO: Test different normalization scheme
         if self.zero_order_scaling:
             zero_order_moment = moments[:, 0:1, 0:1] # Take out the imaginary part, because it's zero anyway
             moments = moments[:, :, 1:] / torch.clamp(zero_order_moment, min=self.eps)  # Remove the zero order moment and safe normalize by zero order
@@ -281,6 +282,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         return features
 
 # Create a block 
+# TODO: This should refactor to single resnet block, that can serve multiple convolution layers of type=0 
 class ComplexBaseBlock(torch.nn.Module):
     def __init__(self, 
                  in_channels:int, 
@@ -383,3 +385,4 @@ class ComplexBaseBlock(torch.nn.Module):
             # Add the residual connection
             x = x+ self.residual_conv(identity)
         return x
+
