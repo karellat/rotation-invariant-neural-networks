@@ -4,10 +4,95 @@ from einops import rearrange, repeat
 import numpy as np
 
 from hippy2d.complex_invariants_2d import get_complex_monomial
-from hippy2d.utils import get_default_complex, tukey_2d
+from hippy2d.utils import get_default_complex, tukey_2d, get_circular_mask
 
 FILTER_SIZE = 15
 MAX_ORDER = 3
+
+class FlexBaseBlock(torch.nn.Module):
+    def __init__(self, 
+                 in_channels:int, 
+                 out_channels:int,
+                 input_size:int,
+                 filter_size:int = FILTER_SIZE, 
+                 max_order:int = MAX_ORDER, 
+                 residual:bool = True, 
+                 subsampling:bool = True, 
+                 channels_masking: str = "none",
+                 conv_padding: str = "same"):
+        super(FlexBaseBlock, self).__init__()
+
+        self.conv = FlexInv2D(in_channels=in_channels,
+                              out_channels=out_channels,
+                              input_shape=input_size,
+                              filter_size=filter_size,
+                              max_order=max_order, 
+                              padding=conv_padding)
+
+        if conv_padding == "same":
+            conv_output_shape = input_size
+        else:
+            conv_output_shape = input_size + (2 * conv_padding) - filter_size + 1
+
+        self.norm = torch.nn.LayerNorm(normalized_shape=[out_channels, conv_output_shape, conv_output_shape],
+                                        eps=1e-5,
+                                        elementwise_affine=False)
+        self.activation = torch.nn.ELU()
+        self.residual = residual
+        self.padding = conv_padding
+        assert (input_size - conv_output_shape) % 2 == 0, "Input size must be even for valid padding"
+        self.identity_pad = (input_size - conv_output_shape) // 2 
+        self.input_size = input_size
+
+        if in_channels != out_channels:
+            self.residual_conv = torch.nn.Conv2d(in_channels=in_channels,
+                                                 out_channels=out_channels,
+                                                 kernel_size=1,
+                                                 bias=False)
+        else: 
+            self.residual_conv = torch.nn.Identity()
+        
+        if subsampling: 
+            self.subsampling = torch.nn.AvgPool2d(kernel_size=2, stride=2)
+        else:
+            self.subsampling = torch.nn.Identity()
+        # Note: This can be done by torch.masked.MaskedTensor, but it is not supported for complex
+        # it's possible to rewrite the whole block using own complex convolution implementation
+        assert channels_masking in ["tukey", "none"], f"Unknown channels_masking: {channels_masking}"
+        self.channels_masking = channels_masking
+        if channels_masking == "tukey":
+            self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
+        
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of the complex invariant convolution block.
+        :param x: Input tensor of shape (batch_size, in_channels, height, width)
+        :return: Output tensor of shape (batch_size, out_channels, height', width')
+        """
+
+        if self.padding == "same" or self.identity_pad == 0:
+            identity = x
+        else:
+            identity = x[..., 
+                         self.identity_pad: -self.identity_pad,
+                         self.identity_pad: -self.identity_pad]
+        # TODO: Here should be a circular masking for the whole feature map
+        x = self.conv(x)
+        # TODO: This must be tested properly 
+        if self.channels_masking == "tukey":
+            raise NotImplementedError("Tukey masking is not must be tested before.")
+            x = x * self.features_mask
+        # Here we can use the Masked_tensor  instead zero masking
+        # Apply batch normalization and activation
+        x = self.norm(x)
+        x = self.activation(x)
+        x = self.subsampling(x)
+        if self.residual:
+            identity = self.subsampling(identity)
+            # Add the residual connection
+            x = x + self.residual_conv(identity)
+        return x
 
 
 class FlexInv2D(torch.nn.Module):
@@ -99,7 +184,7 @@ class FlexInv2D(torch.nn.Module):
                                                                     torch.complex(torch.tensor(1e-7), torch.tensor(0.0)))
         # TODO: Negative coef_b can cause NaNs
         nonsymmetric_invariants = (
-            (nonsymmetric_moments[:, :, None] ** self.coef_a)
+            (safe_nonsymmetric_moments[:, :, None] ** self.coef_a)
             *
             (safe_nonsymmetric_moments[:, None, :] ** self.coef_b)
         )

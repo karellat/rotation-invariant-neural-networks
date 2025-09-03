@@ -135,6 +135,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  filter_size:int,
                  max_order:int, 
                  in_channels: int,
+                 input_size: int,
                  out_channels:int,
                  basis_p0:int = 1,
                  basis_q0:int = 0, 
@@ -210,8 +211,12 @@ class ComplexInvariantConv2D(torch.nn.Module):
             self.norm = torch.nn.BatchNorm2d(self.num_invariants*self.in_channels*2,
                                              affine=False,
                                              dtype=torch.get_default_dtype())
+        elif prenormalize == "layer":
+            self.norm = torch.nn.LayerNorm(normalized_shape=[self.num_invariants*self.in_channels*2, input_size, input_size],
+                                           bias=False,
+                                           elementwise_affine=False)
         else: 
-            raise ValueError(f"Unknown prenormalization type: {prenormalize}. Use 'none', 'batch', or 'layer(not implemented)'.")
+            raise ValueError(f"Unknown prenormalization type: {prenormalize}. Use 'none', 'batch', or 'layer'.")
             
         self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants*self.in_channels*2,
                                        out_channels=self.out_channels,
@@ -302,6 +307,7 @@ class ComplexBaseBlock(torch.nn.Module):
         self.conv = ComplexInvariantConv2D(filter_size=filter_size,
                                             max_order=max_order,
                                             in_channels=in_channels,
+                                            input_size=input_size,
                                             out_channels=out_channels,
                                             prenormalize=prenormalize,
                                             conv_padding=conv_padding,

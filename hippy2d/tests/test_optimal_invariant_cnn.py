@@ -96,17 +96,21 @@ class TestComplexOptimalInvariants:
 
     def test_90_network_classification(self, test_images, test_device):
         """Test the 90-degree rotation network with classification."""
-        net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
-                                     input_size=IMAGE_SIZE,
-                                     classification=True).to(test_device)
-
-        input_rgb, rot_input_rgb = test_images
-        y = net(input_rgb.to(test_device))
-        y_rot = net(rot_input_rgb.to(test_device))
-        torch.testing.assert_close(
-            y,
-            y_rot
-        )
+        for prenormalize in ['batch', 'none', 'layer']:
+            for masking in [True, False]: 
+                net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
+                                            channels_masking=masking,
+                                            prenormalize=prenormalize,
+                                            input_size=IMAGE_SIZE,
+                                            classification=True).to(test_device)
+                net.eval()
+                input_rgb, rot_input_rgb = test_images
+                y = net(input_rgb.to(test_device))
+                y_rot = net(rot_input_rgb.to(test_device))
+                torch.testing.assert_close(
+                    y,
+                    y_rot
+                )
 
     def test_network_gradient_nan(self, test_images, test_device): 
         """Test if the gradient coming out of the network"""
@@ -115,7 +119,7 @@ class TestComplexOptimalInvariants:
                                      classification=True).to(test_device)
         with torch.autograd.detect_anomaly(True):
             input_rgb, _ = test_images
-            input = input_rgb.to(test_device)
+            input = repeat(input_rgb, "1 c h w -> b c h w", b=5).to(test_device)
             # track the gradients with dummy loss
             input.requires_grad = True
             y = net(input)
