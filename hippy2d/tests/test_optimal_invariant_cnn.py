@@ -4,7 +4,16 @@ from einops import repeat
 from warnings import warn
 import torchvision.transforms.v2 as transforms
 
-from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D, ComplexBaseBlock, FILTER_SIZE, BASIS_P0, BASIS_Q0, MAX_ORDER
+from hippy2d.optimal_invariant_cnn import (
+    ComplexInvariantConv2D,
+    ComplexInvariantConv2DR, 
+    ComplexBaseBlock,
+    FILTER_SIZE,
+    BASIS_P0,
+    BASIS_Q0,
+    N_RINGS,
+    MAX_ORDER
+)
 from hippy2d.models import PrototypeOptimalInvCNN
 from hippy2d.utils import get_testing_img, get_default_complex
 
@@ -73,10 +82,22 @@ class TestComplexOptimalInvariants:
         """Test the 90-degree rotation layer."""
         inv_conv = ComplexInvariantConv2D(filter_size=FILTER_SIZE,
                                           max_order=MAX_ORDER,
+                                          input_size=test_images[0].shape[-1],
                                           in_channels=3,
                                           out_channels=12).to(test_device)
         # Forward pass through the complex invariant convolution layer
         self._test_90_module(inv_conv, test_images, test_device)
+
+    def test_90_radial_layer(self, test_images, test_device):
+        """Test the 90-degree rotation radial layer."""
+        rc2_conv = ComplexInvariantConv2DR(filter_size=FILTER_SIZE,
+                                           max_order=MAX_ORDER,
+                                           n_rings=N_RINGS,
+                                           input_size=test_images[0].shape[-1],
+                                           in_channels=3,
+                                           out_channels=12).to(test_device)
+        # Forward pass through the complex invariant convolution layer
+        self._test_90_module(rc2_conv, test_images, test_device)
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
