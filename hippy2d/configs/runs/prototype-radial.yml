@@ -19,11 +19,11 @@ m_param:
   input_size: 64
   num_classes: 10
   init_channels: 4
-  filter_size: 11
-  learnable_radial_basis: 5
+  filter_size: 15
+  learnable_radial: True
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-mnistrottest-radial
+run_name: prototype-mnistrottest-radial-bug-fix
 seed: 234

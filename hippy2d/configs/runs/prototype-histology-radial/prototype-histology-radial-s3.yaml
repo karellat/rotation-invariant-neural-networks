@@ -16,7 +16,7 @@ m_param:
   input_size: 150
   n_blocks: 4
   m_layers: 3
-  learnable_radial_basis: 5
+  learnable_radial: True
   init_channels: [8, 16, 32, 58]
 optimizer_hparams:
   lr: 0.01525

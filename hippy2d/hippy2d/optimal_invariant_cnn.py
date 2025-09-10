@@ -300,6 +300,7 @@ class ComplexInvariantConv2DR(torch.nn.Module):
                  eps=1e-8):
         super(ComplexInvariantConv2DR, self).__init__()
         self.filter_size = filter_size
+        self.input_size = input_size
         self.max_order = max_order
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -459,23 +460,35 @@ class ComplexBaseBlock(torch.nn.Module):
                  basis_q0:int = BASIS_Q0,
                  filter_size:int = FILTER_SIZE, 
                  max_order:int = MAX_ORDER, 
+                 learnable_radial:bool=False,
                  residual:bool = True, 
                  subsampling:bool = True, 
                  prenormalize:str = "none",
                  channels_masking: str = "tukey",
-                 conv_padding: str = "same",
-                 learnable_radial_basis: int = 5): 
+                 conv_padding: str = "same"): 
         super(ComplexBaseBlock, self).__init__()
         assert prenormalize in ["none", "batch", "layer"], f"Unknown prenormalize type: {prenormalize}"
-        self.conv = ComplexInvariantConv2D(filter_size=filter_size,
-                                            max_order=max_order,
-                                            in_channels=in_channels,
-                                            input_size=input_size,
-                                            out_channels=out_channels,
-                                            prenormalize=prenormalize,
-                                            conv_padding=conv_padding,
-                                            basis_p0=basis_p0,
-                                            basis_q0=basis_q0)
+        if not learnable_radial:
+            self.conv = ComplexInvariantConv2D(filter_size=filter_size,
+                                                max_order=max_order,
+                                                in_channels=in_channels,
+                                                input_size=input_size,
+                                                out_channels=out_channels,
+                                                prenormalize=prenormalize,
+                                                conv_padding=conv_padding,
+                                                basis_p0=basis_p0,
+                                                basis_q0=basis_q0)
+        else: 
+            assert prenormalize == "none", "Prenormalization is not supported for the radial layers"
+            self.conv = ComplexInvariantConv2DR(filter_size=filter_size,
+                                                max_order=max_order,
+                                                in_channels=in_channels,
+                                                input_size=input_size,
+                                                out_channels=out_channels,
+                                                conv_padding=conv_padding,
+                                                basis_p0=basis_p0,
+                                                basis_q0=basis_q0,
+                                                n_rings=N_RINGS)
         if conv_padding == "same":
             conv_output_shape = input_size
         else:
@@ -509,10 +522,6 @@ class ComplexBaseBlock(torch.nn.Module):
         self.channels_masking = channels_masking
         if channels_masking == "tukey":
             self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
-        
-        # Radial part
-        assert learnable_radial_basis >= 0, "Learnable radial basis must be non-negative"
-        self.has_radial_conv = True if learnable_radial_basis > 0 else False
 
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
