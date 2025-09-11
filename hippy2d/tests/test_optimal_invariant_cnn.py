@@ -154,24 +154,26 @@ class TestComplexOptimalInvariants:
 
     def test_network_gradient_nan(self, test_images, test_device): 
         """Test if the gradient coming out of the network"""
-        net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
-                                     input_size=IMAGE_SIZE,
-                                     classification=True).to(test_device)
-        with torch.autograd.detect_anomaly(True):
-            input_rgb, _ = test_images
-            input = repeat(input_rgb, "1 c h w -> b c h w", b=5).to(test_device)
-            # track the gradients with dummy loss
-            input.requires_grad = True
-            y = net(input)
-            loss = torch.mean(y)
-            loss.backward()
+        for norm in ['batch', 'layer']:
+            net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
+                                        input_size=IMAGE_SIZE,
+                                        norm=norm,
+                                        classification=True).to(test_device)
+            with torch.autograd.detect_anomaly(True):
+                input_rgb, _ = test_images
+                input = repeat(input_rgb, "1 c h w -> b c h w", b=5).to(test_device)
+                # track the gradients with dummy loss
+                input.requires_grad = True
+                y = net(input)
+                loss = torch.mean(y)
+                loss.backward()
 
-        # Check if the gradients are NaN
-        assert not torch.isnan(input.grad).any(), "Gradients contain NaN values."
-        # Check if the gradients are finite
-        assert torch.isfinite(input.grad).all(), "Gradients contain non-finite values."
-        # Check if the gradients are not zero
-        assert not torch.all(input.grad == 0), "Gradients are all zero, which is unexpected."
+            # Check if the gradients are NaN
+            assert not torch.isnan(input.grad).any(), "Gradients contain NaN values."
+            # Check if the gradients are finite
+            assert torch.isfinite(input.grad).all(), "Gradients contain non-finite values."
+            # Check if the gradients are not zero
+            assert not torch.all(input.grad == 0), "Gradients are all zero, which is unexpected."
     
     def test_radial_network_gradient_nan(self, test_images, test_device): 
         """Test if the gradient coming out of the network"""
