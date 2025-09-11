@@ -101,11 +101,13 @@ class TestComplexOptimalInvariants:
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
-        inv_block = ComplexBaseBlock(in_channels=IMAGE_CHANNELS,
-                                     input_size=IMAGE_SIZE,
-                                     out_channels=12).to(test_device)
-        # Forward pass through the complex invariant block
-        self._test_90_module(inv_block, test_images, test_device)
+        for norm in ['batch', 'layer']:
+            inv_block = ComplexBaseBlock(in_channels=IMAGE_CHANNELS,
+                                         input_size=IMAGE_SIZE,
+                                         out_channels=12,
+                                         norm=norm).to(test_device)
+            # Forward pass through the complex invariant block
+            self._test_90_module(inv_block, test_images, test_device)
 
     def test_90_radial_block(self, test_images, test_device):
         """Test the 90-degree rotation radial block."""
