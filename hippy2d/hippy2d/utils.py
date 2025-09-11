@@ -40,12 +40,15 @@ class ClickDictionaryType(click.ParamType):
 def tukey_2d(shape, alpha=0.5):
     """
     2D Tukey window based on https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.windows.tukey.html
-    :param shape: shape of the window
-    :param alpha: alpha parameter of the Tukey window
-    :return:
+
+    Parameters:
+    shape (int): Size of the square window (output will be shape x shape).
+    alpha (float): Alpha parameter of the Tukey window.
+
+    Returns:
+    np.ndarray: 2D Tukey window of shape (shape, shape) and dtype np.float64.
     """
-    #assert shape % 2 == 0, "Only for even shapes"
-    center = ((shape - 1) / 2), ((shape - 1) / 2)
+    center = ((shape - 1) // 2, (shape - 1) // 2)
     y, x = np.ogrid[:shape, :shape]
     width = int(np.floor(alpha*(shape-1)/2.0))
     dist_from_center = np.sqrt((x - center[0]) ** 2 + (y - center[1]) ** 2)
@@ -54,10 +57,14 @@ def tukey_2d(shape, alpha=0.5):
     identity_mask = dist_from_center <= shape - width
     non_identity_mask = (dist_from_center > shape - width) & (dist_from_center <= shape)
     zero_mask = dist_from_center > shape
-    tukey = -np.ones((shape, shape), dtype=np.float64)
+    tukey = np.zeros((shape, shape), dtype=np.float64)
     tukey[identity_mask] = 1.0
     tukey[zero_mask] = 0.0
-    tukey[non_identity_mask] = 0.5 * (1 + np.cos(np.pi * (-2.0/alpha + 1 + 2.0*dist_from_center[non_identity_mask]/alpha/(shape-1))))
+    # The standard Tukey window formula for the tapering region (see scipy.signal.windows.tukey):
+    # w = 0.5 * (1 + cos(pi * ((2*r/(alpha*(N-1))) - 1)))
+    tukey[non_identity_mask] = 0.5 * (1 + np.cos(
+        np.pi * ((dist_from_center[non_identity_mask] - (shape - width)) / width)
+    ))
     return tukey
 
 def get_testing_img(rgb: bool = False) -> Image: 

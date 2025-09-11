@@ -8,18 +8,20 @@ lr_hparams:
   milestones:
   - 50
   - 100
-  - 150
+  - 125
 lr_name: MultiStepLR
 model_name: PrototypeOptimalInvCNN
 m_param:
   in_channels: 3
   input_size: 150
-  init_channels: [8, 16, 32, 58]
   n_blocks: 4
   m_layers: 3
-  filter_size: [15, 11, 11, 9]
+  norm: layer
+  learnable_radial: False
+  init_channels: [8, 16, 32, 58]
+  filter_size: [15, 11, 11, 11]
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-seed: 182
-run_name: prototype-histology-k15k11k11k9
+seed: 223
+run_name: prototype-histology-layer

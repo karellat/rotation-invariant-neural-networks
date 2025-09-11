@@ -179,6 +179,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                 filters.append(get_complex_monomial(self.filter_size, p, q, dtype=torch.get_default_dtype()))
                 ind.append((p, q))
 
+        self.ind = ind
         # NOTE: This part can be shared by all the layers, that can save memory 
         filters = rearrange(filters, 'n h w -> n 1 h w')
         Ch, _, _, _ = filters.shape
@@ -463,6 +464,7 @@ class ComplexBaseBlock(torch.nn.Module):
                  learnable_radial:bool=False,
                  residual:bool = True, 
                  subsampling:bool = True, 
+                 norm:str = "layer",
                  prenormalize:str = "none",
                  channels_masking: str = "tukey",
                  conv_padding: str = "same"): 
@@ -494,9 +496,16 @@ class ComplexBaseBlock(torch.nn.Module):
         else:
             conv_output_shape = input_size + (2 * conv_padding) - filter_size + 1
         
-        self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, conv_output_shape, conv_output_shape),
+        if norm == "batch":
+            self.norm = torch.nn.BatchNorm2d(num_features=out_channels,
+                                             affine=False,
+                                             dtype=torch.get_default_dtype())
+        elif norm == "layer":
+            self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, conv_output_shape, conv_output_shape),
                                        elementwise_affine=False,
                                        dtype=torch.get_default_dtype())
+        else: 
+            raise ValueError(f"Unknown normalization type: {norm}. Use 'batch' or 'layer'.")
         self.activation = torch.nn.ELU()
         self.residual = residual
         self.padding = conv_padding
