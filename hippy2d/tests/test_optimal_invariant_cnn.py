@@ -35,7 +35,6 @@ class TestComplexOptimalInvariants:
         rot_input = repeat(rotated_img, f'c h w -> 1 c h w').to(dtype=torch.get_default_dtype())
         return x, rot_input
 
-
     @pytest.fixture
     def test_device(self):
         if torch.cuda.is_available():
@@ -77,7 +76,6 @@ class TestComplexOptimalInvariants:
         else: 
             pass
 
-
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
         inv_conv = ComplexInvariantConv2D(filter_size=FILTER_SIZE,
@@ -85,6 +83,17 @@ class TestComplexOptimalInvariants:
                                           input_size=test_images[0].shape[-1],
                                           in_channels=3,
                                           out_channels=12).to(test_device)
+        # Forward pass through the complex invariant convolution layer
+        self._test_90_module(inv_conv, test_images, test_device)
+
+    def test_90_layer_normalized_moments(self, test_images, test_device):
+        """Test the 90-degree rotation layer with normalized moments."""
+        inv_conv = ComplexInvariantConv2D(filter_size=FILTER_SIZE,
+                                          max_order=MAX_ORDER,
+                                          input_size=test_images[0].shape[-1],
+                                          in_channels=3,
+                                          out_channels=12,
+                                          polynomials_magnitude_normalization=True).to(test_device)
         # Forward pass through the complex invariant convolution layer
         self._test_90_module(inv_conv, test_images, test_device)
 
@@ -125,6 +134,7 @@ class TestComplexOptimalInvariants:
                                      classification=False).to(test_device)
 
         self._test_90_module(net, test_images, test_device)
+    
     def test_90_radial_network(self, test_images, test_device): 
         """Test the 90-degree rotation radial network."""
         net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,

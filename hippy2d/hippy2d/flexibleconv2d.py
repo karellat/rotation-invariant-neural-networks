@@ -22,9 +22,9 @@ class FlexBaseBlock(torch.nn.Module):
                  conv_padding: str = "same"):
         super(FlexBaseBlock, self).__init__()
 
-        self.conv = FlexInv2D(in_channels=in_channels,
+        self.conv = FlexConv2d(input_shape=input_size,
+                               in_channels=in_channels,
                               out_channels=out_channels,
-                              input_shape=input_size,
                               filter_size=filter_size,
                               max_order=max_order, 
                               padding=conv_padding)
@@ -95,8 +95,104 @@ class FlexBaseBlock(torch.nn.Module):
         return x
 
 
-class FlexInv2D(torch.nn.Module):
+class FlexConv2d(torch.nn.Module):
     def __init__(self, 
+                 input_shape,
+                 in_channels,
+                 out_channels, 
+                 max_order=4, 
+                 filter_size=15,
+                 gcd=False,
+                 normalize_magnitude=False, 
+                 masking_middles=False,
+                 masking_borders=False, 
+                 padding="same",
+                 ):
+        super().__init__()
+        symmetric_polynomials = []
+        non_symmetric_polynomials = []
+        non_symmetric_exponents = []
+        for p in range(0, max_order + 1):
+            for q in range(0, min(max_order + 1-p, p + 1)):
+                if p == q:
+                    symmetric_polynomials.append((p, q))
+                else:
+                    non_symmetric_polynomials.append((p, q))
+                    non_symmetric_exponents.append(p - q)
+        non_symmetric_exponents = np.array(non_symmetric_exponents)
+        coef_a = repeat(non_symmetric_exponents, 'n -> m n', m=len(non_symmetric_exponents))
+        coef_c = repeat(non_symmetric_exponents, 'n -> n m', m=len(non_symmetric_exponents))
+
+        filters = []
+        types = []
+        # First symmetric
+        for (p, q) in symmetric_polynomials:
+            filters.append(get_complex_monomial(filter_size,
+                                                p, q, dtype=torch.get_default_dtype()))
+            types.append(p-q)
+        # Non-symmetric
+        for (p, q) in non_symmetric_polynomials:
+            filters.append(get_complex_monomial(filter_size,
+                                                p, q, dtype=torch.get_default_dtype()))
+            types.append(p-q)
+        # Stack filters
+        filters = torch.stack(filters, dim=0)[:, None]
+        if normalize_magnitude: 
+            filters /= filters.abs()
+
+        if gcd:
+            coef_gcd = np.gcd(coef_a, coef_c) 
+            coef_a //= coef_gcd
+            coef_c //= coef_gcd
+
+        if masking_middles:
+            for idx, type in enumerate(types):
+                if type != 0: 
+                    filters[idx, 0, filter_size//2, filter_size//2] = 0
+                if type >= 3: 
+                    filters[idx, 0, filter_size//2-1: filter_size//2+2, filter_size//2-1: filter_size//2+2] = 0
+        if masking_borders:
+            tukey_mask =  tukey_2d(filter_size, alpha=0.5)
+            filters *= tukey_mask[None, None]
+
+        self.in_channels = in_channels
+
+        self.register_buffer('symmetric_polynomials', torch.tensor(symmetric_polynomials))
+        self.register_buffer('non_symmetric_polynomials', torch.tensor(non_symmetric_polynomials))
+        self.register_buffer('filters', filters)
+        self.padding = padding
+        self.register_buffer('coef_a', torch.tensor(coef_a, dtype=torch.get_default_dtype()))
+        self.register_buffer('coef_c', torch.tensor(coef_c, dtype=torch.get_default_dtype()))
+        self.register_buffer('types', torch.tensor(types, dtype=torch.uint8))
+
+        # Learnable part
+        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2)*2, input_shape, input_shape])
+        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2)*2, out_channels=out_channels, kernel_size=1)
+
+    def forward(self, x):
+        # x shape (B, C, H, W)
+        B, C, H, W = x.shape
+        assert C == self.in_channels, f"Input channels {C} does not match layer in_channels {self.in_channels}" 
+        x = rearrange(x, 'b c h w -> (b c) 1 h w')
+        x = x.to(dtype=get_default_complex())
+        x = torch.nn.functional.conv2d(x, self.filters, padding=self.padding)
+        symm_invariant = x[:, :len(self.symmetric_polynomials)]
+        non_symmetric = x[:, len(self.symmetric_polynomials):]
+        a = non_symmetric[:, :, None] ** self.coef_a[..., None, None]
+        b = non_symmetric[:,None, :].conj() ** self.coef_c[..., None, None]
+        nonsymm_invariant = a * b
+        nonsymm_invariant = rearrange(nonsymm_invariant, 'c a b h w -> c (a b) h w')
+        x = torch.cat([symm_invariant, nonsymm_invariant], dim=1) 
+        x = torch.view_as_real(x)
+        x = rearrange(x, 'b c h w co -> b (c co) h w')
+        x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=C)
+        x = self.norm(x)
+        x = self.conv1x1(x)
+        return x
+
+
+class DeprecatedFlexInv2D(torch.nn.Module):
+    def __init__(self,
                  in_channels,
                  out_channels, 
                  input_shape, 
@@ -105,7 +201,7 @@ class FlexInv2D(torch.nn.Module):
                  padding="same", 
                  circular_padding="tukey"
                  ):
-        super(FlexInv2D, self).__init__()
+        super(DeprecatedFlexInv2D, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
         self.filter_size = filter_size
@@ -126,7 +222,7 @@ class FlexInv2D(torch.nn.Module):
         self.invariant_cnt = self._symmetric_cnt + len(self.non_symmetric_polynomials) ** 2
         self.non_symmetric_exponents = np.array(self.non_symmetric_exponents)
         coef_a = repeat(self.non_symmetric_exponents, 'n -> m n', m=len(self.non_symmetric_exponents))
-        coef_b = -repeat(self.non_symmetric_exponents, 'n -> n m', m=len(self.non_symmetric_exponents))
+        coef_b = repeat(self.non_symmetric_exponents, 'n -> n m', m=len(self.non_symmetric_exponents))
         # Compute GCD
         coef = np.gcd(coef_a, coef_b)
         coef_a, coef_b = coef_a // coef, coef_b // coef

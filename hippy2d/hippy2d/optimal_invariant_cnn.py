@@ -143,6 +143,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  circular_padding:str ="tukey",
                  conv_padding: str = "same", 
                  prenormalize: str = "none",
+                 polynomials_magnitude_normalization: bool = False,
                  eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
         self.filter_size = filter_size
@@ -182,6 +183,13 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.ind = ind
         # NOTE: This part can be shared by all the layers, that can save memory 
         filters = rearrange(filters, 'n h w -> n 1 h w')
+        if polynomials_magnitude_normalization:
+            filters = filters / filters.abs()
+            window = torch.tensor(1 - tukey_2d(5, alpha=0.5))
+            window = torch.nn.functional.pad(window, (5,5,5,5), mode='constant', value=1)
+            #filters = filters * window
+            
+
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch
         filters = torch.cat(dim=0, tensors=[filters.real, filters.imag])
@@ -270,6 +278,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
             assert torch.all(~torch.isinf(norm_angle)), "Normalization angle contains Inf values"
             # Magnitudes 
             assert torch.all(~torch.isnan(norm_magnitude)), "Normalization magnitude contains NaN values"
+        
         norm_angle = norm_angle * self.exponents
         normalization_factor_real = norm_magnitude[:, None] * torch.cos(norm_angle)
         normalization_factor_imag = norm_magnitude[:, None] * torch.sin(norm_angle)
@@ -282,6 +291,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         if __debug__:
             assert result.dtype == torch.get_default_dtype(), f"Output dtype {result.dtype} does not match expected {torch.get_default_dtype()}"
             assert torch.all(~torch.isnan(result)), "Output contains NaN values"
+
         result = rearrange(result, '(b ch) n h w -> b (ch n) h w', ch=self.in_channels)
         result = self.norm(result)
         features = self.conv1x1(result) # Convert back to real
@@ -449,7 +459,6 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         result = rearrange(result, 'b ch co m h w -> b (ch co m) h w', ch=self.in_channels,m=self.num_invariants)
         features = self.conv1x1(result) # Convert back to real
         return features
-
 # Create a block 
 # TODO: This should refactor to single resnet block, that can serve multiple convolution layers of type=0 
 class ComplexBaseBlock(torch.nn.Module):
@@ -464,6 +473,7 @@ class ComplexBaseBlock(torch.nn.Module):
                  learnable_radial:bool=False,
                  residual:bool = True, 
                  subsampling:bool = True, 
+                 polynomials_magnitude_normalization:bool = False,
                  norm:str = "layer",
                  prenormalize:str = "none",
                  channels_masking: str = "tukey",
@@ -477,6 +487,7 @@ class ComplexBaseBlock(torch.nn.Module):
                                                 input_size=input_size,
                                                 out_channels=out_channels,
                                                 prenormalize=prenormalize,
+                                                polynomials_magnitude_normalization=polynomials_magnitude_normalization,
                                                 conv_padding=conv_padding,
                                                 basis_p0=basis_p0,
                                                 basis_q0=basis_q0)

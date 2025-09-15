@@ -284,7 +284,9 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                  prenormalize="none",
                  learnable_radial:bool = False,
                  classification:bool = True, 
-                 channels_masking:bool = True):
+                 channels_masking:bool = True, 
+                 polynomials_magnitude_normalization:bool = False,
+                 ):
         super(PrototypeOptimalInvCNN, self).__init__()
         if type(filter_size) is int:
             filter_size = [filter_size] * n_blocks
@@ -314,11 +316,13 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                               max_order=self.max_order,
                                               filter_size=filter_size[block_idx],
                                               norm=norm,
-                                              prenormalize=prenormalize,
+                                              presubsampling=False, 
+                                              normalize=prenormalize,
                                               input_size=input_size,
                                               channels_masking=self.masking_channels,
                                               learnable_radial=learnable_radial,
-                                              subsampling=False))
+                                              polynomials_magnitude_normalization=polynomials_magnitude_normalization,
+                                              ))
                 in_channels = out_channels
 
             out_channels = channels[block_idx + 1] if block_idx + 1 < len(channels) else out_channels
@@ -332,6 +336,7 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
                                           input_size=input_size,
                                           channels_masking=self.masking_channels,
                                           learnable_radial=learnable_radial,
+                                          polynomials_magnitude_normalization=polynomials_magnitude_normalization,
                                           subsampling=True if block_idx < n_blocks - 1 else False))
 
             in_channels = out_channels
