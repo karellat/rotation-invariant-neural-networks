@@ -32,8 +32,7 @@ def complex_power_moivre(x: torch.Tensor,
     magnitude = torch.norm(x, dim=-1)  # [..., 1]
     angle = SafeAtan2.apply(imag_part, real_part,
                                 eps)[..., 0]
-    # Apply De Moivre's theorem# Add eps to avoid 0^0
-    # TODO: Only at 0 add eps to avoid 0^0
+
     if safe_magnitude_power: 
         new_magnitude = torch.where(magnitude < eps, torch.tensor(eps, dtype=magnitude.dtype, device=magnitude.device), magnitude)
         new_magnitude = torch.pow(new_magnitude, exponents)  

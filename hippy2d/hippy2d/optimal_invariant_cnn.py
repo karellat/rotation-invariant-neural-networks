@@ -153,28 +153,31 @@ class ComplexInvariantConv2D(torch.nn.Module):
         # Prepare the fixed filters corresponding to the complex monomials
         filters = []
         ind = []
+        types = []
         # Add the p0q0 term
         filters.append(get_complex_monomial(self.filter_size,
                                              self.basis_q0,
                                              self.basis_p0,
                                              dtype=torch.get_default_dtype()))
+        types.append(self.basis_q0 - self.basis_p0)
         ind.append((self.basis_q0, self.basis_p0))
         # Add the complex monomials up to the max order
         for p in range(0, self.max_order + 1):
             for q in range(0, min(self.max_order + 1-p, p + 1)):
                 filters.append(get_complex_monomial(self.filter_size, p, q, dtype=torch.get_default_dtype()))
                 ind.append((p, q))
-
+                types.append(self.basis_q0 - self.basis_p0)
         self.ind = ind
+
         # NOTE: This part can be shared by all the layers, that can save memory 
         filters = rearrange(filters, 'n h w -> n 1 h w')
         if polynomials_magnitude_normalization:
             # TODO: Fix the middles 
-            filters = filters / filters.abs()
-            window = torch.tensor(1 - tukey_2d(5, alpha=0.5))
-            window = torch.nn.functional.pad(window, (5,5,5,5), mode='constant', value=1)
-            #filters = filters * window
-            
+            filters = filters / filters.abs() 
+            for idx, type in enumerate(types):
+                # Mask middle 
+                if type != 0:
+                    filters[idx, 0, filter_size//2, filter_size//2] = 0
 
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch
