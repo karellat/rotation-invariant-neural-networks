@@ -7,6 +7,8 @@ import torchvision.transforms.v2 as transforms
 from hippy2d.flexibleconv2d import FlexConv2d, FILTER_SIZE, MAX_ORDER, FlexBaseBlock 
 from hippy2d.models import FlexInvCNN
 from hippy2d.utils import get_testing_img, get_default_complex
+import time
+import logging
 
 torch.set_default_dtype(torch.float64)
 # NOTE: The tests will likely fail with float32 due to numerical precision issues. We should think of suitable normalization.
@@ -133,6 +135,44 @@ class TestComplexOptimalInvariants:
         # Check if the gradients are not zero
         assert not torch.all(input.grad == 0), "Gradients are all zero, which is unexpected."
         
+    def test_90_layer_speed(self, test_images, test_device):
+        """Test the 90-degree rotation layer speed performance."""
+        inv_conv = FlexConv2d(input_shape=IMAGE_SIZE,
+                             filter_size=FILTER_SIZE,
+                             max_order=MAX_ORDER,
+                             out_channels=12, 
+                             in_channels=3,
+                             gcd=True).to(test_device)
+        
+        # Measure speed performance
+        input_rgb, _ = test_images
+        input_rgb = input_rgb.to(test_device)
+        
+        # Warmup
+        for _ in range(3):
+            _ = inv_conv(input_rgb)
+        
+        # Measure forward pass time
+        torch.cuda.synchronize() if test_device.type == 'cuda' else None
+        start_time = time.time()
+        for _ in range(10):
+            _ = inv_conv(input_rgb)
+        torch.cuda.synchronize() if test_device.type == 'cuda' else None
+        end_time = time.time()
+        
+        avg_time = (end_time - start_time) / 10
+        
+        # Use pytest's built-in output capture or logging
+        logging.error(f"FlexConv2d average forward pass time on {test_device}: {avg_time:.6f} seconds")
+        
+        # Or use pytest's live logging
+        print(f"\nFlexConv2d Performance:")
+        print(f"  Device: {test_device}")
+        print(f"  Average forward pass time: {avg_time:.6f} seconds")
+        print(f"  Throughput: {1/avg_time:.2f} inferences/second")
+        
+        # Forward pass through the complex invariant convolution layer
+        self._test_90_module(inv_conv, test_images, test_device)
 
 if __name__ == "__main__":
     pytest.main([__file__])

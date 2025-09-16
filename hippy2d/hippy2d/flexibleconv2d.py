@@ -191,7 +191,9 @@ class FlexConv2d(torch.nn.Module):
                 if type >= 3: 
                     filters[idx, 0, filter_size//2-1: filter_size//2+2, filter_size//2-1: filter_size//2+2] = 0
         if masking_borders:
-            tukey_mask =  tukey_2d(filter_size, alpha=0.5)
+            tukey_mask =  torch.from_numpy(
+                tukey_2d(filter_size, alpha=0.5),
+            ).to(dtype=torch.get_default_dtype())
             filters *= tukey_mask[None, None]
         
         # From complex to real
@@ -205,7 +207,7 @@ class FlexConv2d(torch.nn.Module):
         self.register_buffer('_conj', torch.tensor([1.0, -1.0], dtype=torch.get_default_dtype()) )
         self.register_buffer('symmetric_polynomials', torch.tensor(symmetric_polynomials))
         self.register_buffer('non_symmetric_polynomials', torch.tensor(non_symmetric_polynomials))
-        self.register_buffer('filters', filters)
+        self.register_buffer('filters', filters, torch.get_default_dtype())
         # Assert none of exponents are zero
         assert np.all(exp_a != 0) and np.all(exp_b != 0), "There should be no zero exponents"
 
