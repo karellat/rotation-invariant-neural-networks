@@ -56,7 +56,7 @@ class FlexBaseBlock(torch.nn.Module):
                  max_order:int = MAX_ORDER, 
                  residual:bool = True, 
                  subsampling:bool = True, 
-                 channels_masking: str = "none",
+                 channels_masking: str = "tukey",
                  conv_padding: str = "same"):
         super(FlexBaseBlock, self).__init__()
 
@@ -119,7 +119,6 @@ class FlexBaseBlock(torch.nn.Module):
         x = self.conv(x)
         # TODO: This must be tested properly 
         if self.channels_masking == "tukey":
-            raise NotImplementedError("Tukey masking is not must be tested before.")
             x = x * self.features_mask
         # Here we can use the Masked_tensor  instead zero masking
         # Apply batch normalization and activation
