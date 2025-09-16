@@ -74,8 +74,9 @@ class TestComplexOptimalInvariants:
         inv_conv = FlexConv2d(input_shape=IMAGE_SIZE,
                              filter_size=FILTER_SIZE,
                              max_order=MAX_ORDER,
+                             out_channels=12, 
                              in_channels=3,
-                             out_channels=12).to(test_device)
+                             gcd=True).to(test_device)
         # Forward pass through the complex invariant convolution layer
         self._test_90_module(inv_conv, test_images, test_device)
 
@@ -122,7 +123,7 @@ class TestComplexOptimalInvariants:
             # track the gradients with dummy loss
             input.requires_grad = True
             y = net(input)
-            loss = torch.mean(y)
+            loss = torch.nn.CrossEntropyLoss()(y, torch.tensor([0, 1, 2, 3], device=test_device))
             loss.backward()
 
         # Check if the gradients are NaN

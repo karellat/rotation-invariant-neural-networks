@@ -102,5 +102,22 @@ def retrieve_elements_from_indices(tensor: torch.Tensor, indices: torch.Tensor):
     flattened_tensor = tensor.flatten(start_dim=-2)
     output = flattened_tensor.gather(
         dim=-1, index=indices.flatten(start_dim=-2)
-    ).view_as(indices)
+    ).view_as(indices) 
     return output
+
+class SafeAtan2(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, y, x, eps=1e-12):
+        ctx.save_for_backward(y, x)
+        ctx.eps = eps
+        return torch.atan2(y, x)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        y, x = ctx.saved_tensors
+        denom = x*x + y*y + ctx.eps
+        # d/dx = -y/(x^2+y^2+eps)
+        # d/dy =  x/(x^2+y^2+eps)
+        grad_x = -y / denom * grad_output
+        grad_y =  x / denom * grad_output
+        return grad_y, grad_x, None

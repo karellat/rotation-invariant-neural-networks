@@ -4,10 +4,49 @@ from einops import rearrange, repeat
 import numpy as np
 
 from hippy2d.complex_invariants_2d import get_complex_monomial
-from hippy2d.utils import get_default_complex, tukey_2d, get_circular_mask
+from hippy2d.utils import get_default_complex, tukey_2d, get_circular_mask, SafeAtan2
 
 FILTER_SIZE = 15
-MAX_ORDER = 3
+MAX_ORDER = 4
+
+# Generalized complex power function using De Moivre's theorem
+@torch.jit.script
+def complex_power_moivre(x: torch.Tensor,
+                             exponents: torch.Tensor,
+                             safe_magnitude_power: bool =False,
+                             eps: float = 1e-8) -> torch.Tensor:
+    """
+    JIT-compatible complex power using De Moivre's theorem
+    Args:
+        x: Complex tensor with shape [..., 2] where last dim is [real, imag]
+        exponents: Exponent tensor that broadcasts with x[..., 0]
+        eps: Small value to avoid numerical issues
+    Returns:
+        Complex tensor with same shape as x
+    """
+    # Extract real and imaginary parts
+    real_part = x[..., 0:1]  # [..., 1]
+    imag_part = x[..., 1:2]  # [..., 1]
+    
+    # Compute magnitude and angle
+    magnitude = torch.norm(x, dim=-1)  # [..., 1]
+    angle = SafeAtan2.apply(imag_part, real_part,
+                                eps)[..., 0]
+    # Apply De Moivre's theorem# Add eps to avoid 0^0
+    # TODO: Only at 0 add eps to avoid 0^0
+    if safe_magnitude_power: 
+        new_magnitude = torch.where(magnitude < eps, torch.tensor(eps, dtype=magnitude.dtype, device=magnitude.device), magnitude)
+        new_magnitude = torch.pow(new_magnitude, exponents)  
+    else: 
+        new_magnitude = torch.pow(magnitude, exponents)  
+
+    new_angle = angle * exponents
+    # Convert back to rectangular form
+    result_real = new_magnitude * torch.cos(new_angle)
+    result_imag = new_magnitude * torch.sin(new_angle)
+    
+    return torch.stack([result_real, result_imag], dim=-1)
+
 
 class FlexBaseBlock(torch.nn.Module):
     def __init__(self, 
@@ -120,8 +159,8 @@ class FlexConv2d(torch.nn.Module):
                     non_symmetric_polynomials.append((p, q))
                     non_symmetric_exponents.append(p - q)
         non_symmetric_exponents = np.array(non_symmetric_exponents)
-        coef_a = repeat(non_symmetric_exponents, 'n -> m n', m=len(non_symmetric_exponents))
-        coef_c = repeat(non_symmetric_exponents, 'n -> n m', m=len(non_symmetric_exponents))
+        exp_a = repeat(non_symmetric_exponents, 'n -> m n', m=len(non_symmetric_exponents))
+        exp_b = repeat(non_symmetric_exponents, 'n -> n m', m=len(non_symmetric_exponents))
 
         filters = []
         types = []
@@ -141,9 +180,9 @@ class FlexConv2d(torch.nn.Module):
             filters /= filters.abs()
 
         if gcd:
-            coef_gcd = np.gcd(coef_a, coef_c) 
-            coef_a //= coef_gcd
-            coef_c //= coef_gcd
+            coef_gcd = np.gcd(exp_a, exp_b) 
+            exp_a //= coef_gcd
+            exp_b //= coef_gcd
 
         if masking_middles:
             for idx, type in enumerate(types):
@@ -154,144 +193,65 @@ class FlexConv2d(torch.nn.Module):
         if masking_borders:
             tukey_mask =  tukey_2d(filter_size, alpha=0.5)
             filters *= tukey_mask[None, None]
+        
+        # From complex to real
+        filters = torch.cat(dim=0, tensors=[filters.real, filters.imag])
 
+        # Parameters 
         self.in_channels = in_channels
+        self.padding = padding
 
+        # Fixed part
         self.register_buffer('symmetric_polynomials', torch.tensor(symmetric_polynomials))
         self.register_buffer('non_symmetric_polynomials', torch.tensor(non_symmetric_polynomials))
         self.register_buffer('filters', filters)
-        self.padding = padding
-        self.register_buffer('coef_a', torch.tensor(coef_a, dtype=torch.get_default_dtype()))
-        self.register_buffer('coef_c', torch.tensor(coef_c, dtype=torch.get_default_dtype()))
+        # Assert none of exponents are zero
+        assert np.all(exp_a != 0) and np.all(exp_b != 0), "There should be no zero exponents"
+
+        self.register_buffer('exp_a', torch.tensor(exp_a, dtype=torch.get_default_dtype()))
+        self.register_buffer('exp_b', torch.tensor(exp_b, dtype=torch.get_default_dtype()))
         self.register_buffer('types', torch.tensor(types, dtype=torch.uint8))
 
         # Learnable part
-        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2)*2, input_shape, input_shape])
-        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2)*2, out_channels=out_channels, kernel_size=1)
+        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2*2), input_shape, input_shape])
+        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2*2), out_channels=out_channels, kernel_size=1)
 
     def forward(self, x):
         # x shape (B, C, H, W)
         B, C, H, W = x.shape
         assert C == self.in_channels, f"Input channels {C} does not match layer in_channels {self.in_channels}" 
+        # TODO: Change to depth wise convolution
         x = rearrange(x, 'b c h w -> (b c) 1 h w')
-        x = x.to(dtype=get_default_complex())
-        x = torch.nn.functional.conv2d(x, self.filters, padding=self.padding)
-        symm_invariant = x[:, :len(self.symmetric_polynomials)]
-        non_symmetric = x[:, len(self.symmetric_polynomials):]
-        a = non_symmetric[:, :, None] ** self.coef_a[..., None, None]
-        b = non_symmetric[:,None, :].conj() ** self.coef_c[..., None, None]
-        nonsymm_invariant = a * b
-        nonsymm_invariant = rearrange(nonsymm_invariant, 'c a b h w -> c (a b) h w')
-        x = torch.cat([symm_invariant, nonsymm_invariant], dim=1) 
-        x = torch.view_as_real(x)
-        x = rearrange(x, 'b c h w co -> b (c co) h w')
+        x = torch.nn.functional.conv2d(x,
+                                       self.filters,
+                                       padding=self.padding)
+        # Unpack complex 
+        x = rearrange(x, 'b (co m) h w -> b m h w co', co=2).contiguous()
+        symmetric = x[:, :len(self.symmetric_polynomials)]
+        # Unpack the non-symmetric complex part
+        # Remove the phase, because it should be zero for symmetric
+        symmetric = torch.norm(symmetric, dim=-1)
+        nonsymmetric = x[:, len(self.symmetric_polynomials):]
+
+        a = complex_power_moivre(nonsymmetric[:, :, None],
+                                 self.exp_a[..., None, None],
+                                 safe_magnitude_power=False) # Note: There are not zero exponents
+        # Make conjugate 
+        b = complex_power_moivre(nonsymmetric[:, None, :] * torch.tensor([1.0, -1.0]),
+                                 self.exp_b[..., None, None],
+                                 safe_magnitude_power=False) # Note: There are not zero exponents
+        # Make a complex multiplication between new_a and new_b
+        nonsymmetric_real = (a[..., 0] * b[..., 0] - a[..., 1] * b[..., 1])
+        nonsymmetric_imag = (a[..., 0] * b[..., 1] + a[..., 1] * b[..., 0])
+
+        # Rearrange the moment x moment axis
+        nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')
+        nonsymmetric_imag = rearrange(nonsymmetric_imag, 'b m1 m2 h w -> b (m1 m2) h w')
+
+        # Concatenate all features
+        x = torch.cat([symmetric, nonsymmetric_real, nonsymmetric_imag], dim=1)
         x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=C)
         x = self.norm(x)
         x = self.conv1x1(x)
         return x
-
-
-class DeprecatedFlexInv2D(torch.nn.Module):
-    def __init__(self,
-                 in_channels,
-                 out_channels, 
-                 input_shape, 
-                 filter_size=FILTER_SIZE,
-                 max_order=MAX_ORDER,
-                 padding="same", 
-                 circular_padding="tukey"
-                 ):
-        super(DeprecatedFlexInv2D, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.filter_size = filter_size
-        self.max_order = max_order
-        self.padding = padding
-        self.symmetric_polynomials = []
-        self.non_symmetric_polynomials = []
-        self.non_symmetric_exponents = []
-        for p in range(0, MAX_ORDER + 1):
-            for q in range(0, min(MAX_ORDER + 1-p, p + 1)):
-                if p == q:
-                    self.symmetric_polynomials.append((p, q))
-                else:
-                    self.non_symmetric_polynomials.append((p, q))
-                    self.non_symmetric_exponents.append(p - q)
-        
-        self._symmetric_cnt = len(self.symmetric_polynomials)
-        self.invariant_cnt = self._symmetric_cnt + len(self.non_symmetric_polynomials) ** 2
-        self.non_symmetric_exponents = np.array(self.non_symmetric_exponents)
-        coef_a = repeat(self.non_symmetric_exponents, 'n -> m n', m=len(self.non_symmetric_exponents))
-        coef_b = repeat(self.non_symmetric_exponents, 'n -> n m', m=len(self.non_symmetric_exponents))
-        # Compute GCD
-        coef = np.gcd(coef_a, coef_b)
-        coef_a, coef_b = coef_a // coef, coef_b // coef
-        coef_a = coef_a[..., None, None]
-        coef_b = coef_b[..., None, None]
-        self.register_buffer("coef_a", torch.tensor(coef_a))
-        self.register_buffer("coef_b", torch.tensor(coef_b))
-        # Generate all the polynomials 
-        _filters = [] 
-        # First symmetric
-        for (p, q) in self.symmetric_polynomials:
-            _filters.append(get_complex_monomial(self.filter_size,
-                                                  p, q, 
-                                                  dtype=torch.get_default_dtype()))
-        # Non-symmetric
-        for (p, q) in self.non_symmetric_polynomials:
-            _filters.append(get_complex_monomial(self.filter_size,
-                                                  p, q, dtype=torch.get_default_dtype()))
-        _filters = torch.stack(_filters, dim=0)[:, None]
-        # Radial padding
-        if circular_padding == "tukey":
-            # Use Tukey window for circular padding
-            mask = torch.from_numpy(tukey_2d(self.filter_size, 0.5)).to(dtype=torch.get_default_dtype())
-        elif circular_padding == "circular":
-            # Use circular padding
-            mask = get_circular_mask(self.filter_size, dtype=torch.get_default_dtype())
-        elif circular_padding == "none":
-            # No padding, just use the filters as they are
-            mask = 1
-        else:
-            raise ValueError(f"Unknown circular padding type: {circular_padding}. Use 'tukey' or 'none'.")
-
-        _filters = _filters * mask
-        self.register_buffer("filters", _filters)
-        # Learnable layer 
-        self.norm = torch.nn.LayerNorm(normalized_shape=[self.invariant_cnt*2*self.in_channels, input_shape, input_shape],
-                                       elementwise_affine=False)
-
-        self.conv1x1 = torch.nn.Conv2d(in_channels=self.invariant_cnt*2*self.in_channels,
-                                       out_channels=self.out_channels,
-                                       kernel_size=1)
-
-    def forward(self, x):
-        # Apply the filters to the input
-        # TODO: Change padding
-        x = rearrange(x, 'b c h w -> (b c) 1 h w', c=self.in_channels)
-        x = x.to(dtype=get_default_complex())
-        moments = torch.nn.functional.conv2d(x,
-                                          self.filters,
-                                          padding=self.padding)
-        symmetric_invariants = moments[:, :self._symmetric_cnt]
-        nonsymmetric_moments = moments[:, self._symmetric_cnt:]
-
-        safe_nonsymmetric_moments = torch.where(nonsymmetric_moments.abs() > 1e-7, nonsymmetric_moments,
-                                                                    torch.complex(torch.tensor(1e-7), torch.tensor(0.0)))
-        # TODO: Negative coef_b can cause NaNs
-        nonsymmetric_invariants = (
-            (safe_nonsymmetric_moments[:, :, None] ** self.coef_a)
-            *
-            (safe_nonsymmetric_moments[:, None, :] ** self.coef_b)
-        )
-        nonsymmetric_invariants = rearrange(nonsymmetric_invariants, 'c a b h w -> c (a b) h w')
-        x = torch.cat(dim=1,
-                  tensors=[symmetric_invariants, nonsymmetric_invariants])
-        x = torch.view_as_real(x)
-        x = rearrange(x, 'b c h w co -> b (c co) h w')
-        x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=self.in_channels)
-        # TODO: Test this first in normal setting
-        x = self.norm(x)
-        x = self.conv1x1(x)
-
-        return x
+   

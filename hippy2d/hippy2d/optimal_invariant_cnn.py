@@ -6,7 +6,7 @@ from typing import Sequence, Union
 
 
 from hippy2d.complex_invariants_2d import get_complex_monomial
-from hippy2d.utils import tukey_2d, get_default_complex, get_circular_mask
+from hippy2d.utils import tukey_2d, get_default_complex, get_circular_mask, SafeAtan2
 
 BASIS_P0 = 1
 BASIS_Q0 = 0
@@ -16,22 +16,7 @@ MAX_ORDER = 4
 
 import torch
 
-class SafeAtan2(torch.autograd.Function):
-    @staticmethod
-    def forward(ctx, y, x, eps=1e-12):
-        ctx.save_for_backward(y, x)
-        ctx.eps = eps
-        return torch.atan2(y, x)
 
-    @staticmethod
-    def backward(ctx, grad_output):
-        y, x = ctx.saved_tensors
-        denom = x*x + y*y + ctx.eps
-        # d/dx = -y/(x^2+y^2+eps)
-        # d/dy =  x/(x^2+y^2+eps)
-        grad_x = -y / denom * grad_output
-        grad_y =  x / denom * grad_output
-        return grad_y, grad_x, None
 
 def escnn_style_rings_sigmas(kernel_size: int, n_rings: int):
     """
@@ -184,6 +169,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         # NOTE: This part can be shared by all the layers, that can save memory 
         filters = rearrange(filters, 'n h w -> n 1 h w')
         if polynomials_magnitude_normalization:
+            # TODO: Fix the middles 
             filters = filters / filters.abs()
             window = torch.tensor(1 - tukey_2d(5, alpha=0.5))
             window = torch.nn.functional.pad(window, (5,5,5,5), mode='constant', value=1)
