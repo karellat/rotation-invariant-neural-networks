@@ -141,10 +141,10 @@ class FlexConv2d(torch.nn.Module):
                  out_channels, 
                  max_order=4, 
                  filter_size=15,
-                 gcd=False,
+                 gcd=True,
                  normalize_magnitude=False, 
                  masking_middles=False,
-                 masking_borders=False, 
+                 masking_borders=True, 
                  padding="same",
                  ):
         super().__init__()
