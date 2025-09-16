@@ -202,6 +202,7 @@ class FlexConv2d(torch.nn.Module):
         self.padding = padding
 
         # Fixed part
+        self.register_buffer('_conj', torch.tensor([1.0, -1.0], dtype=torch.get_default_dtype()) )
         self.register_buffer('symmetric_polynomials', torch.tensor(symmetric_polynomials))
         self.register_buffer('non_symmetric_polynomials', torch.tensor(non_symmetric_polynomials))
         self.register_buffer('filters', filters)
@@ -237,7 +238,7 @@ class FlexConv2d(torch.nn.Module):
                                  self.exp_a[..., None, None],
                                  safe_magnitude_power=False) # Note: There are not zero exponents
         # Make conjugate 
-        b = complex_power_moivre(nonsymmetric[:, None, :] * torch.tensor([1.0, -1.0]),
+        b = complex_power_moivre(nonsymmetric[:, None, :] * self._conj,
                                  self.exp_b[..., None, None],
                                  safe_magnitude_power=False) # Note: There are not zero exponents
         # Make a complex multiplication between new_a and new_b
