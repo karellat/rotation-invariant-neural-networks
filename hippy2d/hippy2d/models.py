@@ -466,7 +466,7 @@ class FlexInvCNN(torch.nn.Module):
                  init_channels=4,
                  max_order=4,
                  classification:bool = True, 
-                 channels_masking:bool = False):
+                 channels_masking:bool = True):
         super(FlexInvCNN, self).__init__()
         if type(filter_size) is int:
             filter_size = [filter_size] * n_blocks

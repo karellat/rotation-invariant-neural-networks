@@ -142,7 +142,7 @@ class FlexConv2d(torch.nn.Module):
                  filter_size=15,
                  gcd=True,
                  normalize_magnitude=False, 
-                 masking_middles=False,
+                 masking_middles=True,
                  masking_borders=True, 
                  padding="same",
                  ):
