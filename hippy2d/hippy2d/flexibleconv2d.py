@@ -143,7 +143,7 @@ class FlexConv2d(torch.nn.Module):
                  filter_size=15,
                  gcd=True,
                  normalize_magnitude=False, 
-                 masking_middles=False,
+                 masking_middles=True,
                  masking_borders=True, 
                  padding="same",
                  ):
@@ -188,8 +188,6 @@ class FlexConv2d(torch.nn.Module):
             for idx, type in enumerate(types):
                 if type != 0: 
                     filters[idx, 0, filter_size//2, filter_size//2] = 0
-                if type >= 3: 
-                    filters[idx, 0, filter_size//2-1: filter_size//2+2, filter_size//2-1: filter_size//2+2] = 0
         if masking_borders:
             tukey_mask =  torch.from_numpy(
                 tukey_2d(filter_size, alpha=0.5),
