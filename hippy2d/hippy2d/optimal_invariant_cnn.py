@@ -296,6 +296,7 @@ class ComplexInvariantConv2DR(torch.nn.Module):
                  n_rings: int,
                  basis_p0:int = 1,
                  basis_q0:int = 0, 
+                 middle_masking = True,
                  conv_padding: str = "same", 
                  eps=1e-8):
         super(ComplexInvariantConv2DR, self).__init__()
@@ -322,17 +323,20 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         # Prepare the fixed filters corresponding to the complex monomials
         filters = []
         ind = []
+        types = []
         # Add the p0q0 term
         filters.append(get_complex_monomial(self.filter_size,
                                              self.basis_q0,
                                              self.basis_p0,
                                              dtype=torch.get_default_dtype()))
         ind.append((self.basis_q0, self.basis_p0))
+        types.append(self.basis_q0 - self.basis_p0)
         # Add the complex monomials up to the max order
         for p in range(0, self.max_order + 1):
             for q in range(0, min(self.max_order + 1-p, p + 1)):
                 filters.append(get_complex_monomial(self.filter_size, p, q, dtype=torch.get_default_dtype()))
                 ind.append((p, q))
+                types.append(p - q)
 
         # NOTE: This part can be shared by all the layers, that can save memory 
         # Polynomials 
@@ -340,9 +344,18 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         M, _, _  = filters.shape
         Ch = self.in_channels
 
+
+        if middle_masking:
+            for idx, type in enumerate(types):
+                if type != 0: 
+                    filters[idx, filter_size//2, filter_size//2] = 0
+                #if type >= 3: 
+                #    filters[idx, 0, filter_size//2-1: filter_size//2+2, filter_size//2-1: filter_size//2+2] = 0
+
         self.complex_conv_groups = M
         filters = torch.stack(dim=0, tensors=[filters.real, filters.imag])
         self.register_buffer('filters', filters)
+        self.register_buffer('types', torch.tensor(types, dtype=torch.int8))
         # Radial basis functions
         #   per each polynomial - non-learnable normalization term * input channels 
         rings, sigma = escnn_style_rings_sigmas(self.filter_size, n_rings=n_rings)

@@ -74,7 +74,8 @@ class FlexBaseBlock(torch.nn.Module):
 
         self.norm = torch.nn.LayerNorm(normalized_shape=[out_channels, conv_output_shape, conv_output_shape],
                                         eps=1e-5,
-                                        elementwise_affine=False)
+                                        elementwise_affine=False,
+                                        bias=False)
         self.activation = torch.nn.ELU()
         self.residual = residual
         self.padding = conv_padding
@@ -142,7 +143,7 @@ class FlexConv2d(torch.nn.Module):
                  filter_size=15,
                  gcd=True,
                  normalize_magnitude=False, 
-                 masking_middles=True,
+                 masking_middles=False,
                  masking_borders=True, 
                  padding="same",
                  ):

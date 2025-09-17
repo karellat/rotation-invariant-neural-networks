@@ -6,7 +6,7 @@ d_hparams:
   normalize: true
 dataset_name: MnistRotTest
 early_stopping: 10
-epochs: 35
+epochs: 50
 lr_hparams:
   gamma: 0.1
   milestones:
@@ -21,9 +21,10 @@ m_param:
   init_channels: 4
   filter_size: 15
   learnable_radial: True
+  zero_out_middle: True
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-mnistrottest-radial-bug-fix
+run_name: prototype-mnistrottest-radial-zero-out-middles
 seed: 234

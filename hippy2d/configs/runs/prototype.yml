@@ -6,7 +6,7 @@ d_hparams:
   normalize: true
 dataset_name: MnistRotTest
 early_stopping: 10
-epochs: 35
+epochs: 50
 lr_hparams:
   gamma: 0.1
   milestones:

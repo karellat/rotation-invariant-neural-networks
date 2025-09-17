@@ -23,7 +23,7 @@ SLURMEnvironment.detect = lambda: False
 @click.option('--dataset_name', default='ColorectalHistology', type=str, help='Name of the dataset.')
 @click.option('--d_hparams', default=dict(batch_size=32), type=ClickDictionaryType(), help='Dataset hyperparameters.')
 @click.option('--model_name', default="PrototypeOptimalInvCNN", type=str, help='Name of the model to use.')
-@click.option('--m_param', default=dict(in_channels=3, num_classes=7, input_size=150, norm='batch', init_channels=7, n_blocks=4, m_layers=3, filter_size=11), type=ClickDictionaryType(), help='Model hyperparameters.')
+@click.option('--m_param', default=dict(in_channels=3, num_classes=8, input_size=150, norm='batch', init_channels=7, n_blocks=4, m_layers=3, filter_size=11), type=ClickDictionaryType(), help='Model hyperparameters.')
 @click.option('--optimizer_name', default='AdamW', type=str, help='Optimizer name.')
 @click.option('--optimizer_hparams', default=dict(lr=1e-2), type=ClickDictionaryType(), help='Optimizer hyperparameters.')
 @click.option('--lr_name', default='MultiStepLR', type=str, help='Learning rate scheduler name.')
