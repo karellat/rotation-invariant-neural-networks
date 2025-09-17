@@ -215,10 +215,10 @@ class FlexConv2d(torch.nn.Module):
         self.register_buffer('types', torch.tensor(types, dtype=torch.uint8))
 
         # Learnable part
-        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2*2), input_shape, input_shape], 
+        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)*2), input_shape, input_shape], 
                                        bias=False,
                                        elementwise_affine=False)
-        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2*2), out_channels=out_channels, kernel_size=1)
+        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)*2), out_channels=out_channels, kernel_size=1)
 
     def forward(self, x):
         # x shape (B, C, H, W)
@@ -247,6 +247,10 @@ class FlexConv2d(torch.nn.Module):
         # Make a complex multiplication between new_a and new_b
         nonsymmetric_real = (a[..., 0] * b[..., 0] - a[..., 1] * b[..., 1])
         nonsymmetric_imag = (a[..., 0] * b[..., 1] + a[..., 1] * b[..., 0])
+
+        # TODO: For debugging purposes, take just the Flusser
+        nonsymmetric_real = nonsymmetric_real[:, 0:1]
+        nonsymmetric_imag = nonsymmetric_imag[:, 0:1]
 
         # Rearrange the moment x moment axis
         nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')
