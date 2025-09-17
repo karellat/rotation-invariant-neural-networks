@@ -20,7 +20,7 @@ m_param:
   input_size: 64
   num_classes: 10
   init_channels: 4
-  filter_size: 11
+  filter_size: 15
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
