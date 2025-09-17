@@ -216,10 +216,10 @@ class FlexConv2d(torch.nn.Module):
         self.register_buffer('types', torch.tensor(types, dtype=torch.uint8))
 
         # Learnable part
-        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)*2), input_shape, input_shape], 
+        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials)*2 + len(non_symmetric_polynomials)*2), input_shape, input_shape], 
                                        bias=False,
                                        elementwise_affine=False)
-        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)*2), out_channels=out_channels, kernel_size=1)
+        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) * 2 + len(non_symmetric_polynomials)*2), out_channels=out_channels, kernel_size=1)
 
     def forward(self, x):
         # x shape (B, C, H, W)
@@ -235,7 +235,7 @@ class FlexConv2d(torch.nn.Module):
         symmetric = x[:, :len(self.symmetric_polynomials)]
         # Unpack the non-symmetric complex part
         # Remove the phase, because it should be zero for symmetric
-        symmetric = torch.norm(symmetric, dim=-1)
+        # symmetric = torch.norm(symmetric, dim=-1)
         nonsymmetric = x[:, len(self.symmetric_polynomials):]
 
         a = complex_power_moivre(nonsymmetric[:, :, None],
@@ -258,7 +258,7 @@ class FlexConv2d(torch.nn.Module):
         nonsymmetric_imag = rearrange(nonsymmetric_imag, 'b m1 m2 h w -> b (m1 m2) h w')
 
         # Concatenate all features
-        x = torch.cat([symmetric, nonsymmetric_real, nonsymmetric_imag], dim=1)
+        x = torch.cat([symmetric[..., 0], symmetric[..., 1], nonsymmetric_real, nonsymmetric_imag], dim=1)
         x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=C)
         x = self.norm(x)
         x = self.conv1x1(x)
