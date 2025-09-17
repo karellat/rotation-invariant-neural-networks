@@ -24,5 +24,5 @@ m_param:
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: flexi-closer
+run_name: flexi-closer-2
 seed: 42

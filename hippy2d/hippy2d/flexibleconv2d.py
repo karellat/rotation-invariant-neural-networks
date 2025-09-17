@@ -117,11 +117,11 @@ class FlexBaseBlock(torch.nn.Module):
             identity = x[..., 
                          self.identity_pad: -self.identity_pad,
                          self.identity_pad: -self.identity_pad]
-        # TODO: Here should be a circular masking for the whole feature map
-        x = self.conv(x)
         # TODO: This must be tested properly 
         if self.channels_masking == "tukey":
             x = x * self.features_mask
+        # TODO: Here should be a circular masking for the whole feature map
+        x = self.conv(x)
         # Here we can use the Masked_tensor  instead zero masking
         # Apply batch normalization and activation
         x = self.norm(x)
@@ -216,8 +216,12 @@ class FlexConv2d(torch.nn.Module):
         # Learnable part
         self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials)*2 + len(non_symmetric_polynomials)*2), input_shape, input_shape], 
                                        bias=False,
-                                       elementwise_affine=False)
-        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) * 2 + len(non_symmetric_polynomials)*2), out_channels=out_channels, kernel_size=1)
+                                       elementwise_affine=False,
+                                       dtype=torch.get_default_dtype())
+        self.conv1x1 = torch.nn.Conv2d(in_channels=in_channels*(len(symmetric_polynomials) * 2 + len(non_symmetric_polynomials)*2),
+                                        out_channels=out_channels,
+                                        kernel_size=1,
+                                        dtype=torch.get_default_dtype())
 
     def forward(self, x):
         # x shape (B, C, H, W)
