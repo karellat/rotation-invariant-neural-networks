@@ -349,8 +349,6 @@ class ComplexInvariantConv2DR(torch.nn.Module):
             for idx, type in enumerate(types):
                 if type != 0: 
                     filters[idx, filter_size//2, filter_size//2] = 0
-                #if type >= 3: 
-                #    filters[idx, 0, filter_size//2-1: filter_size//2+2, filter_size//2-1: filter_size//2+2] = 0
 
         self.complex_conv_groups = M
         filters = torch.stack(dim=0, tensors=[filters.real, filters.imag])

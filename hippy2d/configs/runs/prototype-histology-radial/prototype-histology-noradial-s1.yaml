@@ -23,4 +23,4 @@ optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
 seed: 390
-run_name: prototype-histology-noradial-bf-long-nodebug
+run_name: prototype-histology-noradial-middle
