@@ -252,8 +252,8 @@ class FlexConv2d(torch.nn.Module):
         nonsymmetric_imag = (a[..., 0] * b[..., 1] + a[..., 1] * b[..., 0])
 
         # TODO: For debugging purposes, take just the Flusser
-        nonsymmetric_real = nonsymmetric_real[:, 0:1]
-        nonsymmetric_imag = nonsymmetric_imag[:, 0:1]
+        nonsymmetric_real = nonsymmetric_real[:, :, 0:1]
+        nonsymmetric_imag = nonsymmetric_imag[:, :, 0:1]
 
         # Rearrange the moment x moment axis
         nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')
