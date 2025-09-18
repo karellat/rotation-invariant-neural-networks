@@ -4,8 +4,9 @@ from einops import repeat
 from warnings import warn
 import torchvision.transforms.v2 as transforms
 
-from hippy2d.flexibleconv2d import FlexConv2d, FILTER_SIZE, MAX_ORDER, FlexBaseBlock 
-from hippy2d.models import FlexInvCNN
+from hippy2d.models import PrototypeOptimalInvCNN
+from hippy2d.flexibleconv2d import FlexConv2d, FILTER_SIZE, MAX_ORDER 
+from hippy2d.blocks import ResnetBlock 
 from hippy2d.utils import get_testing_img, get_default_complex
 import time
 import logging
@@ -84,15 +85,16 @@ class TestComplexOptimalInvariants:
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
-        inv_block = FlexBaseBlock(in_channels=IMAGE_CHANNELS,
-                                   input_size=IMAGE_SIZE,
-                                   out_channels=12).to(test_device)
+        inv_block = ResnetBlock(conv_layer=FlexConv2d,
+                                in_channels=IMAGE_CHANNELS,
+                                input_size=IMAGE_SIZE,
+                                out_channels=12).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
 
     def test_90_network(self, test_images, test_device):
         """Test the 90-degree rotation network."""
-        net = FlexInvCNN(in_channels=IMAGE_CHANNELS,
+        net = Pror(in_channels=IMAGE_CHANNELS,
                          input_size=IMAGE_SIZE,
                          classification=False).to(test_device)
         net.eval()
