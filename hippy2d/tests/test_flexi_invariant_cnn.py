@@ -94,7 +94,9 @@ class TestComplexOptimalInvariants:
 
     def test_90_network(self, test_images, test_device):
         """Test the 90-degree rotation network."""
-        net = Pror(in_channels=IMAGE_CHANNELS,
+        net = PrototypeOptimalInvCNN(
+                         layer=FlexConv2d,
+                         in_channels=IMAGE_CHANNELS,
                          input_size=IMAGE_SIZE,
                          classification=False).to(test_device)
         net.eval()

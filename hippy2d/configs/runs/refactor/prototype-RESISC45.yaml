@@ -14,7 +14,7 @@ lr_hparams:
 lr_name: MultiStepLR
 debug: false
 m_param:
-  filter_size: 11
+  kernel_size: 11
   in_channels: 3
   num_classes: 45
   input_size: 160

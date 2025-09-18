@@ -19,7 +19,7 @@ m_param:
   input_size: 64
   num_classes: 10
   init_channels: 4
-  filter_size: 11
+  kernel_size: 11
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
