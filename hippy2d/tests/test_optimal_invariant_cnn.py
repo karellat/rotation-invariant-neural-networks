@@ -7,13 +7,13 @@ import torchvision.transforms.v2 as transforms
 from hippy2d.optimal_invariant_cnn import (
     ComplexInvariantConv2D,
     ComplexInvariantConv2DR, 
-    ComplexBaseBlock,
     FILTER_SIZE,
     BASIS_P0,
     BASIS_Q0,
     N_RINGS,
     MAX_ORDER
 )
+from hippy2d.blocks import ResnetBlock
 from hippy2d.models import PrototypeOptimalInvCNN
 from hippy2d.utils import get_testing_img, get_default_complex
 
@@ -78,7 +78,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
-        inv_conv = ComplexInvariantConv2D(filter_size=FILTER_SIZE,
+        inv_conv = ComplexInvariantConv2D(kernel_size=FILTER_SIZE,
                                           max_order=MAX_ORDER,
                                           input_size=test_images[0].shape[-1],
                                           in_channels=3,
@@ -88,7 +88,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer_normalized_moments(self, test_images, test_device):
         """Test the 90-degree rotation layer with normalized moments."""
-        inv_conv = ComplexInvariantConv2D(filter_size=FILTER_SIZE,
+        inv_conv = ComplexInvariantConv2D(kernel_size=FILTER_SIZE,
                                           max_order=MAX_ORDER,
                                           input_size=test_images[0].shape[-1],
                                           in_channels=3,
@@ -99,7 +99,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_radial_layer(self, test_images, test_device):
         """Test the 90-degree rotation radial layer."""
-        rc2_conv = ComplexInvariantConv2DR(filter_size=FILTER_SIZE,
+        rc2_conv = ComplexInvariantConv2DR(kernel_size=FILTER_SIZE,
                                            max_order=MAX_ORDER,
                                            n_rings=N_RINGS,
                                            input_size=test_images[0].shape[-1],
@@ -111,19 +111,23 @@ class TestComplexOptimalInvariants:
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
         for norm in ['batch', 'layer']:
-            inv_block = ComplexBaseBlock(in_channels=IMAGE_CHANNELS,
-                                         input_size=IMAGE_SIZE,
-                                         out_channels=12,
-                                         norm=norm).to(test_device)
+            inv_block = ResnetBlock(conv_layer=ComplexInvariantConv2D,
+                                    conv_kwargs=dict(),
+                                    in_channels=IMAGE_CHANNELS,
+                                    input_size=IMAGE_SIZE,
+                                    kernel_size=FILTER_SIZE,
+                                    out_channels=12,
+                                    norm=norm).to(test_device)
             # Forward pass through the complex invariant block
             self._test_90_module(inv_block, test_images, test_device)
 
     def test_90_radial_block(self, test_images, test_device):
         """Test the 90-degree rotation radial block."""
-        inv_block = ComplexBaseBlock(in_channels=IMAGE_CHANNELS,
-                                     input_size=IMAGE_SIZE,
-                                     learnable_radial=True,
-                                     out_channels=12).to(test_device)
+        inv_block = ResnetBlock(conv_layer=ComplexInvariantConv2DR,
+                                in_channels=IMAGE_CHANNELS,
+                                kernel_size=FILTER_SIZE,
+                                input_size=IMAGE_SIZE,
+                                out_channels=12).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
 
@@ -137,30 +141,28 @@ class TestComplexOptimalInvariants:
     
     def test_90_radial_network(self, test_images, test_device): 
         """Test the 90-degree rotation radial network."""
-        net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
+        net = PrototypeOptimalInvCNN(layer=ComplexInvariantConv2DR, 
+                                     in_channels=IMAGE_CHANNELS,
                                      input_size=IMAGE_SIZE,
-                                     learnable_radial=True,
                                      classification=False).to(test_device)
 
         self._test_90_module(net, test_images, test_device)
 
     def test_90_network_classification(self, test_images, test_device):
         """Test the 90-degree rotation network with classification."""
-        for prenormalize in ['batch', 'none', 'layer']:
-            for masking in [True, False]: 
-                net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
-                                            channels_masking=masking,
-                                            prenormalize=prenormalize,
-                                            input_size=IMAGE_SIZE,
-                                            classification=True).to(test_device)
-                net.eval()
-                input_rgb, rot_input_rgb = test_images
-                y = net(input_rgb.to(test_device))
-                y_rot = net(rot_input_rgb.to(test_device))
-                torch.testing.assert_close(
-                    y,
-                    y_rot
-                )
+        for masking in [True, False]: 
+            net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
+                                        channels_masking=masking,
+                                        input_size=IMAGE_SIZE,
+                                        classification=True).to(test_device)
+            net.eval()
+            input_rgb, rot_input_rgb = test_images
+            y = net(input_rgb.to(test_device))
+            y_rot = net(rot_input_rgb.to(test_device))
+            torch.testing.assert_close(
+                y,
+                y_rot
+            )
 
     def test_network_gradient_nan(self, test_images, test_device): 
         """Test if the gradient coming out of the network"""
@@ -187,8 +189,8 @@ class TestComplexOptimalInvariants:
     
     def test_radial_network_gradient_nan(self, test_images, test_device): 
         """Test if the gradient coming out of the network"""
-        net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
-                                     learnable_radial=True,
+        net = PrototypeOptimalInvCNN(layer=ComplexInvariantConv2DR,
+                                     in_channels=IMAGE_CHANNELS,
                                      input_size=IMAGE_SIZE,
                                      classification=True).to(test_device)
         with torch.autograd.detect_anomaly(True):

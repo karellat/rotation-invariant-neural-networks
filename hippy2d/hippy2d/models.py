@@ -4,9 +4,10 @@ import lightning as L
 from typing import List, Any, Dict, Optional
 from loguru import logger
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
-from hippy2d.optimal_invariant_cnn import ComplexBaseBlock
 from hippy2d.flexibleconv2d import FlexBaseBlock
+from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D, ComplexInvariantConv2DR
 from hippy2d.e2sfcnn import ExpE2SFCNN
+from hippy2d.blocks import ResnetBlock
 
 from hippy2d.utils import get_default_complex   
 from torch.nn import functional as F
@@ -272,24 +273,27 @@ class ResHNeXtv3(nn.Module):
 # Optimal Convolution
 class PrototypeOptimalInvCNN(torch.nn.Module): 
     def __init__(self, 
+                 # Layer settings
+                 layer : nn.Module = ComplexInvariantConv2D,
+                 layer_kwargs: dict = dict(), 
+                 # Shape informations
                  in_channels:int = 3,
                  input_size:int = 64,
                  num_classes:int = 10,
-                 filter_size: int = 15,
+                 kernel_size: int = 15,
                  n_blocks=3, 
                  m_layers=3,
                  init_channels=4,
-                 max_order=4,
+                 # Block settings
                  norm:str = "layer",
-                 prenormalize="none",
-                 learnable_radial:bool = False,
-                 classification:bool = True, 
-                 channels_masking:bool = True):
+                 activation: str = "ELU",
+                 channels_masking:bool = True,
+                 classification:bool = True): 
         super(PrototypeOptimalInvCNN, self).__init__()
-        if type(filter_size) is int:
-            filter_size = [filter_size] * n_blocks
-        elif type(filter_size) is list:
-            assert len(filter_size) == n_blocks, "If a list of filter sizes is provided, it must have length n_blocks"
+        if type(kernel_size) is int:
+            kernel_size = [kernel_size] * n_blocks
+        elif type(kernel_size) is list:
+            assert len(kernel_size) == n_blocks, "If a list of filter sizes is provided, it must have length n_blocks"
         else:
             raise TypeError("filter_size must be an int or a list of ints")
         if type(init_channels) is int:
@@ -302,41 +306,44 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
 
         self.masking_channels = "tukey" if channels_masking else "none"
         self.in_channels = in_channels
-        self.max_order = max_order
         out_channels = in_channels
         self.blocks = []
         for block_idx in range(n_blocks):
             block = []
             for _ in range(m_layers):
                 out_channels = channels[block_idx]
-                block.append(ComplexBaseBlock(in_channels=in_channels,
-                                              out_channels=out_channels,
-                                              max_order=self.max_order,
-                                              filter_size=filter_size[block_idx],
-                                              norm=norm,
-                                              prenormalize=prenormalize,
-                                              input_size=input_size,
-                                              channels_masking=self.masking_channels,
-                                              learnable_radial=learnable_radial,
-                                              subsampling=False))
+                block.append(ResnetBlock(
+                    conv_layer=layer,
+                    conv_kwargs=layer_kwargs,
+                    kernel_size=kernel_size[block_idx],
+                    in_channels=in_channels,
+                    out_channels=out_channels,
+                    input_size=input_size,
+                    subsampling=False,
+                    activation=activation,
+                    norm=norm,
+                    channels_masking=self.masking_channels
+                ))
                 in_channels = out_channels
 
             out_channels = channels[block_idx + 1] if block_idx + 1 < len(channels) else out_channels
             # Subsampling block at the end
-            block.append(ComplexBaseBlock(in_channels=in_channels,
-                                          out_channels=out_channels,
-                                          filter_size=filter_size[block_idx],
-                                          max_order=self.max_order,
-                                          norm=norm,
-                                          prenormalize=prenormalize,
-                                          input_size=input_size,
-                                          channels_masking=self.masking_channels,
-                                          learnable_radial=learnable_radial,
-                                          subsampling=True if block_idx < n_blocks - 1 else False))
-
+            block.append(ResnetBlock(
+                conv_layer=layer,
+                conv_kwargs=layer_kwargs,
+                kernel_size=kernel_size[block_idx],
+                in_channels=in_channels,
+                out_channels=out_channels,
+                input_size=input_size,
+                subsampling=True if block_idx < n_blocks - 1 else False,
+                activation=activation,
+                norm=norm,
+                channels_masking=self.masking_channels
+            ))
             in_channels = out_channels
             input_size //= 2  # Reduce input size by half for the next block
             self.blocks.append(torch.nn.Sequential(*block))
+        
         self.blocks = torch.nn.Sequential(*self.blocks)
 
         self.classification = classification
@@ -369,66 +376,68 @@ class PrototypeTiny(torch.nn.Module):
         super(PrototypeTiny, self).__init__()
 
         # 28 px
-        self.layer_1 = ComplexBaseBlock(in_channels=in_channels,
-                                        input_size=input_size,
-                                        out_channels=16 * scale_channels, 
-                                        max_order=3, 
-                                        filter_size=7,
-                                        conv_padding=1,
-                                        learnable_radial_basis=learnable_radial_basis,
-                                        channels_masking="none",
-                                        subsampling=False)
+        self.layer_1 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
+                                   conv_kwargs=dict(max_order=3),
+                                   in_channels=in_channels,
+                                   input_size=input_size,
+                                   out_channels=16 * scale_channels, 
+                                   filter_size=7,
+                                   conv_padding=1,
+                                   channels_masking="none",
+                                   subsampling=False)
         # 24 px 
-        self.layer_2 = ComplexBaseBlock(in_channels=16 * scale_channels,
-                                        input_size=input_size - 4,
-                                        out_channels=32 * scale_channels,
-                                        max_order=3,
-                                        filter_size=5,
-                                        conv_padding=2,
-                                        learnable_radial_basis=learnable_radial_basis,
-                                        channels_masking="none",
-                                        subsampling=True)
-                                        
-        # 12 px 
-        self.layer_3 = ComplexBaseBlock(in_channels=32 * scale_channels,
-                                        input_size=(input_size - 4) // 2,
-                                        out_channels=32 * scale_channels,
-                                        max_order=3,
-                                        filter_size=5,
-                                        conv_padding=2,
-                                        learnable_radial_basis=learnable_radial_basis,
-                                        channels_masking="none",
-                                        subsampling=False)
+        self.layer_2 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
+                                   conv_kwargs=dict(max_order=3),
+                                   in_channels=16 * scale_channels,
+                                   input_size=input_size - 4,
+                                   out_channels=32 * scale_channels,
+                                   filter_size=5,
+                                   conv_padding=2,
+                                   channels_masking="none",
+                                   subsampling=True)
 
-        self.layer_4 = ComplexBaseBlock(in_channels=32 * scale_channels,
-                                        input_size=(input_size - 4) // 2,
-                                        out_channels=32 * scale_channels,
-                                        max_order=3,
-                                        filter_size=5,
-                                        conv_padding=2,
-                                        learnable_radial_basis=learnable_radial_basis,
-                                        channels_masking="none",
-                                        subsampling=True)
+        # 12 px
+        self.layer_3 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
+                                   conv_kwargs=dict(max_order=3),
+                                   in_channels=32 * scale_channels,
+                                   input_size=(input_size - 4) // 2,
+                                   out_channels=32 * scale_channels,
+                                   filter_size=5,
+                                   conv_padding=2,
+                                   channels_masking="none",
+                                   subsampling=False)
+
+        self.layer_4 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
+                                   conv_kwargs=dict(max_order=3),
+                                   in_channels=32 * scale_channels,
+                                   input_size=(input_size - 4) // 2,
+                                   out_channels=32 * scale_channels,
+                                   filter_size=5,
+                                   conv_padding=2,
+                                   channels_masking="none",
+                                   subsampling=True)
 
         # 6 px
-        self.layer_5 = ComplexBaseBlock(in_channels=32 * scale_channels,
-                                        input_size=(input_size - 4) // 4,
-                                        out_channels=48 * scale_channels,
-                                        max_order=3,
-                                        filter_size=5,
-                                        conv_padding=2,
-                                        learnable_radial_basis=learnable_radial_basis,
-                                        channels_masking="none",
+        self.layer_5 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
+                                   conv_kwargs=dict(max_order=3),
+                                   in_channels=32 * scale_channels,
+                                   input_size=(input_size - 4) // 4,
+                                   out_channels=48 * scale_channels,
+                                   filter_size=5,
+                                   conv_padding=2,
+                                   learnable_radial_basis=learnable_radial_basis,
+                                   channels_masking="none",
                                         subsampling=False)
 
-        self.layer_6 = ComplexBaseBlock(in_channels=48 * scale_channels,
-                                        input_size=(input_size - 4) // 4,
-                                        out_channels=64 * scale_channels,
-                                        max_order=3,
-                                        filter_size=5,
-                                        conv_padding=2,
-                                        learnable_radial_basis=learnable_radial_basis,
-                                        channels_masking="none",
+        self.layer_6 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
+                                   conv_kwargs=dict(max_order=3),
+                                   in_channels=48 * scale_channels,
+                                   input_size=(input_size - 4) // 4,
+                                   out_channels=64 * scale_channels,
+                                   filter_size=5,
+                                   conv_padding=2,
+                                   learnable_radial_basis=learnable_radial_basis,
+                                   channels_masking="none",
                                         subsampling=False)
 
         self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))

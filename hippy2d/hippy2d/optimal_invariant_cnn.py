@@ -118,20 +118,20 @@ class RadialGaussianConv2d(torch.nn.Module):
 
 class ComplexInvariantConv2D(torch.nn.Module):
     def __init__(self,
-                 filter_size:int,
-                 max_order:int, 
+                 kernel_size:int,
                  in_channels: int,
                  input_size: int,
                  out_channels:int,
+                 max_order:int = MAX_ORDER, 
                  basis_p0:int = 1,
                  basis_q0:int = 0, 
                  circular_padding:str ="tukey",
-                 conv_padding: str = "same", 
+                 padding: str = "same", 
                  prenormalize: str = "none",
                  polynomials_magnitude_normalization: bool = False,
                  eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
-        self.filter_size = filter_size
+        self.filter_size = kernel_size
         self.max_order = max_order
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -140,11 +140,11 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.eps = eps
 
         # Asserts 
-        assert filter_size % 2 == 1, "Filter size must be odd"
+        assert kernel_size % 2 == 1, "Filter size must be odd"
         assert max_order >= 0, "Max order must be non-negative"
         assert in_channels > 0, "Number of input channels must be positive"
         assert out_channels > 0, "Number of output channels must be positive"
-        assert filter_size >= 5, "Filters must be decent size for complex invariants"
+        assert kernel_size >= 5, "Filters must be decent size for complex invariants"
 
         assert self.basis_p0 >= 0 and self.basis_q0 >= 0, "Basis indices must be non-negative integers"
         assert self.basis_p0 + self.basis_q0 <= max_order, "Basis indices must not exceed the maximum order"
@@ -177,7 +177,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
             for idx, type in enumerate(types):
                 # Mask middle 
                 if type != 0:
-                    filters[idx, 0, filter_size//2, filter_size//2] = 0
+                    filters[idx, 0, kernel_size//2, kernel_size//2] = 0
 
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch
@@ -196,7 +196,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
             raise ValueError(f"Unknown circular padding type: {circular_padding}. Use 'tukey' or 'none'.")
 
         filters = filters * mask
-        self.padding = conv_padding 
+        self.padding = padding 
         self.register_buffer('filters', filters)
         self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64) # Skip the normalization and scaling term
         self.exponents = self.exponents[1:] # Skip the normalization term
@@ -288,19 +288,19 @@ class ComplexInvariantConv2D(torch.nn.Module):
 
 class ComplexInvariantConv2DR(torch.nn.Module):
     def __init__(self,
-                 filter_size:int,
-                 max_order:int, 
+                 kernel_size:int,
                  in_channels: int,
                  input_size: int,
                  out_channels:int,
-                 n_rings: int,
+                 max_order:int = MAX_ORDER, 
+                 n_rings: int = N_RINGS,
                  basis_p0:int = 1,
                  basis_q0:int = 0, 
                  middle_masking = True,
-                 conv_padding: str = "same", 
+                 padding: str = "same", 
                  eps=1e-8):
         super(ComplexInvariantConv2DR, self).__init__()
-        self.filter_size = filter_size
+        self.kernel_size = kernel_size
         self.input_size = input_size
         self.max_order = max_order
         self.in_channels = in_channels
@@ -310,11 +310,11 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         self.eps = eps
 
         # Asserts 
-        assert filter_size % 2 == 1, "Filter size must be odd"
+        assert kernel_size % 2 == 1, "Filter size must be odd"
         assert max_order >= 0, "Max order must be non-negative"
         assert in_channels > 0, "Number of input channels must be positive"
         assert out_channels > 0, "Number of output channels must be positive"
-        assert filter_size >= 5, "Filters must be decent size for complex invariants"
+        assert kernel_size >= 5, "Filters must be decent size for complex invariants"
 
         assert self.basis_p0 >= 0 and self.basis_q0 >= 0, "Basis indices must be non-negative integers"
         assert self.basis_p0 + self.basis_q0 <= max_order, "Basis indices must not exceed the maximum order"
@@ -325,7 +325,7 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         ind = []
         types = []
         # Add the p0q0 term
-        filters.append(get_complex_monomial(self.filter_size,
+        filters.append(get_complex_monomial(self.kernel_size,
                                              self.basis_q0,
                                              self.basis_p0,
                                              dtype=torch.get_default_dtype()))
@@ -334,7 +334,7 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         # Add the complex monomials up to the max order
         for p in range(0, self.max_order + 1):
             for q in range(0, min(self.max_order + 1-p, p + 1)):
-                filters.append(get_complex_monomial(self.filter_size, p, q, dtype=torch.get_default_dtype()))
+                filters.append(get_complex_monomial(self.kernel_size, p, q, dtype=torch.get_default_dtype()))
                 ind.append((p, q))
                 types.append(p - q)
 
@@ -348,7 +348,7 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         if middle_masking:
             for idx, type in enumerate(types):
                 if type != 0: 
-                    filters[idx, filter_size//2, filter_size//2] = 0
+                    filters[idx, kernel_size//2, kernel_size//2] = 0
 
         self.complex_conv_groups = M
         filters = torch.stack(dim=0, tensors=[filters.real, filters.imag])
@@ -356,16 +356,16 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         self.register_buffer('types', torch.tensor(types, dtype=torch.int8))
         # Radial basis functions
         #   per each polynomial - non-learnable normalization term * input channels 
-        rings, sigma = escnn_style_rings_sigmas(self.filter_size, n_rings=n_rings)
+        rings, sigma = escnn_style_rings_sigmas(self.kernel_size, n_rings=n_rings)
         R = len(rings)
         self.coeff = torch.nn.Parameter(torch.ones(Ch,M,R))
         self.register_buffer("rings", torch.tensor(rings, dtype=torch.get_default_dtype()))   # (R,)
         self.register_buffer("sigma", torch.tensor(sigma, dtype=torch.get_default_dtype()))
 
-        basis = self._build_radial_basis(self.filter_size, self.rings, self.sigma)
+        basis = self._build_radial_basis(self.kernel_size, self.rings, self.sigma)
         self.register_buffer("_basis", basis)  # (R, k, k)
 
-        self.padding = conv_padding 
+        self.padding = padding 
         self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64) # Skip the normalization and scaling term
         self.exponents = self.exponents[1:] # Skip the normalization term
         self.exponents = torch.nn.Parameter(self.exponents[None, :,None, None], requires_grad=False) # Broadcasting dimension [B, Moments, H, W]
@@ -460,116 +460,3 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         features = self.conv1x1(result) # Convert back to real
         return features
 # Create a block 
-# TODO: This should refactor to single resnet block, that can serve multiple convolution layers of type=0 
-class ComplexBaseBlock(torch.nn.Module):
-    def __init__(self, 
-                 in_channels:int, 
-                 out_channels:int,
-                 input_size:int,
-                 basis_p0:int = BASIS_P0,
-                 basis_q0:int = BASIS_Q0,
-                 filter_size:int = FILTER_SIZE, 
-                 max_order:int = MAX_ORDER, 
-                 learnable_radial:bool=False,
-                 residual:bool = True, 
-                 subsampling:bool = True, 
-                 polynomials_magnitude_normalization:bool = False,
-                 norm:str = "layer",
-                 prenormalize:str = "none",
-                 channels_masking: str = "tukey",
-                 conv_padding: str = "same"): 
-        super(ComplexBaseBlock, self).__init__()
-        assert prenormalize in ["none", "batch", "layer"], f"Unknown prenormalize type: {prenormalize}"
-        if not learnable_radial:
-            self.conv = ComplexInvariantConv2D(filter_size=filter_size,
-                                                max_order=max_order,
-                                                in_channels=in_channels,
-                                                input_size=input_size,
-                                                out_channels=out_channels,
-                                                prenormalize=prenormalize,
-                                                polynomials_magnitude_normalization=polynomials_magnitude_normalization,
-                                                conv_padding=conv_padding,
-                                                basis_p0=basis_p0,
-                                                basis_q0=basis_q0)
-        else: 
-            assert prenormalize == "none", "Prenormalization is not supported for the radial layers"
-            self.conv = ComplexInvariantConv2DR(filter_size=filter_size,
-                                                max_order=max_order,
-                                                in_channels=in_channels,
-                                                input_size=input_size,
-                                                out_channels=out_channels,
-                                                conv_padding=conv_padding,
-                                                basis_p0=basis_p0,
-                                                basis_q0=basis_q0,
-                                                n_rings=N_RINGS)
-        if conv_padding == "same":
-            conv_output_shape = input_size
-        else:
-            conv_output_shape = input_size + (2 * conv_padding) - filter_size + 1
-        
-        if norm == "batch":
-            self.norm = torch.nn.BatchNorm2d(num_features=out_channels,
-                                             affine=False,
-                                             dtype=torch.get_default_dtype())
-        elif norm == "layer":
-            self.norm = torch.nn.LayerNorm(normalized_shape=(out_channels, conv_output_shape, conv_output_shape),
-                                       elementwise_affine=False,
-                                       dtype=torch.get_default_dtype())
-        else: 
-            raise ValueError(f"Unknown normalization type: {norm}. Use 'batch' or 'layer'.")
-        self.activation = torch.nn.ELU()
-        self.residual = residual
-        self.padding = conv_padding
-        assert (input_size - conv_output_shape) % 2 == 0, "Input size must be even for valid padding"
-        self.identity_pad = (input_size - conv_output_shape) // 2 
-        self.input_size = input_size
-
-        if in_channels != out_channels:
-            self.residual_conv = torch.nn.Conv2d(in_channels=in_channels,
-                                                 out_channels=out_channels,
-                                                 kernel_size=1,
-                                                 bias=False)
-        else: 
-            self.residual_conv = torch.nn.Identity()
-        
-        if subsampling: 
-            self.subsampling = torch.nn.AvgPool2d(kernel_size=2, stride=2)
-        else:
-            self.subsampling = torch.nn.Identity()
-        # Note: This can be done by torch.masked.MaskedTensor, but it is not supported for complex
-        # it's possible to rewrite the whole block using own complex convolution implementation
-        assert channels_masking in ["tukey", "none"], f"Unknown channels_masking: {channels_masking}"
-        self.channels_masking = channels_masking
-        if channels_masking == "tukey":
-            self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
-
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass of the complex invariant convolution block.
-        :param x: Input tensor of shape (batch_size, in_channels, height, width)
-        :return: Output tensor of shape (batch_size, out_channels, height', width')
-        """
-
-        if self.padding == "same" or self.identity_pad == 0:
-            identity = x
-        else:
-            identity = x[..., 
-                         self.identity_pad: -self.identity_pad,
-                         self.identity_pad: -self.identity_pad]
-        # TODO: Here should be a circular masking for the whole feature map
-        if self.channels_masking == "tukey":
-            x = x * self.features_mask
-        # Radial Part
-        x = self.conv(x)
-        # Here we can use the Masked_tensor  instead zero masking
-        # Apply batch normalization and activation
-        x = self.norm(x)
-        x = self.activation(x)
-        x = self.subsampling(x)
-        if self.residual:
-            identity = self.subsampling(identity)
-            # Add the residual connection
-            x = x+ self.residual_conv(identity)
-        return x
-
