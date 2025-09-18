@@ -371,7 +371,6 @@ class PrototypeTiny(torch.nn.Module):
                  in_channels: int = 1,
                  num_classes: int = 10, 
                  input_size: int = 28,
-                 learnable_radial_basis: int = 0, 
                  scale_channels: int = 1):
         super(PrototypeTiny, self).__init__()
 
@@ -425,7 +424,6 @@ class PrototypeTiny(torch.nn.Module):
                                    out_channels=48 * scale_channels,
                                    filter_size=5,
                                    conv_padding=2,
-                                   learnable_radial_basis=learnable_radial_basis,
                                    channels_masking="none",
                                         subsampling=False)
 
@@ -436,7 +434,6 @@ class PrototypeTiny(torch.nn.Module):
                                    out_channels=64 * scale_channels,
                                    filter_size=5,
                                    conv_padding=2,
-                                   learnable_radial_basis=learnable_radial_basis,
                                    channels_masking="none",
                                         subsampling=False)
 

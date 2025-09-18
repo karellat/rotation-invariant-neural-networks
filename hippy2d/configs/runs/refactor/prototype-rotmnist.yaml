@@ -10,7 +10,6 @@ lr_name: ExponentialLR
 model_name: PrototypeTiny
 m_param:
   scale_channels: 4
-  learnable_radial_basis: 3
 optimizer_hparams:
   lr: 0.01525
   weight_decay: 0.05
