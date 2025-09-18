@@ -6,7 +6,7 @@ import numpy as np
 from hippy2d.complex_invariants_2d import get_complex_monomial
 from hippy2d.utils import get_default_complex, tukey_2d, get_circular_mask, SafeAtan2
 
-FILTER_SIZE = 15
+KERNEL_SIZE = 15
 MAX_ORDER = 4
 
 # Generalized complex power function using De Moivre's theorem
@@ -46,101 +46,13 @@ def complex_power_moivre(x: torch.Tensor,
     
     return torch.stack([result_real, result_imag], dim=-1)
 
-
-class FlexBaseBlock(torch.nn.Module):
-    def __init__(self, 
-                 in_channels:int, 
-                 out_channels:int,
-                 input_size:int,
-                 filter_size:int = FILTER_SIZE, 
-                 max_order:int = MAX_ORDER, 
-                 residual:bool = True, 
-                 subsampling:bool = True, 
-                 channels_masking: str = "tukey",
-                 conv_padding: str = "same"):
-        super(FlexBaseBlock, self).__init__()
-
-        self.conv = FlexConv2d(input_shape=input_size,
-                               in_channels=in_channels,
-                              out_channels=out_channels,
-                              filter_size=filter_size,
-                              max_order=max_order, 
-                              padding=conv_padding)
-
-        if conv_padding == "same":
-            conv_output_shape = input_size
-        else:
-            conv_output_shape = input_size + (2 * conv_padding) - filter_size + 1
-
-        self.norm = torch.nn.LayerNorm(normalized_shape=[out_channels, conv_output_shape, conv_output_shape],
-                                        eps=1e-5,
-                                        elementwise_affine=False,
-                                        bias=False)
-        self.activation = torch.nn.ELU()
-        self.residual = residual
-        self.padding = conv_padding
-        assert (input_size - conv_output_shape) % 2 == 0, "Input size must be even for valid padding"
-        self.identity_pad = (input_size - conv_output_shape) // 2 
-        self.input_size = input_size
-
-        if in_channels != out_channels:
-            # TODO: Make it depth wise conv
-            self.residual_conv = torch.nn.Conv2d(in_channels=in_channels,
-                                                 out_channels=out_channels,
-                                                 kernel_size=1,
-                                                 bias=False)
-        else: 
-            self.residual_conv = torch.nn.Identity()
-        
-        if subsampling: 
-            self.subsampling = torch.nn.AvgPool2d(kernel_size=2, stride=2)
-        else:
-            self.subsampling = torch.nn.Identity()
-        # Note: This can be done by torch.masked.MaskedTensor, but it is not supported for complex
-        # it's possible to rewrite the whole block using own complex convolution implementation
-        assert channels_masking in ["tukey", "none"], f"Unknown channels_masking: {channels_masking}"
-        self.channels_masking = channels_masking
-        if channels_masking == "tukey":
-            self.features_mask = torch.nn.Parameter(torch.from_numpy(tukey_2d(self.input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
-        
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass of the complex invariant convolution block.
-        :param x: Input tensor of shape (batch_size, in_channels, height, width)
-        :return: Output tensor of shape (batch_size, out_channels, height', width')
-        """
-
-        if self.padding == "same" or self.identity_pad == 0:
-            identity = x
-        else:
-            identity = x[..., 
-                         self.identity_pad: -self.identity_pad,
-                         self.identity_pad: -self.identity_pad]
-        # TODO: This must be tested properly 
-        if self.channels_masking == "tukey":
-            x = x * self.features_mask
-        # TODO: Here should be a circular masking for the whole feature map
-        x = self.conv(x)
-        # Here we can use the Masked_tensor  instead zero masking
-        # Apply batch normalization and activation
-        x = self.norm(x)
-        x = self.activation(x)
-        x = self.subsampling(x)
-        if self.residual:
-            identity = self.subsampling(identity)
-            # Add the residual connection
-            x = x + self.residual_conv(identity)
-        return x
-
-
 class FlexConv2d(torch.nn.Module):
     def __init__(self, 
-                 input_shape,
+                 input_size,
                  in_channels,
                  out_channels, 
                  max_order=4, 
-                 filter_size=15,
+                 kernel_size=15,
                  gcd=True,
                  normalize_magnitude=False, 
                  masking_middles=True,
@@ -166,12 +78,12 @@ class FlexConv2d(torch.nn.Module):
         types = []
         # First symmetric
         for (p, q) in symmetric_polynomials:
-            filters.append(get_complex_monomial(filter_size,
+            filters.append(get_complex_monomial(kernel_size,
                                                 p, q, dtype=torch.get_default_dtype()))
             types.append(p-q)
         # Non-symmetric
         for (p, q) in non_symmetric_polynomials:
-            filters.append(get_complex_monomial(filter_size,
+            filters.append(get_complex_monomial(kernel_size,
                                                 p, q, dtype=torch.get_default_dtype()))
             types.append(p-q)
         # Stack filters
@@ -187,10 +99,10 @@ class FlexConv2d(torch.nn.Module):
         if masking_middles:
             for idx, type in enumerate(types):
                 if type != 0: 
-                    filters[idx, 0, filter_size//2, filter_size//2] = 0
+                    filters[idx, 0, kernel_size//2, kernel_size//2] = 0
         if masking_borders:
             tukey_mask =  torch.from_numpy(
-                tukey_2d(filter_size, alpha=0.5),
+                tukey_2d(kernel_size, alpha=0.5),
             ).to(dtype=torch.get_default_dtype())
             filters *= tukey_mask[None, None]
         
@@ -214,7 +126,7 @@ class FlexConv2d(torch.nn.Module):
         self.register_buffer('types', torch.tensor(types, dtype=torch.uint8))
 
         # Learnable part
-        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials)*2 + len(non_symmetric_polynomials)*2), input_shape, input_shape], 
+        self.norm = torch.nn.LayerNorm(normalized_shape=[in_channels*(len(symmetric_polynomials)*2 + len(non_symmetric_polynomials)*2), input_size, input_size], 
                                        bias=False,
                                        elementwise_affine=False,
                                        dtype=torch.get_default_dtype())
@@ -252,8 +164,8 @@ class FlexConv2d(torch.nn.Module):
         nonsymmetric_imag = (a[..., 0] * b[..., 1] + a[..., 1] * b[..., 0])
 
         # TODO: For debugging purposes, take just the Flusser
-        nonsymmetric_real = nonsymmetric_real[:, :, 0:1]
-        nonsymmetric_imag = nonsymmetric_imag[:, :, 0:1]
+        nonsymmetric_real = nonsymmetric_real[:,0:1]
+        nonsymmetric_imag = nonsymmetric_imag[:,0:1]
 
         # Rearrange the moment x moment axis
         nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')

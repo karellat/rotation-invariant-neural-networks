@@ -5,7 +5,7 @@ from warnings import warn
 import torchvision.transforms.v2 as transforms
 
 from hippy2d.models import PrototypeOptimalInvCNN
-from hippy2d.flexibleconv2d import FlexConv2d, FILTER_SIZE, MAX_ORDER 
+from hippy2d.flexibleconv2d import FlexConv2d, KERNEL_SIZE, MAX_ORDER 
 from hippy2d.blocks import ResnetBlock 
 from hippy2d.utils import get_testing_img, get_default_complex
 import time
@@ -74,19 +74,20 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
-        inv_conv = FlexConv2d(input_shape=IMAGE_SIZE,
-                             filter_size=FILTER_SIZE,
+        inv_conv = FlexConv2d(input_size=IMAGE_SIZE,
+                             kernel_size=KERNEL_SIZE,
                              max_order=MAX_ORDER,
                              out_channels=12, 
-                             in_channels=3,
-                             gcd=True).to(test_device)
+                             in_channels=3).to(test_device)
         # Forward pass through the complex invariant convolution layer
         self._test_90_module(inv_conv, test_images, test_device)
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
         inv_block = ResnetBlock(conv_layer=FlexConv2d,
+                                conv_kwargs=dict(),
                                 in_channels=IMAGE_CHANNELS,
+                                kernel_size=KERNEL_SIZE,
                                 input_size=IMAGE_SIZE,
                                 out_channels=12).to(test_device)
         # Forward pass through the complex invariant block
@@ -104,9 +105,10 @@ class TestComplexOptimalInvariants:
 
     def test_90_network_classification(self, test_images, test_device):
         """Test the 90-degree rotation network with classification."""
-        net = FlexInvCNN(in_channels=IMAGE_CHANNELS,
-                         input_size=IMAGE_SIZE,
-                         classification=True).to(test_device)
+        net = PrototypeOptimalInvCNN(layer=FlexConv2d, 
+                                     in_channels=IMAGE_CHANNELS,
+                                     input_size=IMAGE_SIZE,
+                                     classification=True).to(test_device)
         net.eval()
 
         input_rgb, rot_input_rgb = test_images
@@ -119,7 +121,9 @@ class TestComplexOptimalInvariants:
 
     def test_network_gradient_nan(self, test_images, test_device): 
         """Test if the gradient coming out of the network"""
-        net = FlexInvCNN(in_channels=IMAGE_CHANNELS,
+        net = PrototypeOptimalInvCNN(layer=FlexConv2d,
+                         in_channels=IMAGE_CHANNELS,
+                         kernel_size=KERNEL_SIZE,
                          input_size=IMAGE_SIZE,
                          classification=True).to(test_device)
         with torch.autograd.detect_anomaly(True):
@@ -141,8 +145,8 @@ class TestComplexOptimalInvariants:
         
     def test_90_layer_speed(self, test_images, test_device):
         """Test the 90-degree rotation layer speed performance."""
-        inv_conv = FlexConv2d(input_shape=IMAGE_SIZE,
-                             filter_size=FILTER_SIZE,
+        inv_conv = FlexConv2d(input_size=IMAGE_SIZE,
+                             kernel_size=KERNEL_SIZE,
                              max_order=MAX_ORDER,
                              out_channels=12, 
                              in_channels=3,

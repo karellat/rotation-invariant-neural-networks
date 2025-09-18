@@ -7,7 +7,7 @@ import torchvision.transforms.v2 as transforms
 from hippy2d.optimal_invariant_cnn import (
     ComplexInvariantConv2D,
     ComplexInvariantConv2DR, 
-    FILTER_SIZE,
+    KERNEL_SIZE,
     BASIS_P0,
     BASIS_Q0,
     N_RINGS,
@@ -78,7 +78,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
-        inv_conv = ComplexInvariantConv2D(kernel_size=FILTER_SIZE,
+        inv_conv = ComplexInvariantConv2D(kernel_size=KERNEL_SIZE,
                                           max_order=MAX_ORDER,
                                           input_size=test_images[0].shape[-1],
                                           in_channels=3,
@@ -88,7 +88,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer_normalized_moments(self, test_images, test_device):
         """Test the 90-degree rotation layer with normalized moments."""
-        inv_conv = ComplexInvariantConv2D(kernel_size=FILTER_SIZE,
+        inv_conv = ComplexInvariantConv2D(kernel_size=KERNEL_SIZE,
                                           max_order=MAX_ORDER,
                                           input_size=test_images[0].shape[-1],
                                           in_channels=3,
@@ -99,7 +99,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_radial_layer(self, test_images, test_device):
         """Test the 90-degree rotation radial layer."""
-        rc2_conv = ComplexInvariantConv2DR(kernel_size=FILTER_SIZE,
+        rc2_conv = ComplexInvariantConv2DR(kernel_size=KERNEL_SIZE,
                                            max_order=MAX_ORDER,
                                            n_rings=N_RINGS,
                                            input_size=test_images[0].shape[-1],
@@ -115,7 +115,7 @@ class TestComplexOptimalInvariants:
                                     conv_kwargs=dict(),
                                     in_channels=IMAGE_CHANNELS,
                                     input_size=IMAGE_SIZE,
-                                    kernel_size=FILTER_SIZE,
+                                    kernel_size=KERNEL_SIZE,
                                     out_channels=12,
                                     norm=norm).to(test_device)
             # Forward pass through the complex invariant block
@@ -125,7 +125,7 @@ class TestComplexOptimalInvariants:
         """Test the 90-degree rotation radial block."""
         inv_block = ResnetBlock(conv_layer=ComplexInvariantConv2DR,
                                 in_channels=IMAGE_CHANNELS,
-                                kernel_size=FILTER_SIZE,
+                                kernel_size=KERNEL_SIZE,
                                 input_size=IMAGE_SIZE,
                                 out_channels=12).to(test_device)
         # Forward pass through the complex invariant block
