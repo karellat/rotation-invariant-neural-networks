@@ -128,6 +128,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  circular_padding:str ="tukey",
                  padding: str = "same", 
                  prenormalize: str = "none",
+                 magnitude_normalization = "copy", # flussers r^z, copy r, one 1 
                  polynomials_magnitude_normalization: bool = False,
                  eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
@@ -138,6 +139,8 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.basis_p0 = basis_p0
         self.basis_q0 = basis_q0
         self.eps = eps
+        assert magnitude_normalization in ["one", "copy", "flussers"] 
+        self.magnitude_normalization = magnitude_normalization
 
         # Asserts 
         assert kernel_size % 2 == 1, "Filter size must be odd"
@@ -194,6 +197,9 @@ class ComplexInvariantConv2D(torch.nn.Module):
             mask = 1
         else:
             raise ValueError(f"Unknown circular padding type: {circular_padding}. Use 'tukey' or 'none'.")
+
+        # Normalization factor
+        self.magnitude_normalization = magnitude_normalization
 
         filters = filters * mask
         self.padding = padding 
@@ -268,9 +274,16 @@ class ComplexInvariantConv2D(torch.nn.Module):
             # Magnitudes 
             assert torch.all(~torch.isnan(norm_magnitude)), "Normalization magnitude contains NaN values"
         
+        if self.magnitude_normalization == "one": 
+            powers = 1
+        elif self.magnitude_normalization == "copy": 
+            powers = norm_magnitude[:, None] 
+        elif self.magnitude_normalization == "flussers":  
+            powers = norm_magnitude[:, None] ** (self.exponents)
+        else: 
+            raise NotImplementedError(f"Unknown magnitude normalization {self.magnitude_normalization}")
+
         norm_angle = norm_angle * self.exponents
-        powers = norm_magnitude[:, None] ** (self.exponents)
-        
         normalization_factor_real = powers * torch.cos(norm_angle)
         normalization_factor_imag = powers * torch.sin(norm_angle)
 

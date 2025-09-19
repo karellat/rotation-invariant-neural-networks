@@ -78,13 +78,15 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
-        inv_conv = ComplexInvariantConv2D(kernel_size=KERNEL_SIZE,
-                                          max_order=MAX_ORDER,
-                                          input_size=test_images[0].shape[-1],
-                                          in_channels=3,
-                                          out_channels=12).to(test_device)
-        # Forward pass through the complex invariant convolution layer
-        self._test_90_module(inv_conv, test_images, test_device)
+        for magnitude_normalization in ["one", "flussers", "copy"]:
+            inv_conv = ComplexInvariantConv2D(kernel_size=KERNEL_SIZE,
+                                            max_order=MAX_ORDER,
+                                            input_size=test_images[0].shape[-1],
+                                            magnitude_normalization=magnitude_normalization,    
+                                            in_channels=3,
+                                            out_channels=12).to(test_device)
+            # Forward pass through the complex invariant convolution layer
+            self._test_90_module(inv_conv, test_images, test_device)
 
     def test_90_layer_normalized_moments(self, test_images, test_device):
         """Test the 90-degree rotation layer with normalized moments."""
