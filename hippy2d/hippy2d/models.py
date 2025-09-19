@@ -4,7 +4,6 @@ import lightning as L
 from typing import List, Any, Dict, Optional
 from loguru import logger
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
-from hippy2d.flexibleconv2d import FlexBaseBlock
 from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D, ComplexInvariantConv2DR
 from hippy2d.e2sfcnn import ExpE2SFCNN
 from hippy2d.blocks import ResnetBlock

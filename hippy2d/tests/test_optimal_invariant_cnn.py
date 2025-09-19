@@ -124,6 +124,7 @@ class TestComplexOptimalInvariants:
     def test_90_radial_block(self, test_images, test_device):
         """Test the 90-degree rotation radial block."""
         inv_block = ResnetBlock(conv_layer=ComplexInvariantConv2DR,
+                                conv_kwargs=dict(),
                                 in_channels=IMAGE_CHANNELS,
                                 kernel_size=KERNEL_SIZE,
                                 input_size=IMAGE_SIZE,

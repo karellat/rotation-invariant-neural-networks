@@ -131,7 +131,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  polynomials_magnitude_normalization: bool = False,
                  eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
-        self.kernel_size = kernel_size
+        self.filter_size = kernel_size
         self.max_order = max_order
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -155,7 +155,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         ind = []
         types = []
         # Add the p0q0 term
-        filters.append(get_complex_monomial(self.kernel_size,
+        filters.append(get_complex_monomial(self.filter_size,
                                              self.basis_q0,
                                              self.basis_p0,
                                              dtype=torch.get_default_dtype()))
@@ -164,7 +164,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         # Add the complex monomials up to the max order
         for p in range(0, self.max_order + 1):
             for q in range(0, min(self.max_order + 1-p, p + 1)):
-                filters.append(get_complex_monomial(self.kernel_size, p, q, dtype=torch.get_default_dtype()))
+                filters.append(get_complex_monomial(self.filter_size, p, q, dtype=torch.get_default_dtype()))
                 ind.append((p, q))
                 types.append(self.basis_q0 - self.basis_p0)
         self.ind = ind
@@ -185,10 +185,10 @@ class ComplexInvariantConv2D(torch.nn.Module):
         # Radial padding
         if circular_padding == "tukey":
             # Use Tukey window for circular padding
-            mask = torch.from_numpy(tukey_2d(self.kernel_size, 0.5)).to(dtype=torch.get_default_dtype())
+            mask = torch.from_numpy(tukey_2d(self.filter_size, 0.5)).to(dtype=torch.get_default_dtype())
         elif circular_padding == "circular":
             # Use circular padding
-            mask = get_circular_mask(self.kernel_size, dtype=torch.get_default_dtype())
+            mask = get_circular_mask(self.filter_size, dtype=torch.get_default_dtype())
         elif circular_padding == "none":
             # No padding, just use the filters as they are
             mask = 1
@@ -269,8 +269,10 @@ class ComplexInvariantConv2D(torch.nn.Module):
             assert torch.all(~torch.isnan(norm_magnitude)), "Normalization magnitude contains NaN values"
         
         norm_angle = norm_angle * self.exponents
-        normalization_factor_real = norm_magnitude[:, None] * torch.cos(norm_angle)
-        normalization_factor_imag = norm_magnitude[:, None] * torch.sin(norm_angle)
+        powers = norm_magnitude[:, None] ** (self.exponents)
+        
+        normalization_factor_real = powers * torch.cos(norm_angle)
+        normalization_factor_imag = powers * torch.sin(norm_angle)
 
         result = torch.cat(tensors=[
             moments[:, 0] * normalization_factor_real - moments[:, 1] * normalization_factor_imag,
@@ -297,7 +299,7 @@ class ComplexInvariantConv2DR(torch.nn.Module):
                  basis_p0:int = 1,
                  basis_q0:int = 0, 
                  middle_masking = True,
-                 conv_padding: str = "same", 
+                 padding: str = "same", 
                  eps=1e-8):
         super(ComplexInvariantConv2DR, self).__init__()
         self.kernel_size = kernel_size
@@ -365,7 +367,7 @@ class ComplexInvariantConv2DR(torch.nn.Module):
         basis = self._build_radial_basis(self.kernel_size, self.rings, self.sigma)
         self.register_buffer("_basis", basis)  # (R, k, k)
 
-        self.padding = conv_padding 
+        self.padding = padding 
         self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64) # Skip the normalization and scaling term
         self.exponents = self.exponents[1:] # Skip the normalization term
         self.exponents = torch.nn.Parameter(self.exponents[None, :,None, None], requires_grad=False) # Broadcasting dimension [B, Moments, H, W]
