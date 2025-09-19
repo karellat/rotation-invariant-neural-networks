@@ -22,9 +22,10 @@ m_param:
   kernel_size: 11
   layer_kwargs: 
     magnitude_normalization: "one"
+    preserve_energy: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-mnistrottest-one
+run_name: prototype-mnistrottest-one-preserveenergy
 seed: 456

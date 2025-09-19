@@ -129,6 +129,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  padding: str = "same", 
                  prenormalize: str = "none",
                  preserve_energy: bool = False,
+                 invariant_norm: bool = False,
                  magnitude_normalization = "copy", # flussers r^z, copy r, one 1 
                  polynomials_magnitude_normalization: bool = False,
                  eps=1e-8):
@@ -142,6 +143,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.eps = eps
         assert magnitude_normalization in ["one", "copy", "flussers"] 
         self.magnitude_normalization = magnitude_normalization
+        self.invariant_norm = invariant_norm
 
         # Asserts 
         assert kernel_size % 2 == 1, "Filter size must be odd"
@@ -291,7 +293,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         normalization_factor_real = powers * torch.cos(norm_angle)
         normalization_factor_imag = powers * torch.sin(norm_angle)
 
-        result = torch.cat(tensors=[
+        result = torch.stack(tensors=[
             moments[:, 0] * normalization_factor_real - moments[:, 1] * normalization_factor_imag,
             moments[:, 0] * normalization_factor_imag + moments[:, 1] * normalization_factor_real
         ], dim=1)  # Stack along the channel dimension
@@ -300,8 +302,12 @@ class ComplexInvariantConv2D(torch.nn.Module):
             assert result.dtype == torch.get_default_dtype(), f"Output dtype {result.dtype} does not match expected {torch.get_default_dtype()}"
             assert torch.all(~torch.isnan(result)), "Output contains NaN values"
 
-        result = rearrange(result, '(b ch) n h w -> b (ch n) h w', ch=self.in_channels)
-        result = self.norm(result)
+        if self.invariant_norm:
+            mean = torch.mean(result.abs(dim=1, keepdim=True), dim=(0, -2, -1), keepdim=True)
+            std = torch.std(result.abs(dim=1, keepdim=True), dim=(0, -2, -1), keepdim=True)
+            result = (result - mean) / (std + self.eps)
+        result = rearrange(result, '(b ch) co n h w -> b (ch co n) h w', ch=self.in_channels)
+        #result = self.norm(result)
         features = self.conv1x1(result) # Convert back to real
         return features
 

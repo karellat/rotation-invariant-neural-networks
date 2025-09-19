@@ -21,11 +21,12 @@ m_param:
   init_channels: 4
   kernel_size: 11
   layer_kwargs: 
-    magnitude_normalization: "one"
+    magnitude_normalization: "flussers"
     preserve_energy: true
+    invariant_norm: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-mnistrottest-one-preserveenergy
+run_name: prototype-mnistrottest-flussers-preserveenergy-invnorm
 seed: 123
