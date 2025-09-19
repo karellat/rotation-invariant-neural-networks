@@ -128,6 +128,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  circular_padding:str ="tukey",
                  padding: str = "same", 
                  prenormalize: str = "none",
+                 preserve_energy: bool = False,
                  magnitude_normalization = "copy", # flussers r^z, copy r, one 1 
                  polynomials_magnitude_normalization: bool = False,
                  eps=1e-8):
@@ -184,7 +185,6 @@ class ComplexInvariantConv2D(torch.nn.Module):
 
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch
-        filters = torch.cat(dim=0, tensors=[filters.real, filters.imag])
         # Radial padding
         if circular_padding == "tukey":
             # Use Tukey window for circular padding
@@ -197,11 +197,15 @@ class ComplexInvariantConv2D(torch.nn.Module):
             mask = 1
         else:
             raise ValueError(f"Unknown circular padding type: {circular_padding}. Use 'tukey' or 'none'.")
+        filters = filters * mask
+        if preserve_energy:
+            filters = filters / filters.abs().sum(axis=(-2, -1), keepdim=True)
+
+        filters = torch.cat(dim=0, tensors=[filters.real, filters.imag])
 
         # Normalization factor
         self.magnitude_normalization = magnitude_normalization
 
-        filters = filters * mask
         self.padding = padding 
         self.register_buffer('filters', filters)
         self.exponents = torch.tensor([p-q for (p,q) in ind], dtype=torch.int64) # Skip the normalization and scaling term
