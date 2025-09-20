@@ -23,7 +23,7 @@ m_param:
   layer_kwargs: 
     magnitude_normalization: "flussers"
     preserve_energy: true
-    polynomials_magnitude_normalization: true
+    zero_out_middles: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
