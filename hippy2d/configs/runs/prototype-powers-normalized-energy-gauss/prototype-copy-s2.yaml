@@ -23,10 +23,10 @@ m_param:
   layer_kwargs: 
     magnitude_normalization: "copy"
     preserve_energy: true
-    invariant_norm: true
+    invariant_norm: "gauss"
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-mnistrottest-copy-preserveenergy-invnorm
-seed: 42
+run_name: prototype-mnistrottest-copy-preserveenergy-gauss-invnorm
+seed: 123

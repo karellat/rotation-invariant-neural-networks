@@ -129,7 +129,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  padding: str = "same", 
                  prenormalize: str = "none",
                  preserve_energy: bool = False,
-                 invariant_norm: bool = False,
+                 invariant_norm: str = "rayleigh", # none, rayleigh, gauss
                  magnitude_normalization = "copy", # flussers r^z, copy r, one 1 
                  polynomials_magnitude_normalization: bool = False,
                  eps=1e-8):
@@ -143,6 +143,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.eps = eps
         assert magnitude_normalization in ["one", "copy", "flussers"] 
         self.magnitude_normalization = magnitude_normalization
+        assert invariant_norm in ["none", "rayleigh", "gauss"]
         self.invariant_norm = invariant_norm
 
         # Asserts 
@@ -302,10 +303,21 @@ class ComplexInvariantConv2D(torch.nn.Module):
             assert result.dtype == torch.get_default_dtype(), f"Output dtype {result.dtype} does not match expected {torch.get_default_dtype()}"
             assert torch.all(~torch.isnan(result)), "Output contains NaN values"
 
-        if self.invariant_norm:
-            mean = torch.mean(result.abs(dim=1, keepdim=True), dim=(0, -2, -1), keepdim=True)
-            std = torch.std(result.abs(dim=1, keepdim=True), dim=(0, -2, -1), keepdim=True)
+        if self.invariant_norm == "rayleigh":
+            result_mag = torch.norm(result, dim=1, keepdim=True)
+            sigma_hat = torch.sqrt((result_mag.pow(2).mean(dim=1, keepdim=True)) / 2)
+            mean_rayleigh = sigma_hat * torch.sqrt(torch.tensor(torch.pi / 2, device=result.device))
+            std_rayleigh = sigma_hat * torch.sqrt(torch.tensor((4 - torch.pi) / 2, device=result.device))
+            result = (result - mean_rayleigh) / (std_rayleigh + self.eps)
+        elif self.invariant_norm == "gauss":
+            # Real, Imag independently normalized
+            mean = torch.mean(result, dim=(0, -2, -1), keepdim=True)
+            std = torch.std(result, dim=(0, -2, -1), keepdim=True)
             result = (result - mean) / (std + self.eps)
+        elif self.invariant_norm == "none":
+            pass
+        else:
+            raise ValueError(f"Unknown invariant normalization type: {self.invariant_norm}. Use 'none', 'rayleigh', or 'gauss'.")
         result = rearrange(result, '(b ch) co n h w -> b (ch co n) h w', ch=self.in_channels)
         #result = self.norm(result)
         features = self.conv1x1(result) # Convert back to real
