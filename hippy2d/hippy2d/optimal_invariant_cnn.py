@@ -131,7 +131,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  preserve_energy: bool = False,
                  invariant_norm: str = "rayleigh", # none, rayleigh, gauss
                  magnitude_normalization = "copy", # flussers r^z, copy r, one 1 
-                 polynomials_magnitude_normalization: bool = False,
+                 zero_out_middles: bool = False,
                  eps=1e-8):
         super(ComplexInvariantConv2D, self).__init__()
         self.filter_size = kernel_size
@@ -178,13 +178,14 @@ class ComplexInvariantConv2D(torch.nn.Module):
 
         # NOTE: This part can be shared by all the layers, that can save memory 
         filters = rearrange(filters, 'n h w -> n 1 h w')
-        if polynomials_magnitude_normalization:
-            # TODO: Fix the middles 
-            filters = filters / filters.abs() 
+        if zero_out_middles:
             for idx, type in enumerate(types):
                 # Mask middle 
                 if type != 0:
                     filters[idx, 0, kernel_size//2, kernel_size//2] = 0
+                if type >= 2:
+                    # 3x3 mask
+                    filters[idx, 0, kernel_size//2-1:kernel_size//2+2, kernel_size//2-1:kernel_size//2+2] = 0
 
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch

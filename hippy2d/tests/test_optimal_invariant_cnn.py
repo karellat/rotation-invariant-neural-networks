@@ -78,26 +78,29 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
-        for preserve_energy in [True, False]:
-            for magnitude_normalization in ["one", "flussers", "copy"]:
-                for invariant_norm in ["none", "rayleigh", "gauss"]:
-                    if not preserve_energy and invariant_norm != "none":
-                        # This combination does not make sense, skip
-                        continue
-                    inv_conv = ComplexInvariantConv2D(kernel_size=KERNEL_SIZE,
-                                                    max_order=MAX_ORDER,
-                                                    input_size=test_images[0].shape[-1],
-                                                    magnitude_normalization=magnitude_normalization,    
-                                                    preserve_energy=preserve_energy,
-                                                    invariant_norm=invariant_norm,
-                                                    in_channels=3,
-                                                    out_channels=12).to(test_device)
-                    # Forward pass through the complex invariant convolution layer
-                    try:
-                        self._test_90_module(inv_conv, test_images, test_device)
-                    except Exception as e:
-                        warn(f"Testing failed for {preserve_energy=}, {magnitude_normalization=}, {invariant_norm=}: {e}")
-                        raise e
+        for zero_out_middles in [True, False]:
+            for preserve_energy in [True, False]:
+                for magnitude_normalization in ["one", "flussers", "copy"]:
+                    for invariant_norm in ["none", "rayleigh", "gauss"]:
+                        if not preserve_energy and invariant_norm != "none":
+                            # This combination does not make sense, skip
+                            #pass
+                            continue
+                        inv_conv = ComplexInvariantConv2D(kernel_size=KERNEL_SIZE,
+                                                        max_order=MAX_ORDER,
+                                                        input_size=test_images[0].shape[-1],
+                                                        magnitude_normalization=magnitude_normalization,    
+                                                        preserve_energy=preserve_energy,
+                                                        invariant_norm=invariant_norm,
+                                                        zero_out_middles=zero_out_middles, 
+                                                        in_channels=3,
+                                                        out_channels=12).to(test_device)
+                        # Forward pass through the complex invariant convolution layer
+                        try:
+                            self._test_90_module(inv_conv, test_images, test_device)
+                        except Exception as e:
+                            warn(f"Testing failed for {preserve_energy=}, {magnitude_normalization=}, {invariant_norm=}: {e}")
+                            raise e
 
     def test_90_layer_normalized_moments(self, test_images, test_device):
         """Test the 90-degree rotation layer with normalized moments."""
