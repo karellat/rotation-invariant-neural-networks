@@ -129,7 +129,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
                  padding: str = "same", 
                  prenormalize: str = "none",
                  preserve_energy: bool = False,
-                 invariant_norm: str = "rayleigh", # none, rayleigh, gauss
+                 invariant_norm: str = "none", # none, rayleigh, gauss
                  magnitude_normalization = "copy", # flussers r^z, copy r, one 1 
                  zero_out_middles: bool = False,
                  eps=1e-8):
