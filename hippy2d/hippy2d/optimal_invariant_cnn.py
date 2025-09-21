@@ -183,9 +183,9 @@ class ComplexInvariantConv2D(torch.nn.Module):
                 # Mask middle 
                 if type != 0:
                     filters[idx, 0, kernel_size//2, kernel_size//2] = 0
-                if type >= 2:
+                #if type >= 2:
                     # 3x3 mask
-                    filters[idx, 0, kernel_size//2-1:kernel_size//2+2, kernel_size//2-1:kernel_size//2+2] = 0
+                #    filters[idx, 0, kernel_size//2-1:kernel_size//2+2, kernel_size//2-1:kernel_size//2+2] = 0
 
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch
@@ -306,7 +306,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
 
         if self.invariant_norm == "rayleigh":
             result_mag = torch.norm(result, dim=1, keepdim=True)
-            sigma_hat = torch.sqrt((result_mag.pow(2).mean(dim=1, keepdim=True)) / 2)
+            sigma_hat = torch.sqrt(((result_mag*result_mag).mean(dim=1, keepdim=True)) / 2)
             mean_rayleigh = sigma_hat * torch.sqrt(torch.tensor(torch.pi / 2, device=result.device))
             std_rayleigh = sigma_hat * torch.sqrt(torch.tensor((4 - torch.pi) / 2, device=result.device))
             result = (result - mean_rayleigh) / (std_rayleigh + self.eps)

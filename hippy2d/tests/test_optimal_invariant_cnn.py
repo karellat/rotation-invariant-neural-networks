@@ -185,7 +185,8 @@ class TestComplexOptimalInvariants:
         """Test if the gradient coming out of the network"""
         for norm in ['batch', 'layer']:
             net = PrototypeOptimalInvCNN(in_channels=IMAGE_CHANNELS,
-                                         layer_kwargs={'zero_out_middles': True},
+                                         layer_kwargs={'zero_out_middles': True, 
+                                                       'invariant_norm': 'rayleigh',},
                                         input_size=IMAGE_SIZE,
                                         norm=norm,
                                         classification=True).to(test_device)

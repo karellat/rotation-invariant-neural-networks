@@ -28,5 +28,5 @@ model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: prototype-mnistrottest-one-preserveenergy
+run_name: prototype-mnistrottest-one-preserveenergy-just-middle
 seed: 123
