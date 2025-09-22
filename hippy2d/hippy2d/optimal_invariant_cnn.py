@@ -16,7 +16,11 @@ MAX_ORDER = 4
 
 import torch
 
-
+def smoothstep(x, edge0=1e-3, edge1=1e-1):
+    # edge0: where output starts rising from 0
+    # edge1: where output reaches 1
+    t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0)
+    return t * t * (3 - 2*t)
 
 def escnn_style_rings_sigmas(kernel_size: int, n_rings: int):
     """
@@ -141,7 +145,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.basis_p0 = basis_p0
         self.basis_q0 = basis_q0
         self.eps = eps
-        assert magnitude_normalization in ["one", "copy", "flussers"] 
+        assert magnitude_normalization in ["one", "copy", "flussers", "smoothstep"] 
         self.magnitude_normalization = magnitude_normalization
         assert invariant_norm in ["none", "rayleigh", "gauss"]
         self.invariant_norm = invariant_norm
@@ -281,6 +285,8 @@ class ComplexInvariantConv2D(torch.nn.Module):
         
         if self.magnitude_normalization == "one": 
             powers = 1
+        elif self.magnitude_normalization == "smoothstep":
+            powers = smoothstep(norm_magnitude)[:, None]
         elif self.magnitude_normalization == "copy": 
             powers = norm_magnitude[:, None] 
         elif self.magnitude_normalization == "flussers":  

@@ -80,7 +80,7 @@ class TestComplexOptimalInvariants:
         """Test the 90-degree rotation layer."""
         for zero_out_middles in [True, False]:
             for preserve_energy in [True, False]:
-                for magnitude_normalization in ["one", "flussers", "copy"]:
+                for magnitude_normalization in ["one", "flussers", "copy", "smoothstep"]:
                     for invariant_norm in ["none", "rayleigh", "gauss"]:
                         if not preserve_energy and invariant_norm != "none":
                             # This combination does not make sense, skip
