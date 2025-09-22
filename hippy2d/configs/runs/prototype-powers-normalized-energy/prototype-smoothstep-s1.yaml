@@ -21,7 +21,7 @@ m_param:
   init_channels: 4
   kernel_size: 11
   layer_kwargs: 
-    magnitude_normalization: "smoothstep"
+    magnitude_normalization: "s"
     preserve_energy: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:

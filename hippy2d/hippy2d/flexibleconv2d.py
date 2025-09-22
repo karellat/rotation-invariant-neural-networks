@@ -12,9 +12,10 @@ MAX_ORDER = 4
 # Generalized complex power function using De Moivre's theorem
 @torch.jit.script
 def complex_power_moivre(x: torch.Tensor,
-                             exponents: torch.Tensor,
-                             safe_magnitude_power: bool =False,
-                             eps: float = 1e-8) -> torch.Tensor:
+                         exponents: torch.Tensor,
+                         safe_magnitude_power: bool =False,
+                         magnitude_func: str = "power",
+                         eps: float = 1e-8) -> torch.Tensor:
     """
     JIT-compatible complex power using De Moivre's theorem
     Args:
@@ -32,12 +33,16 @@ def complex_power_moivre(x: torch.Tensor,
     magnitude = torch.norm(x, dim=-1)  # [..., 1]
     angle = SafeAtan2.apply(imag_part, real_part,
                                 eps)[..., 0]
-
-    if safe_magnitude_power: 
-        new_magnitude = torch.where(magnitude < eps, torch.tensor(eps, dtype=magnitude.dtype, device=magnitude.device), magnitude)
-        new_magnitude = torch.pow(new_magnitude, exponents)  
+    if magnitude_func == "power": 
+        if safe_magnitude_power: 
+            new_magnitude = torch.where(magnitude < eps, torch.tensor(eps, dtype=magnitude.dtype, device=magnitude.device), magnitude)
+            new_magnitude = torch.pow(new_magnitude, exponents)  
+        else: 
+            new_magnitude = torch.pow(magnitude, exponents)  
+    elif magnitude_func == "copy":
+        new_magnitude = torch.pow(magnitude, torch.ones_like(exponents))
     else: 
-        new_magnitude = torch.pow(magnitude, exponents)  
+        raise ValueError(f"Unknown magnitude function: {magnitude_func}. Use 'power' or 'copy'.")
 
     new_angle = angle * exponents
     # Convert back to rectangular form
@@ -154,18 +159,20 @@ class FlexConv2d(torch.nn.Module):
 
         a = complex_power_moivre(nonsymmetric[:, :, None],
                                  self.exp_a[..., None, None],
+                                 magnitude_func="copy",
                                  safe_magnitude_power=False) # Note: There are not zero exponents
         # Make conjugate 
         b = complex_power_moivre(nonsymmetric[:, None, :] * self._conj,
                                  self.exp_b[..., None, None],
+                                 magnitude_func="copy",
                                  safe_magnitude_power=False) # Note: There are not zero exponents
         # Make a complex multiplication between new_a and new_b
         nonsymmetric_real = (a[..., 0] * b[..., 0] - a[..., 1] * b[..., 1])
         nonsymmetric_imag = (a[..., 0] * b[..., 1] + a[..., 1] * b[..., 0])
 
         # TODO: For debugging purposes, take just the Flusser
-        nonsymmetric_real = nonsymmetric_real[:,0:1]
-        nonsymmetric_imag = nonsymmetric_imag[:,0:1]
+        nonsymmetric_real = nonsymmetric_real[:, :, 0:1]
+        nonsymmetric_imag = nonsymmetric_imag[:, :, 0:1]
 
         # Rearrange the moment x moment axis
         nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')

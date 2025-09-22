@@ -190,6 +190,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
 
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch
+        
         # Radial padding
         if circular_padding == "tukey":
             # Use Tukey window for circular padding

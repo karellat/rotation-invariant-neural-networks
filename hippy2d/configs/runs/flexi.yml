@@ -6,7 +6,7 @@ d_hparams:
   normalize: true
 dataset_name: MnistRotTest
 early_stopping: 10
-epochs: 35
+epochs: 50
 lr_hparams:
   gamma: 0.1
   milestones:
@@ -24,5 +24,5 @@ m_param:
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: flexi-closer-2
+run_name: flexi-refactor-check
 seed: 42

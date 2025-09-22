@@ -113,7 +113,7 @@ class TestComplexOptimalInvariants:
         # Forward pass through the complex invariant convolution layer
         self._test_90_module(inv_conv, test_images, test_device)
 
-    def test_90_radial_layer(self, test_images, test_device):
+    def test_90_radial_layer(self, test_images, test_device):     
         """Test the 90-degree rotation radial layer."""
         rc2_conv = ComplexInvariantConv2DR(kernel_size=KERNEL_SIZE,
                                            max_order=MAX_ORDER,
