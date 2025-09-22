@@ -22,7 +22,7 @@ m_param:
   kernel_size: 11
   layer_kwargs: 
     magnitude_normalization: "flussers"
-    preserve_energy: true
+    preserve_energy: false
     zero_out_middles: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:

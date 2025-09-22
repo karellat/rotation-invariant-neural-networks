@@ -183,9 +183,6 @@ class ComplexInvariantConv2D(torch.nn.Module):
                 # Mask middle 
                 if type != 0:
                     filters[idx, 0, kernel_size//2, kernel_size//2] = 0
-                #if type >= 2:
-                    # 3x3 mask
-                #    filters[idx, 0, kernel_size//2-1:kernel_size//2+2, kernel_size//2-1:kernel_size//2+2] = 0
 
         Ch, _, _, _ = filters.shape
         self.complex_conv_groups = Ch
