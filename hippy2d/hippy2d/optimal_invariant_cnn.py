@@ -147,7 +147,7 @@ class ComplexInvariantConv2D(torch.nn.Module):
         self.eps = eps
         assert magnitude_normalization in ["one", "copy", "flussers", "smoothstep"] 
         self.magnitude_normalization = magnitude_normalization
-        assert invariant_norm in ["none", "rayleigh", "gauss"]
+        assert invariant_norm in ["none", "rayleigh", "phase"]
         self.invariant_norm = invariant_norm
 
         # Asserts 
@@ -313,16 +313,17 @@ class ComplexInvariantConv2D(torch.nn.Module):
             mean_rayleigh = sigma_hat * torch.sqrt(torch.tensor(torch.pi / 2, device=result.device))
             std_rayleigh = sigma_hat * torch.sqrt(torch.tensor((4 - torch.pi) / 2, device=result.device))
             result = (result - mean_rayleigh) / (std_rayleigh + self.eps)
-        elif self.invariant_norm == "gauss":
+            result = rearrange(result, '(b ch) co n h w -> b (ch co n) h w', ch=self.in_channels)
+        elif self.invariant_norm == "phase":
             # Real, Imag independently normalized
-            mean = torch.mean(result, dim=(0, -2, -1), keepdim=True)
-            std = torch.std(result, dim=(0, -2, -1), keepdim=True)
-            result = (result - mean) / (std + self.eps)
+            result = rearrange(result, '(b ch) co n h w -> b ch co n h w', ch=self.in_channels) 
+            magnitude = torch.norm(result, dim=2, keepdim=True).sum(dim=[1, -2, -1], keepdim=True)
+            result = result / (magnitude + self.eps)
+            result = rearrange(result, 'b ch co n h w -> b (ch co n) h w', ch=self.in_channels)
         elif self.invariant_norm == "none":
-            pass
+            result = rearrange(result, '(b ch) co n h w -> b (ch co n) h w', ch=self.in_channels)
         else:
             raise ValueError(f"Unknown invariant normalization type: {self.invariant_norm}. Use 'none', 'rayleigh', or 'gauss'.")
-        result = rearrange(result, '(b ch) co n h w -> b (ch co n) h w', ch=self.in_channels)
         #result = self.norm(result)
         features = self.conv1x1(result) # Convert back to real
         return features

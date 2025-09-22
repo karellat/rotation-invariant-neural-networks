@@ -81,7 +81,7 @@ class TestComplexOptimalInvariants:
         for zero_out_middles in [True, False]:
             for preserve_energy in [True, False]:
                 for magnitude_normalization in ["one", "flussers", "copy", "smoothstep"]:
-                    for invariant_norm in ["none", "rayleigh", "gauss"]:
+                    for invariant_norm in ["none", "phase", "rayleigh"]:
                         if not preserve_energy and invariant_norm != "none":
                             # This combination does not make sense, skip
                             #pass
