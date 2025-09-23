@@ -84,7 +84,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
-        inv_block = ResnetBlock(conv_layer=FlexConv2d,
+        inv_block = ResnetBlock(conv_layer="FlexConv2d",
                                 conv_kwargs=dict(),
                                 in_channels=IMAGE_CHANNELS,
                                 kernel_size=KERNEL_SIZE,
@@ -96,7 +96,7 @@ class TestComplexOptimalInvariants:
     def test_90_network(self, test_images, test_device):
         """Test the 90-degree rotation network."""
         net = PrototypeOptimalInvCNN(
-                         layer=FlexConv2d,
+                         layer="FlexConv2d",
                          in_channels=IMAGE_CHANNELS,
                          input_size=IMAGE_SIZE,
                          classification=False).to(test_device)
@@ -105,7 +105,7 @@ class TestComplexOptimalInvariants:
 
     def test_90_network_classification(self, test_images, test_device):
         """Test the 90-degree rotation network with classification."""
-        net = PrototypeOptimalInvCNN(layer=FlexConv2d, 
+        net = PrototypeOptimalInvCNN(layer="FlexConv2d",
                                      in_channels=IMAGE_CHANNELS,
                                      input_size=IMAGE_SIZE,
                                      classification=True).to(test_device)
@@ -121,7 +121,7 @@ class TestComplexOptimalInvariants:
 
     def test_network_gradient_nan(self, test_images, test_device): 
         """Test if the gradient coming out of the network"""
-        net = PrototypeOptimalInvCNN(layer=FlexConv2d,
+        net = PrototypeOptimalInvCNN(layer="FlexConv2d",
                          in_channels=IMAGE_CHANNELS,
                          kernel_size=KERNEL_SIZE,
                          input_size=IMAGE_SIZE,
