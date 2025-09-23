@@ -273,7 +273,7 @@ class ResHNeXtv3(nn.Module):
 class PrototypeOptimalInvCNN(torch.nn.Module): 
     def __init__(self, 
                  # Layer settings
-                 layer : nn.Module = ComplexInvariantConv2D,
+                 layer : nn.Module = "ComplexInvariantConv2D",
                  layer_kwargs: dict = dict(), 
                  # Shape informations
                  in_channels:int = 3,

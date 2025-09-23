@@ -1,11 +1,12 @@
 import torch
 
 from hippy2d.utils import tukey_2d
+from hippy2d.conv_factory import get_conv_layer
 
 
 class ResnetBlock(torch.nn.Module):
     def __init__(self, 
-                 conv_layer: torch.nn.Module, 
+                 conv_layer: str, 
                  conv_kwargs: dict,
                  kernel_size:int,
                  in_channels:int, 
@@ -40,7 +41,7 @@ class ResnetBlock(torch.nn.Module):
         conv_kwargs['kernel_size'] = kernel_size
         conv_kwargs['padding'] = conv_padding
         
-        self.conv = conv_layer(**conv_kwargs)
+        self.conv = get_conv_layer(conv_layer, conv_kwargs)
 
         # Padding
         if conv_padding == "same":
