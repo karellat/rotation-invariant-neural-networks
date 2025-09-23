@@ -136,9 +136,9 @@ class FlexConv2d(torch.nn.Module):
         # number of channels 
         self.just_flusser = just_flusser
         if just_flusser: 
-            _channels = in_channels*(len(symmetric_polynomials)*2 + len(non_symmetric_polynomials)*2)
+            _channels = in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)*2)
         else: 
-            _channels = in_channels*(len(symmetric_polynomials)*2 + len(non_symmetric_polynomials)**2*2)
+            _channels = in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2*2)
         self.norm = torch.nn.LayerNorm(normalized_shape=[_channels, input_size, input_size], 
                                        bias=False,
                                        elementwise_affine=False,
@@ -188,7 +188,7 @@ class FlexConv2d(torch.nn.Module):
         nonsymmetric_imag = rearrange(nonsymmetric_imag, 'b m1 m2 h w -> b (m1 m2) h w')
 
         # Concatenate all features
-        x = torch.cat([symmetric[..., 0], symmetric[..., 1], nonsymmetric_real, nonsymmetric_imag], dim=1)
+        x = torch.cat([symmetric[..., 0], nonsymmetric_real, nonsymmetric_imag], dim=1)
         x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=C)
         x = self.norm(x)
         x = self.conv1x1(x)

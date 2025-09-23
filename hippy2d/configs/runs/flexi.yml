@@ -20,9 +20,11 @@ m_param:
   num_classes: 10
   init_channels: 4
   layer: FlexConv2d
+  layer_kwargs: 
+    just_flusser: True
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: flexi-full
+run_name: flexi-fixing-real
 seed: 42
