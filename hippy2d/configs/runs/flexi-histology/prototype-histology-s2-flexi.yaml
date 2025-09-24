@@ -26,4 +26,4 @@ optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
 seed: 42
-run_name: prototype-histology-flexi
+run_name: prototype-histology-flexi-2
