@@ -59,7 +59,8 @@ class FlexConv2d(torch.nn.Module):
                  max_order=4, 
                  kernel_size=15,
                  gcd=True,
-                 normalize_magnitude=False, 
+                 normalize_magnitude=False, # remove this
+                 preserve_magnitude=False, # This makes every polynomial to sum to 1 in magnitude
                  masking_middles=True,
                  masking_borders=True, 
                  padding="same",
@@ -83,16 +84,20 @@ class FlexConv2d(torch.nn.Module):
 
         filters = []
         types = []
+        ind = []
         # First symmetric
         for (p, q) in symmetric_polynomials:
             filters.append(get_complex_monomial(kernel_size,
                                                 p, q, dtype=torch.get_default_dtype()))
             types.append(p-q)
+            ind.append((p, q))
         # Non-symmetric
         for (p, q) in non_symmetric_polynomials:
             filters.append(get_complex_monomial(kernel_size,
                                                 p, q, dtype=torch.get_default_dtype()))
             types.append(p-q)
+            ind.append((p, q))
+
         # Stack filters
         filters = torch.stack(filters, dim=0)[:, None]
         if normalize_magnitude: 
@@ -114,6 +119,9 @@ class FlexConv2d(torch.nn.Module):
             filters *= tukey_mask[None, None]
         
         # From complex to real
+        if preserve_magnitude:
+            filters = filters / filters.abs().sum(axis=(-2, -1), keepdim=True)
+            
         filters = torch.cat(dim=0, tensors=[filters.real, filters.imag])
 
         # Parameters 
@@ -136,14 +144,17 @@ class FlexConv2d(torch.nn.Module):
         # number of channels 
         self.just_flusser = just_flusser
         if just_flusser: 
-            _channels = in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)*2)
+            self.num_invariants = len(symmetric_polynomials) + (len(non_symmetric_polynomials)*2-1) # Minus one because of c_01 * c_10 is real
         else: 
-            _channels = in_channels*(len(symmetric_polynomials) + len(non_symmetric_polynomials)**2*2)
-        self.norm = torch.nn.LayerNorm(normalized_shape=[_channels, input_size, input_size], 
+            real_diagonal = len(non_symmetric_polynomials)
+            complex_upper_triangle = (len(non_symmetric_polynomials)**2 - len(non_symmetric_polynomials)) # it's divided by 2 because of symmetry, but multiply by 2 because of real and imag
+            self.num_invariants = len(symmetric_polynomials) + real_diagonal + complex_upper_triangle # Minus len(non_symmetric_polynomials) because of diagonal is real
+        self._channels = in_channels*self.num_invariants
+        self.norm = torch.nn.LayerNorm(normalized_shape=[self._channels, input_size, input_size], 
                                        bias=False,
                                        elementwise_affine=False,
                                        dtype=torch.get_default_dtype())
-        self.conv1x1 = torch.nn.Conv2d(in_channels=_channels,
+        self.conv1x1 = torch.nn.Conv2d(in_channels=self._channels,
                                         out_channels=out_channels,
                                         kernel_size=1,
                                         dtype=torch.get_default_dtype())
@@ -178,17 +189,35 @@ class FlexConv2d(torch.nn.Module):
         nonsymmetric_real = (a[..., 0] * b[..., 0] - a[..., 1] * b[..., 1])
         nonsymmetric_imag = (a[..., 0] * b[..., 1] + a[..., 1] * b[..., 0])
 
-        # TODO: For debugging purposes, take just the Flusser
-        if self.just_flusser:
-            nonsymmetric_real = nonsymmetric_real[:, :, 0:1]
-            nonsymmetric_imag = nonsymmetric_imag[:, :, 0:1]
+        ## TODO: For debugging purposes, take just the Flusser
+        #if self.just_flusser:
+        #    nonsymmetric_real = nonsymmetric_real[:, :, 0:1]
+        #    nonsymmetric_imag = nonsymmetric_imag[:, :, 0:1]
 
         # Rearrange the moment x moment axis
-        nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')
-        nonsymmetric_imag = rearrange(nonsymmetric_imag, 'b m1 m2 h w -> b (m1 m2) h w')
+        #nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')
+        #nonsymmetric_imag = rearrange(nonsymmetric_imag, 'b m1 m2 h w -> b (m1 m2) h w')
+        # Upper triangle should be conjugate of lower triangle, so we take only one upper
+        indices = torch.triu_indices(nonsymmetric_real.shape[1], nonsymmetric_real.shape[2], 1)
+        complex_nonsymmetric_real = nonsymmetric_real[:, indices[0], indices[1], :, :]
+        complex_nonsymmetric_imag = nonsymmetric_imag[:, indices[0], indices[1], :, :]
+        # Take just real diagonal 
+        diagonal_indicies = torch.arange(nonsymmetric_real.shape[1])
+        diagonal = nonsymmetric_real[:, diagonal_indicies, diagonal_indicies, :, :]
 
-        # Concatenate all features
-        x = torch.cat([symmetric[..., 0], nonsymmetric_real, nonsymmetric_imag], dim=1)
+        if self.just_flusser:
+            x = torch.cat([symmetric[..., 0],
+                           diagonal[:, 0:1],
+                           complex_nonsymmetric_real[:, :len(self.non_symmetric_polynomials)-1], 
+                           complex_nonsymmetric_imag[:, :len(self.non_symmetric_polynomials)-1]],
+                          dim=1)
+        else:
+            x = torch.cat([symmetric[..., 0],
+                            diagonal, 
+                            complex_nonsymmetric_real, 
+                            complex_nonsymmetric_imag],
+                            dim=1)
+
         x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=C)
         x = self.norm(x)
         x = self.conv1x1(x)

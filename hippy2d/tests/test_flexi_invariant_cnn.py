@@ -82,8 +82,8 @@ class TestComplexOptimalInvariants:
                                 just_flusser=flussers,
                                 out_channels=12, 
                                 in_channels=3).to(test_device)
-        # Forward pass through the complex invariant convolution layer
-        self._test_90_module(inv_conv, test_images, test_device)
+            # Forward pass through the complex invariant convolution layer
+            self._test_90_module(inv_conv, test_images, test_device)
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
