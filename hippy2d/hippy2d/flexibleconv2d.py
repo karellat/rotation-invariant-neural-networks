@@ -64,8 +64,10 @@ class FlexConv2d(torch.nn.Module):
                  masking_middles=True,
                  masking_borders=True, 
                  padding="same",
+                 complex_transform="real-imag", # rcs; mag ;
                  # for debugging purposes, 
                  just_flusser=False,
+                 eps=1e-8,
                  ):
         super().__init__()
         symmetric_polynomials = []
@@ -133,6 +135,7 @@ class FlexConv2d(torch.nn.Module):
         self.register_buffer('symmetric_polynomials', torch.tensor(symmetric_polynomials))
         self.register_buffer('non_symmetric_polynomials', torch.tensor(non_symmetric_polynomials))
         self.register_buffer('filters', filters, torch.get_default_dtype())
+        self.register_buffer('eps', torch.tensor(eps, dtype=torch.get_default_dtype()))
         # Assert none of exponents are zero
         assert np.all(exp_a != 0) and np.all(exp_b != 0), "There should be no zero exponents"
 
@@ -140,14 +143,25 @@ class FlexConv2d(torch.nn.Module):
         self.register_buffer('exp_b', torch.tensor(exp_b, dtype=torch.get_default_dtype()))
         self.register_buffer('types', torch.tensor(types, dtype=torch.uint8))
 
+        # Complex transformation
+        self.complex_transform = complex_transform
+
         # Learnable part
-        # number of channels 
+        # number of channels per complex invariants
         self.just_flusser = just_flusser
+        if (complex_transform == "real-imag") or (complex_transform == "rc"):
+            complex_multiplier = 2
+        elif complex_transform == "rcs":
+            complex_multiplier = 3
+        else: 
+            raise ValueError(f"Unknown complex transform {complex_transform}. Use 'real-imag' or 'rcs'")
+
+        # Number of invariant output channels
         if just_flusser: 
-            self.num_invariants = len(symmetric_polynomials) + (len(non_symmetric_polynomials)*2-1) # Minus one because of c_01 * c_10 is real
+            self.num_invariants = len(symmetric_polynomials) + (len(non_symmetric_polynomials)-1)*complex_multiplier + 1 # Minus one because of c_01 * c_10 is real
         else: 
             real_diagonal = len(non_symmetric_polynomials)
-            complex_upper_triangle = (len(non_symmetric_polynomials)**2 - len(non_symmetric_polynomials)) # it's divided by 2 because of symmetry, but multiply by 2 because of real and imag
+            complex_upper_triangle = (len(non_symmetric_polynomials)**2 - len(non_symmetric_polynomials)) // 2 * complex_multiplier # it's divided by 2 because of symmetry, but multiply by 2 because of real and imag
             self.num_invariants = len(symmetric_polynomials) + real_diagonal + complex_upper_triangle # Minus len(non_symmetric_polynomials) because of diagonal is real
         self._channels = in_channels*self.num_invariants
         self.norm = torch.nn.LayerNorm(normalized_shape=[self._channels, input_size, input_size], 
@@ -189,14 +203,7 @@ class FlexConv2d(torch.nn.Module):
         nonsymmetric_real = (a[..., 0] * b[..., 0] - a[..., 1] * b[..., 1])
         nonsymmetric_imag = (a[..., 0] * b[..., 1] + a[..., 1] * b[..., 0])
 
-        ## TODO: For debugging purposes, take just the Flusser
-        #if self.just_flusser:
-        #    nonsymmetric_real = nonsymmetric_real[:, :, 0:1]
-        #    nonsymmetric_imag = nonsymmetric_imag[:, :, 0:1]
-
-        # Rearrange the moment x moment axis
-        #nonsymmetric_real = rearrange(nonsymmetric_real, 'b m1 m2 h w -> b (m1 m2) h w')
-        #nonsymmetric_imag = rearrange(nonsymmetric_imag, 'b m1 m2 h w -> b (m1 m2) h w')
+        # TODO: This is a quick fix, need to be optimized before hand 
         # Upper triangle should be conjugate of lower triangle, so we take only one upper
         indices = torch.triu_indices(nonsymmetric_real.shape[1], nonsymmetric_real.shape[2], 1)
         complex_nonsymmetric_real = nonsymmetric_real[:, indices[0], indices[1], :, :]
@@ -206,17 +213,36 @@ class FlexConv2d(torch.nn.Module):
         diagonal = nonsymmetric_real[:, diagonal_indicies, diagonal_indicies, :, :]
 
         if self.just_flusser:
-            x = torch.cat([symmetric[..., 0],
-                           diagonal[:, 0:1],
-                           complex_nonsymmetric_real[:, :len(self.non_symmetric_polynomials)-1], 
-                           complex_nonsymmetric_imag[:, :len(self.non_symmetric_polynomials)-1]],
-                          dim=1)
-        else:
+            diagonal = diagonal[:, 0:1]
+            complex_nonsymmetric_real = complex_nonsymmetric_real[:, :len(self.non_symmetric_polynomials)-1]
+            complex_nonsymmetric_imag = complex_nonsymmetric_imag[:, :len(self.non_symmetric_polynomials)-1]
+        if self.complex_transform == "real-imag":
             x = torch.cat([symmetric[..., 0],
                             diagonal, 
                             complex_nonsymmetric_real, 
                             complex_nonsymmetric_imag],
                             dim=1)
+        elif self.complex_transform == "rcs":
+            r_squared = (complex_nonsymmetric_real * complex_nonsymmetric_real 
+                        + complex_nonsymmetric_imag * complex_nonsymmetric_imag)
+            r = torch.sqrt(torch.where(r_squared < self.eps, self.eps, r_squared))
+            c = complex_nonsymmetric_real / (r + self.eps)
+            s = complex_nonsymmetric_imag / (r + self.eps)
+            x = torch.cat([symmetric[..., 0],
+                            diagonal, 
+                            r, c, s],
+                            dim=1)
+        elif self.complex_transform == "rc":
+            r = torch.sqrt(complex_nonsymmetric_real * complex_nonsymmetric_real 
+                           + 
+                           complex_nonsymmetric_imag * complex_nonsymmetric_imag)
+            c = complex_nonsymmetric_real / (r + self.eps)
+            x = torch.cat([symmetric[..., 0],
+                            diagonal, 
+                            r, c],
+                            dim=1)
+        else: 
+            raise ValueError(f"Unknown complex transform {self.complex_transform}. Use 'real-imag' or 'rcs'")
 
         x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=C)
         x = self.norm(x)

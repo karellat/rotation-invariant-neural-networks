@@ -1,0 +1,32 @@
+d_hparams:
+  batch_size: 32
+  data_dir: data
+  to_complex: false
+dataset_name: RESISC45
+early_stopping: 15
+epochs: 100
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 10
+  - 50
+  - 90
+lr_name: MultiStepLR
+model_name: PrototypeOptimalInvCNN
+debug: false
+m_param:
+  kernel_size: 11
+  in_channels: 3
+  num_classes: 45
+  input_size: 160
+  n_blocks: 4
+  m_layers: 3
+  init_channels: [10, 18, 34, 66]
+  layer: FlexConv2d
+  layer_kwargs:
+    just_flusser: True
+optimizer_hparams:
+  lr: 0.01525
+optimizer_name: AdamW
+run_name: flexi-RESISC45-flusser
+seed: 329

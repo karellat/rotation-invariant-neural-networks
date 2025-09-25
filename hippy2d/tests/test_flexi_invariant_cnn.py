@@ -74,16 +74,18 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
-        for flussers in [True, False]: 
-            print(f"Testing just_flusser = {flussers}")
-            inv_conv = FlexConv2d(input_size=IMAGE_SIZE,
-                                kernel_size=KERNEL_SIZE,
-                                max_order=MAX_ORDER,
-                                just_flusser=flussers,
-                                out_channels=12, 
-                                in_channels=3).to(test_device)
-            # Forward pass through the complex invariant convolution layer
-            self._test_90_module(inv_conv, test_images, test_device)
+        for complex_transform in ["real-imag", "rcs"]:
+            for flussers in [True, False]: 
+                print(f"Testing just_flusser = {flussers} and complex_transform = {complex_transform}")
+                inv_conv = FlexConv2d(input_size=IMAGE_SIZE,
+                                    kernel_size=KERNEL_SIZE,
+                                    max_order=MAX_ORDER,
+                                    just_flusser=flussers,
+                                    complex_transform=complex_transform,
+                                    out_channels=12, 
+                                    in_channels=3).to(test_device)
+                # Forward pass through the complex invariant convolution layer
+                self._test_90_module(inv_conv, test_images, test_device)
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
@@ -149,7 +151,7 @@ class TestComplexOptimalInvariants:
     def test_90_layer_speed(self, test_images, test_device):
         """Test the 90-degree rotation layer speed performance."""
         inv_conv = FlexConv2d(input_size=IMAGE_SIZE,
-                             kernel_size=KERNEL_SIZE,
+                              kernel_size=KERNEL_SIZE,
                              max_order=MAX_ORDER,
                              out_channels=12, 
                              in_channels=3,
