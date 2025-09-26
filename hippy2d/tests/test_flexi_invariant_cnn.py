@@ -74,18 +74,16 @@ class TestComplexOptimalInvariants:
 
     def test_90_layer(self, test_images, test_device):
         """Test the 90-degree rotation layer."""
-        for complex_transform in ["real-imag", "rcs"]:
-            for flussers in [True, False]: 
-                print(f"Testing just_flusser = {flussers} and complex_transform = {complex_transform}")
-                inv_conv = FlexConv2d(input_size=IMAGE_SIZE,
+        for basis in ["flusser", "flexible", "softmax"]:
+            print(f"Testing basis = {basis}")
+            inv_conv = FlexConv2d(input_size=IMAGE_SIZE,
                                     kernel_size=KERNEL_SIZE,
                                     max_order=MAX_ORDER,
-                                    just_flusser=flussers,
-                                    complex_transform=complex_transform,
+                                    basis=basis,
                                     out_channels=12, 
                                     in_channels=3).to(test_device)
-                # Forward pass through the complex invariant convolution layer
-                self._test_90_module(inv_conv, test_images, test_device)
+            # Forward pass through the complex invariant convolution layer
+            self._test_90_module(inv_conv, test_images, test_device)
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""

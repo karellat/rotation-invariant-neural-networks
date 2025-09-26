@@ -64,9 +64,8 @@ class FlexConv2d(torch.nn.Module):
                  masking_middles=True,
                  masking_borders=True, 
                  padding="same",
-                 complex_transform="real-imag", # rcs; mag ;
                  # for debugging purposes, 
-                 just_flusser=False,
+                 basis="flexible", # flexible, flusser, softmax
                  eps=1e-8,
                  ):
         super().__init__()
@@ -144,25 +143,24 @@ class FlexConv2d(torch.nn.Module):
         self.register_buffer('types', torch.tensor(types, dtype=torch.uint8))
 
         # Complex transformation
-        self.complex_transform = complex_transform
+        #self.complex_transform = complex_transform
 
         # Learnable part
         # number of channels per complex invariants
-        self.just_flusser = just_flusser
-        if (complex_transform == "real-imag") or (complex_transform == "rc"):
-            complex_multiplier = 2
-        elif complex_transform == "rcs":
-            complex_multiplier = 3
-        else: 
-            raise ValueError(f"Unknown complex transform {complex_transform}. Use 'real-imag' or 'rcs'")
+        self.basis = basis
+        complex_multiplier = 2
 
         # Number of invariant output channels
-        if just_flusser: 
+        if basis == "flusser": 
             self.num_invariants = len(symmetric_polynomials) + (len(non_symmetric_polynomials)-1)*complex_multiplier + 1 # Minus one because of c_01 * c_10 is real
-        else: 
+        elif basis == "flexible": 
             real_diagonal = len(non_symmetric_polynomials)
             complex_upper_triangle = (len(non_symmetric_polynomials)**2 - len(non_symmetric_polynomials)) // 2 * complex_multiplier # it's divided by 2 because of symmetry, but multiply by 2 because of real and imag
             self.num_invariants = len(symmetric_polynomials) + real_diagonal + complex_upper_triangle # Minus len(non_symmetric_polynomials) because of diagonal is real
+        elif basis == "softmax": 
+            self.num_invariants = len(symmetric_polynomials) + len(non_symmetric_polynomials)*complex_multiplier
+        else: 
+            raise ValueError(f"Unknown basis {basis}. Use 'flusser' or 'flexible'")
         self._channels = in_channels*self.num_invariants
         self.norm = torch.nn.LayerNorm(normalized_shape=[self._channels, input_size, input_size], 
                                        bias=False,
@@ -212,37 +210,28 @@ class FlexConv2d(torch.nn.Module):
         diagonal_indicies = torch.arange(nonsymmetric_real.shape[1])
         diagonal = nonsymmetric_real[:, diagonal_indicies, diagonal_indicies, :, :]
 
-        if self.just_flusser:
+        if self.basis == "flusser":
             diagonal = diagonal[:, 0:1]
             complex_nonsymmetric_real = complex_nonsymmetric_real[:, :len(self.non_symmetric_polynomials)-1]
             complex_nonsymmetric_imag = complex_nonsymmetric_imag[:, :len(self.non_symmetric_polynomials)-1]
-        if self.complex_transform == "real-imag":
+        elif self.basis == "softmax":
+            weights = torch.softmax(torch.norm(nonsymmetric, dim=-1), dim=1)
+            weights = repeat(weights, 'b m h w -> b n m h w', n=nonsymmetric.shape[1])
+            complex_nonsymmetric_real = (nonsymmetric_real * weights).sum(dim=1)
+            complex_nonsymmetric_imag = (nonsymmetric_imag * weights).sum(dim=1)
+        else:
+            pass
+        if self.basis == "softmax":
+            x = torch.cat([symmetric[..., 0],
+                            complex_nonsymmetric_real,
+                            complex_nonsymmetric_imag],
+                            dim=1)
+        else: 
             x = torch.cat([symmetric[..., 0],
                             diagonal, 
                             complex_nonsymmetric_real, 
                             complex_nonsymmetric_imag],
                             dim=1)
-        elif self.complex_transform == "rcs":
-            r_squared = (complex_nonsymmetric_real * complex_nonsymmetric_real 
-                        + complex_nonsymmetric_imag * complex_nonsymmetric_imag)
-            r = torch.sqrt(torch.where(r_squared < self.eps, self.eps, r_squared))
-            c = complex_nonsymmetric_real / (r + self.eps)
-            s = complex_nonsymmetric_imag / (r + self.eps)
-            x = torch.cat([symmetric[..., 0],
-                            diagonal, 
-                            r, c, s],
-                            dim=1)
-        elif self.complex_transform == "rc":
-            r = torch.sqrt(complex_nonsymmetric_real * complex_nonsymmetric_real 
-                           + 
-                           complex_nonsymmetric_imag * complex_nonsymmetric_imag)
-            c = complex_nonsymmetric_real / (r + self.eps)
-            x = torch.cat([symmetric[..., 0],
-                            diagonal, 
-                            r, c],
-                            dim=1)
-        else: 
-            raise ValueError(f"Unknown complex transform {self.complex_transform}. Use 'real-imag' or 'rcs'")
 
         x = rearrange(x, '(b cin) cout h w -> b (cin cout) h w', cin=C)
         x = self.norm(x)
