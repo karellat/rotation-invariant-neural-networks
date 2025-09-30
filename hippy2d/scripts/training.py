@@ -1,4 +1,4 @@
-import ssl 
+import os
 import click
 import torch
 import lightning
@@ -6,6 +6,10 @@ from loguru import logger
 from git import Repo
 from lovely_tensors import monkey_patch
 from lightning.pytorch import seed_everything, callbacks, Trainer
+from lightning.pytorch.loggers import WandbLogger
+import wandb
+from pathlib import Path
+import json
 
 from hippy2d.trainer import get_trainer, EpochTimeLogger
 from hippy2d.models import InvNet
@@ -14,6 +18,7 @@ from hippy2d.utils import ClickDictionaryType
 # Work arround for automatic SLURM detection
 from lightning.pytorch.plugins.environments import SLURMEnvironment
 SLURMEnvironment.detect = lambda: False
+WANDB_PATH = os.path.join(Path.home(), ".wandb_key.json")
 
 @click.command()
 @click.option('-n', '--run_name', default='default', help='Name of the experiment.')
@@ -51,10 +56,9 @@ def training_loop(run_name: str,
     # Logger
     version = f"{sha}-{seed}"
     csv_logger = lightning.pytorch.loggers.CSVLogger('./logs/csv', name=run_name, version=version)
-    tensorboard_logger = lightning.pytorch.loggers.TensorBoardLogger('./logs/tensorboard', name=run_name, version=version)
-    logger.add(csv_logger.log_dir + '/training.log', level='DEBUG', format="{time} {level} {message}")
     
-    csv_logger.log_hyperparams({
+    logger.add(csv_logger.log_dir + '/training.log', level='DEBUG', format="{time} {level} {message}")
+    _log_dict = {
         'run_name': run_name,
         'early_stopping': early_stopping,
         'epochs': epochs,
@@ -68,7 +72,25 @@ def training_loop(run_name: str,
         'lr_name': lr_name,
         'lr_hparams': lr_hparams,
         'seed': seed
-    })
+    }
+    csv_logger.log_hyperparams(_log_dict)
+
+    assert os.path.exists(WANDB_PATH), f"Wandb json not found at. {WANDB_PATH}"
+
+    # Opening JSON file
+    with open(WANDB_PATH, 'r') as f:
+        config = json.load(f)
+        logger.debug(f"Loading Wandb key from {WANDB_PATH}")
+        os.environ["WANDB_API_KEY"] = config["WANDB_API_KEY"]
+        os.environ["WANDB_HOST"] = config["WANDB_HOST"]
+
+    wandb_logger = WandbLogger(
+        name=run_name,
+        project="hippy2d",
+        log_model=True,
+        entity="karella",
+        config=_log_dict)
+    
 
     # List available gpu
     if torch.cuda.is_available():
@@ -125,10 +147,18 @@ def training_loop(run_name: str,
                           lr_hparams=lr_hparams,
                           accelerator=accelerator,
                           trainer_params=trainer_params,
-                          trainer_loggers=[csv_logger, tensorboard_logger],
+                          trainer_loggers=[csv_logger, wandb_logger],
                           trainer_callbacks=trainer_callbacks,
                           float_precision=float_precision)
+    # Lightning trainer
+    wandb_logger.watch(model,
+                       log="all",
+                       log_graph=False)
+    _wandb_out_status = 'aborted'
+    wandb.init()
+    wandb.define_metric('val_acc', summary='max')
     try:
+        # TODO: add number of parameters
         # Training loop
         trainer.fit(model=model,
                     datamodule=datamodule)
@@ -147,9 +177,10 @@ def training_loop(run_name: str,
 
             trainer.test(model=best_model,
                          datamodule=datamodule)
+            _wandb_out_status = "success"
         else:
             logger.warning("Best model not found.")
-
+        wandb_logger.finalize(_wandb_out_status)
 
 if __name__ == "__main__":
     training_loop()
