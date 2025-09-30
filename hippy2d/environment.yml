@@ -25,3 +25,4 @@ dependencies:
     - scikit-learn==1.7.*
     - timm==1.0.*
     - wandb==0.22.*
+    - yaml==0.2.*
