@@ -19,15 +19,16 @@ module load miniconda3
 
 # Check if conda environment exists
 if conda info --envs | grep -q "hippy2d"; then
+    source ~/.bashrc
     echo "Activating conda environment 'hippy2d'..."
-    source activate hippy2d
+    conda activate hippy2d
 else
     echo "Conda environment 'hippy2d' not found. Please create it first"
     exit 1
 fi
 
 # Run the training script
-echo "Running training script..."
+echo "Running training script. Python=`which python`"
 # Set PYTHONPATH to the project root
 export PYTHONPATH=$(pwd)
 CUDA_VISIBLE_DEVICES=0 python ./scripts/training_with_config.py $CONFIG_PATH
