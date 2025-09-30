@@ -24,3 +24,4 @@ dependencies:
     - ray[tune]==2.48.*
     - scikit-learn==1.7.*
     - timm==1.0.*
+    - wandb==0.22.*
