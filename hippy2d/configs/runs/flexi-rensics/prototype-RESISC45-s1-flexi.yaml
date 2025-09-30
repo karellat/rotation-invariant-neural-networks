@@ -24,7 +24,7 @@ m_param:
   init_channels: [8, 12, 20, 40]
   layer: FlexConv2d
   layer_kwargs:
-    basis: flexi
+    basis: flexible
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
