@@ -21,7 +21,7 @@ m_param:
   init_channels: 4
   layer: FlexConv2d
   layer_kwargs: 
-    just_flusser: false
+    basis: flexible
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525

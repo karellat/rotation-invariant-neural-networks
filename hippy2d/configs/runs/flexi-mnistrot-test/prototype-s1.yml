@@ -21,10 +21,10 @@ m_param:
   init_channels: 4
   layer: FlexConv2d
   layer_kwargs: 
-    just_flusser: True
+    basis: flusser
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: flexi-fixing-real
+run_name: flusser-mnistrot
 seed: 21
