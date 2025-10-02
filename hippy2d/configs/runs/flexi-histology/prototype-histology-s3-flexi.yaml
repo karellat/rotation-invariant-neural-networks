@@ -21,7 +21,7 @@ m_param:
   num_classes: 8
   layer: FlexConv2d
   layer_kwargs:
-    basis: flexi
+    basis: flexible
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
