@@ -5,11 +5,13 @@ from lightning import LightningDataModule
 from loguru import logger
 from sklearn.model_selection import train_test_split
 import torch
+import pickle
 import datasets
 import numpy as np
 from PIL import Image
 from PIL.Image import Resampling
 from typing import Optional, Callable, Tuple, Any, Dict
+from einops import rearrange
 
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, default_collate
 from torchvision.datasets import VisionDataset
@@ -27,6 +29,8 @@ from torchvision.datasets import ImageFolder
 import torchvision
 from torch.utils.data import DataLoader
 from torchvision.datasets import ImageFolder
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
 # Custom Transforms
 class NormalizeMagnitude(torch.nn.Module):
@@ -43,7 +47,6 @@ class NormalizeMagnitude(torch.nn.Module):
         normalized_magnitude = (img.abs() - self.mean) / self.std
         norm = normalized_magnitude / torch.clamp(magnitude, min=eps)
         return norm * img
-
 
 class MnistRotTestDataset(VisionDataset):
     # TODO: Connect to hugging faces URL and MD5Sum
@@ -175,7 +178,6 @@ class MnistRotTestDataset(VisionDataset):
     def extra_repr(self) -> str:
         split = "Train" if self.train is True else "Test"
         return f"Split: {split}"
-
 
 class MnistRotTest(LightningDataModule, ABC):
     def __init__(self,
@@ -505,9 +507,52 @@ class RESISC45(LightningDataModule):
             collate_fn=collate_tuple
         )
 
+class StrainedNormalize(torch.nn.Module):
+    """
+    Torch-style wrapper for torchstain normalizers.
+    Can either take a fitted normalizer object or a path to a pickled one.
+    
+    Expects input: np.uint8 RGB image (HxWx3).
+    Returns: np.uint8 RGB image (HxWx3).
+    """
+    def __init__(self, normalizer=None, pickle_path=None):
+        super().__init__()
+        if normalizer is None and pickle_path is None:
+            raise ValueError("Provide either a normalizer or a pickle_path")
+        if pickle_path is not None:
+            with open(pickle_path, "rb") as f:
+                self.normalizer = pickle.load(f)
+        else:
+            self.normalizer = normalizer
+
+        self.min_tissue_ratio=0.15
+        self.sat_thresh=0.10
+
+    def forward(self, image: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
+        """
+        image: torch.uint8, 3xHxW (RGB)
+        """
+        if not isinstance(image, torch.Tensor):
+            raise ValueError("Input must be a torch Tensor")
+        assert image.ndim == 3 and image.shape[0] == 3, "Input must be 3xHxW RGB image"
+        assert image.dtype == torch.uint8, "Input must be uint8"
+        rgb_image = Image.fromarray(rearrange(image, 'c h w -> h w c').cpu().numpy(), mode='RGB')
+        hsv = np.array(rgb_image.convert('HSV'))
+        s = hsv[..., 1].astype(np.float32) / 255.0
+        tr = float((s > self.sat_thresh).mean())
+        if tr < self.min_tissue_ratio:
+            # Too little tissue -> return original to avoid empty-percentile crash
+            return image, label
+        image, _, _ = self.normalizer.normalize(image, stains=True)  # input uint8 [3xHxW] 
+        # assert the values 0 to 255
+        assert image.min() >= 0 and image.max() <= 255, "Output must be in range [0, 255]"
+        image = rearrange(image, 'h w c -> c h w').to(torch.uint8) # to HxWx3
+        return image, label
+
 class ColorectalHistology(LightningDataModule):
     # Hugging face bridge to https://huggingface.co/datasets/dpdl-benchmark/colorectal_histology
-    
+    _MEAN = [0.6497, 0.4718, 0.5838]
+    _STD = [0.1412, 0.1451, 0.1271]
     @property
     def num_classes(self):
         return 8
@@ -517,6 +562,10 @@ class ColorectalHistology(LightningDataModule):
                  batch_size: int = 32,
                  test_batch_size: int = 256,
                  to_complex=False,
+                 normalize=False,
+                 aug_crop=False,
+                 aug_scale=False,
+                 aug_clr_jitter=False,
                  num_workers=None):
         super().__init__()
         if num_workers is None:
@@ -527,15 +576,27 @@ class ColorectalHistology(LightningDataModule):
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size
         
-        self.train_transforms = [
-            transforms.ToImage(),
-            transforms.ToDtype(torch.get_default_dtype(), scale=True)
-        ]
+        self.train_transforms = [transforms.ToImage()]
+        self.valid_transforms = [transforms.ToImage()]
+        if aug_scale:
+            self.train_transforms.append(transforms.RandomResize(min_size=128, max_size=170))
+        if aug_crop:
+            self.train_transforms.append(transforms.RandomCrop((128, 128)))
+            self.valid_transforms.append(transforms.CenterCrop((128, 128)))
+        if aug_clr_jitter:
+            self.train_transforms.append(
+                transforms.ColorJitter(                            
+                    brightness=0.1,
+                    contrast=0.1,
+                   saturation=0.1,
+                    hue=0.03,
+                ))
+        self.train_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
+        self.valid_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
 
-        self.valid_transforms = [
-            transforms.ToImage(),
-            transforms.ToDtype(torch.get_default_dtype(), scale=True)
-        ]
+        if normalize:
+            self.valid_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
+            self.train_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
 
         if to_complex:
             self.valid_transforms.append(
@@ -551,7 +612,10 @@ class ColorectalHistology(LightningDataModule):
         self.valid_ds = None  # Multiple checking multiple angles
         self.test_ds = None
         self.train_ds = None
-        self.output_shape = [batch_size, 3, 128, 128]
+        if aug_crop:
+            self.output_shape = [batch_size, 3, 128, 128]
+        else:
+            self.output_shape = [batch_size, 3, 150, 150]
         self.num_workers = num_workers
 
     def prepare_data(self): 
@@ -601,6 +665,233 @@ class ColorectalHistology(LightningDataModule):
             collate_fn=collate_tuple
         )
 
+class StrainedColorectalHistologyDataset(VisionDataset):
+    _FILE_NAME = f"colorectal_histology_stained.npz"
+    
+    def __init__(
+        self,
+        root: str,
+        split: str = 'train',
+        transform: Optional[Callable] = None,
+        target_transform: Optional[Callable] = None,
+        download: bool = False
+    ):
+        """
+        Args:
+            root (str): Root directory where the .npz file is located
+            split (str): Dataset split to use ('train', 'valid', or 'test')
+            transform (callable, optional): A function/transform that takes in a PIL image
+                and returns a transformed version. E.g, transforms.RandomCrop
+            target_transform (callable, optional): A function/transform that takes in the
+                target and transforms it.
+            download (bool): If True, downloads the dataset from the internet and
+                puts it in root directory. If dataset is already downloaded, it is not
+                downloaded again.
+        """
+        super().__init__(root, transform=transform, target_transform=target_transform)
+        
+        if split not in ['train', 'valid', 'test']:
+            raise ValueError(f"Split must be one of ['train', 'valid', 'test'], got {split}")
+        
+        self.split = split
+        self.data_file = os.path.join(root, StrainedColorectalHistologyDataset._FILE_NAME)
+        
+        if download:
+            self.download()
+        
+        if not self._check_exists():
+            raise RuntimeError('Dataset not found. You can use download=True to download it')
+        
+        self._load_data()
+    
+    def _check_exists(self) -> bool:
+        """Check if the .npz file exists."""
+        return os.path.exists(self.data_file)
+    
+    def download(self):
+        """
+        Download the dataset. This should be implemented based on where the 
+        stain-normalized data is hosted.
+        """
+        if self._check_exists():
+            return
+        
+        raise NotImplementedError(
+            "Automatic download not implemented. Please create the stain-normalized "
+            f"dataset and save it as '{self.data_file}' using the notebook preprocessing steps."
+        )
+    
+    def _load_data(self):
+        """Load data from the .npz file."""
+        data = np.load(self.data_file)
+        
+        # Load appropriate split
+        if self.split == 'train':
+            self.data = data['train_imgs']
+            self.targets = data['train_labels']
+        elif self.split == 'valid':
+            self.data = data['valid_imgs']
+            self.targets = data['valid_labels']
+        elif self.split == 'test':
+            self.data = data['test_imgs']
+            self.targets = data['test_labels']
+        
+        # Ensure data is in the correct format
+        assert self.data.dtype == np.uint8, f"Expected uint8 images, got {self.data.dtype}"
+        assert self.targets.dtype == np.uint8, f"Expected uint8 labels, got {self.targets.dtype}"
+        assert len(self.data.shape) == 4, f"Expected 4D image array [N,3,H,W], got shape {self.data.shape}"
+        assert self.data.shape[1] == 3, f"Expected 3 channels, got {self.data.shape[1]}"
+        
+        print(f"Loaded {self.split} split: {len(self.data)} samples")
+    
+    def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        """
+        Args:
+            index (int): Index
+            
+        Returns:
+            tuple: (image, target) where target is the class index.
+        """
+        img_array = self.data[index]  # Shape: [3, H, W]
+        target = int(self.targets[index])
+        
+        # Convert from CHW to HWC for PIL Image
+        img_array = img_array.transpose(1, 2, 0)  # [H, W, 3]
+        
+        # Create PIL Image
+        img = Image.fromarray(img_array, mode='RGB')
+        
+        if self.transform is not None:
+            img = self.transform(img)
+            
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+            
+        return img, target
+    
+    def __len__(self) -> int:
+        return len(self.data)
+    
+    @property
+    def class_names(self):
+        """Return class names for the colorectal histology dataset."""
+        return [
+            'tumour epithelium',
+            'simple stroma', 
+            'complex stroma',
+            'immune cell conglomerates',
+            'debris and mucus',
+            'mucosal glands',
+            'adipose tissue',
+            'background'
+        ]
+    
+    def extra_repr(self) -> str:
+        return f"Split: {self.split}"
+
+class StrainedColorectalHistology(LightningDataModule):
+    """
+    Lightning DataModule for stain-normalized colorectal histology dataset.
+    Uses the StrainedColorectalHistologyDataset which loads from a pre-processed .npz file.
+    """
+    
+    @property
+    def num_classes(self):
+        return 8
+
+    def __init__(self, 
+                 data_dir: str = "./data",
+                 batch_size: int = 32,
+                 test_batch_size: int = 256,
+                 to_complex=False,
+                 num_workers=None):
+        super().__init__()
+        if num_workers is None:
+            num_workers = get_optimal_workers()
+
+        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
+        
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        
+        self.train_transforms = [
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True)
+        ]
+
+        self.valid_transforms = [
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True)
+        ]
+
+        if to_complex:
+            self.valid_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+            self.train_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+
+        self.train_transforms = transforms.Compose(self.train_transforms)
+        self.valid_transforms = transforms.Compose(self.valid_transforms)
+
+        self.train_ds = None
+        self.valid_ds = None
+        self.test_ds = None
+        self.output_shape = [batch_size, 3, 150, 150]
+        self.num_workers = num_workers
+
+    def prepare_data(self):
+        # Check if the stain-normalized dataset exists
+        npz_file = os.path.join(self.data_dir, StrainedColorectalHistologyDataset._FILE_NAME)
+        if not os.path.exists(npz_file):
+            logger.warning(f"Stain-normalized dataset not found at {npz_file}. "
+                          "Please run the preprocessing notebook to create it.")
+
+    def setup(self, stage: str):
+        self.train_ds = StrainedColorectalHistologyDataset(
+            root=self.data_dir,
+            split='train',
+            transform=self.train_transforms
+        )
+        self.valid_ds = StrainedColorectalHistologyDataset(
+            root=self.data_dir,
+            split='valid',
+            transform=self.valid_transforms
+        )
+        self.test_ds = StrainedColorectalHistologyDataset(
+            root=self.data_dir,
+            split='test',
+            transform=self.valid_transforms
+        )
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_ds, 
+            batch_size=self.batch_size, 
+            shuffle=True, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.valid_ds, 
+            batch_size=self.test_batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_ds, 
+            batch_size=self.test_batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
 
 # Transformations
 class CircularPad:

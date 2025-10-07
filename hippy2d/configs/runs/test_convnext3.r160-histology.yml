@@ -1,19 +1,20 @@
 d_hparams:
-  batch_size: 32
+  batch_size: 8
+  normalize: true
 dataset_name: ColorectalHistology
-early_stopping: 15
-epochs: 100
+early_stopping: 30
+epochs: 150
 lr_hparams:
   gamma: 0.1
   milestones:
-  - 10
-  - 25
-  - 40
+  - 20
+  - 40 
+  - 60 
 m_param:
   pretrained: false
 model_name: timm:test_convnext3.r160_in1k 
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
-run_name: test_convnext3.r160-histology
+run_name: test_convnext3.r160-histology-nor
 seed: 42

@@ -10,7 +10,7 @@ KERNEL_SIZE = 15
 MAX_ORDER = 4
 
 # Generalized complex power function using De Moivre's theorem
-@torch.jit.script
+#@torch.jit.script
 def complex_power_moivre(x: torch.Tensor,
                          exponents: torch.Tensor,
                          safe_magnitude_power: bool =False,

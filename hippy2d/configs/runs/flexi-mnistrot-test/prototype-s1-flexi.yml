@@ -18,7 +18,7 @@ m_param:
   in_channels: 1
   input_size: 64
   num_classes: 10
-  init_channels: 4
+  init_channels: 3
   layer: FlexConv2d
   layer_kwargs: 
     basis: flexible
@@ -26,5 +26,5 @@ model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: flexi-mnistrot
+run_name: flexi-mnistrot-small
 seed: 32
