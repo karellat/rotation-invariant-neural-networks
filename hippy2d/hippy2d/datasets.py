@@ -21,16 +21,8 @@ from torchvision.transforms.v2.functional import InterpolationMode
 from hippy2d.utils import get_optimal_workers, get_default_complex,tukey_2d
 from hippy2d.benchmarks.mnist_rot import build_mnist_rot_loader
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
-from torchvision.datasets.utils import (
-    download_and_extract_archive,
-    verify_str_arg,
-)
-from torchvision.datasets import ImageFolder
-import torchvision
 from torch.utils.data import DataLoader
-from torchvision.datasets import ImageFolder
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
+
 
 # Custom Transforms
 class NormalizeMagnitude(torch.nn.Module):
