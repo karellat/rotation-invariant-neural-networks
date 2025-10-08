@@ -1,0 +1,21 @@
+d_hparams:
+  batch_size: 32
+  data_dir: data
+  to_complex: false
+dataset_name: EuroSAT
+early_stopping: 15
+epochs: 100
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 10
+  - 25
+  - 40
+m_param:
+  pretrained: false
+model_name: timm:test_resnet.r160_in1k 
+optimizer_hparams:
+  lr: 0.001
+optimizer_name: AdamW
+run_name: test_resnet.r160-resisc45
+seed: 42

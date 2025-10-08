@@ -15,6 +15,7 @@ from einops import rearrange
 
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, default_collate
 from torchvision.datasets import VisionDataset
+from torchvision.datasets import EuroSAT as EuroSATTorch
 from torchvision.datasets.utils import check_integrity, download_url
 import torchvision.transforms.v2 as transforms
 from torchvision.transforms.v2.functional import InterpolationMode
@@ -498,6 +499,96 @@ class RESISC45(LightningDataModule):
             persistent_workers=True,
             collate_fn=collate_tuple
         )
+
+class EuroSAT(LightningDataModule):
+    total_samples = 27000
+
+    @property
+    def num_classes(self):
+        return 10
+    @property
+    def output_shape(self):
+        return [self.batch_size, 3, 64, 64]
+        
+    _MEAN = [0.3444, 0.3803, 0.4078]
+    _STD = [0.0914, 0.0651, 0.0552]
+
+    def __init__(self, data_dir: str = "./data", batch_size: int = 32, num_workers: int = 4, to_complex=False):
+        super().__init__()
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.num_workers = num_workers
+        
+        # Define transforms
+        valid_transform_list = [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=EuroSAT._MEAN, 
+                               std=EuroSAT._STD)
+        ]
+        
+        train_transform_list = [
+            transforms.ToTensor(),
+            transforms.Normalize(mean=EuroSAT._MEAN,
+                               std=EuroSAT._STD)
+        ]
+    
+        if to_complex:
+            valid_transform_list.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+            train_transform_list.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+            
+        self.transform = transforms.Compose(valid_transform_list)
+        self.train_transform = transforms.Compose(train_transform_list)
+    def prepare_data(self):
+        # Download dataset
+        full_dataset = EuroSATTorch(root=self.data_dir, download=True)
+        indices = list(range(len(full_dataset)))
+        labels = [full_dataset[i][1] for i in indices]  # class labels
+        self.train_idx, temp_idx = train_test_split(indices, test_size=0.3, stratify=labels, random_state=42)
+        self.val_idx, self.test_idx = train_test_split(temp_idx, test_size=0.5, stratify=[labels[i] for i in temp_idx], random_state=42)
+
+    def setup(self, stage: str = None):
+        # Load full dataset
+        traintest_dataset = EuroSATTorch(root=self.data_dir, transform=self.train_transform)
+        valid_dataset = EuroSATTorch(root=self.data_dir, transform=self.transform)
+
+        self.train_dataset = torch.utils.data.Subset(traintest_dataset, self.train_idx)
+        self.val_dataset = torch.utils.data.Subset(valid_dataset, self.val_idx)
+        self.test_dataset = torch.utils.data.Subset(traintest_dataset, self.test_idx)
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_dataset,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=True
+        )
+    
+    def val_dataloader(self):
+        return DataLoader(
+            self.val_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=True
+        )
+    
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+            persistent_workers=True
+        )
+        
 
 class StrainedNormalize(torch.nn.Module):
     """
