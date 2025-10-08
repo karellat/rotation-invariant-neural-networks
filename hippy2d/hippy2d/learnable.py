@@ -1,10 +1,12 @@
 import torch
 import numpy as np
-from einops import rearrange
-from hippy2d.flexibleconv2d import complex_power_moivre
 from typing import List
-from hippy2d.utils import get_default_complex
 from scipy.linalg import dft
+from einops import rearrange
+import torch.nn.functional as F
+
+from hippy2d.flexibleconv2d import complex_power_moivre
+from hippy2d.utils import get_default_complex
 
 def init_radial_part(in_channels: int, out_channels: int, orders: List[int], ring_count: int):
     """
@@ -157,8 +159,7 @@ class LearnableFlusser(torch.nn.Module):
         # 1x1 real projection
         self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants * out_channels,
                                        out_channels=out_channels,
-                                       kernel_size=1,
-                                       dtype=torch.get_default_dtype())
+                                       kernel_size=1)
 
 
     def forward(self, x):
@@ -173,9 +174,9 @@ class LearnableFlusser(torch.nn.Module):
             ic=self.in_channels,
             oc=self.out_channels)
         # Perform convolution 
-        x = torch.conv2d(input=x,
-                         weight=filters, 
-                         padding=self.padding)
+        x = F.conv2d(input=x,
+                     weight=filters, 
+                     padding=self.padding)
         x = rearrange(x, 'b (m out) h w -> b m out h w', m=len(self.orders))
         # symmetrics 
         symmetric = x[:, :self.symmetric_polynomials].real

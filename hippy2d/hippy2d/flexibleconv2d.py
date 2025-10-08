@@ -4,13 +4,13 @@ from einops import rearrange, repeat
 import numpy as np
 
 from hippy2d.complex_invariants_2d import get_complex_monomial
-from hippy2d.utils import get_default_complex, tukey_2d, get_circular_mask, SafeAtan2
+from hippy2d.utils import tukey_2d, SafeAtan2
 
 KERNEL_SIZE = 15
 MAX_ORDER = 4
 
 # Generalized complex power function using De Moivre's theorem
-#@torch.jit.script
+@torch.jit.script
 def complex_power_moivre(x: torch.Tensor,
                          exponents: torch.Tensor,
                          safe_magnitude_power: bool =False,
@@ -40,7 +40,7 @@ def complex_power_moivre(x: torch.Tensor,
         else: 
             new_magnitude = torch.pow(magnitude, exponents)  
     elif magnitude_func == "copy":
-        new_magnitude = torch.pow(magnitude, torch.ones_like(exponents))
+        new_magnitude = magnitude * torch.ones_like(exponents)
     else: 
         raise ValueError(f"Unknown magnitude function: {magnitude_func}. Use 'power' or 'copy'.")
 

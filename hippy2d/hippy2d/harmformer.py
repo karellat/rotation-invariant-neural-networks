@@ -6,7 +6,6 @@ from typing import Optional
 from torch import masked_fill
 from scipy.linalg import dft
 from einops import rearrange
-from collections import OrderedDict
 from torch.nn.modules.module import T
 
 from hippy2d.utils import get_default_complex, get_circular_mask, retrieve_elements_from_indices, tukey_2d
