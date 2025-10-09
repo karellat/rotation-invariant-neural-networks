@@ -20,4 +20,4 @@ optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
 seed: 390
-run_name: learnable-histology
+run_name: learnable-histology-cosine
