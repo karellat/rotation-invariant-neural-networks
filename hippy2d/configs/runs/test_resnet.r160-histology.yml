@@ -1,9 +1,6 @@
 d_hparams:
   batch_size: 8
-  normalize: True
-  aug_crop: True
-  aug_scale: True
-  aug_clr_jitter: False
+  rotated_test: True
 dataset_name: ColorectalHistology
 early_stopping: 30
 epochs: 150
@@ -16,5 +13,5 @@ model_name: timm:test_resnet.r160_in1k
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
-run_name: test_resnet-normalize-label-smoothing
+run_name: test_resnet-rot-test
 seed: 42
