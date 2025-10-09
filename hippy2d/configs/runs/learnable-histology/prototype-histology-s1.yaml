@@ -3,9 +3,13 @@ d_hparams:
 dataset_name: ColorectalHistology
 early_stopping: 30
 epochs: 150
-lr_name: CosineAnnealingLR
 lr_hparams:
-  T_max: 150
+  gamma: 0.1
+  milestones:
+  - 50
+  - 100
+  - 125
+lr_name: MultiStepLR
 model_name: PrototypeOptimalInvCNN
 m_param:
   in_channels: 3
@@ -20,4 +24,4 @@ optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
 seed: 390
-run_name: learnable-histology-cosine
+run_name: learnable-histology
