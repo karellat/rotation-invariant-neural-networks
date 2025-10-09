@@ -41,8 +41,10 @@ def complex_power_moivre(x: torch.Tensor,
             new_magnitude = torch.pow(magnitude, exponents)  
     elif magnitude_func == "copy":
         new_magnitude = magnitude * torch.ones_like(exponents)
+    elif magnitude_func == "one":
+        new_magnitude = torch.ones_like(magnitude) * torch.ones_like(exponents)
     else: 
-        raise ValueError(f"Unknown magnitude function: {magnitude_func}. Use 'power' or 'copy'.")
+        raise ValueError(f"Unknown magnitude function: {magnitude_func}. Use 'power', 'copy', or 'one'.")
 
     new_angle = angle * exponents
     # Convert back to rectangular form
