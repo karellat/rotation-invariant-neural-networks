@@ -108,8 +108,15 @@ def init_angular_part(kernel_size, orders, n_rings):
                 torch.from_numpy(low_pass_filter))
     return torch.stack(weights2filter_sampler)
 
-#def flusser_basis_orders(max_order: int):
-
+def flusser_basis_orders(max_order: int):
+    orders = []
+    for _ in range(0, max_order//2 + 1):
+        orders.append(0)
+    for p in range(0, max_order + 1):
+        for q in range(0, min(max_order + 1-p, p + 1)):
+            if p - q != 0:
+                orders.append(p - q)
+    return sorted(orders)
 
 class LearnableFlusser(torch.nn.Module):
     """ 
@@ -123,6 +130,7 @@ class LearnableFlusser(torch.nn.Module):
                  ring_count: int=3,
                  kernel_size: int=15,
                  orders: List[int]=[0, 0, 0, 1, 1, 2, 2, 3, 4], 
+                 max_order: int=4, 
                  preserve_energy: bool = False, 
                  norm_factor_function="copy"): # copy when rotating only the phase
         super(LearnableFlusser, self).__init__()
@@ -133,9 +141,12 @@ class LearnableFlusser(torch.nn.Module):
         self.norm_factor_function = norm_factor_function
         self.padding = padding
         self.complex_multiplier = 2
+
         # Assert orders are sorted
         assert orders == sorted(orders), "Orders should be sorted"
-
+        assert all([o <= max_order for o in orders]), "Orders should be less than max_order"
+        if orders is None:
+            orders = flusser_basis_orders(max_order)
         # Centro-symmetric orders
         symmetric_polynomials = 0
         for order in orders:
