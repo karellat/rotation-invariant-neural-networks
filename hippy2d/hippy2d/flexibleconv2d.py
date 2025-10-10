@@ -17,7 +17,6 @@ def complex_power_moivre(x: torch.Tensor,
                          magnitude_func: str = "power",
                          eps: float = 1e-8) -> torch.Tensor:
     """
-    JIT-compatible complex power using De Moivre's theorem
     Args:
         x: Complex tensor with shape [..., 2] where last dim is [real, imag]
         exponents: Exponent tensor that broadcasts with x[..., 0]
@@ -43,8 +42,10 @@ def complex_power_moivre(x: torch.Tensor,
         new_magnitude = magnitude * torch.ones_like(exponents)
     elif magnitude_func == "one":
         new_magnitude = torch.ones_like(magnitude) * torch.ones_like(exponents)
+    elif magnitude_func == "square":
+        new_magnitude = magnitude ** 2 * torch.ones_like(exponents)
     else: 
-        raise ValueError(f"Unknown magnitude function: {magnitude_func}. Use 'power', 'copy', or 'one'.")
+        raise ValueError(f"Unknown magnitude function: {magnitude_func}. Use 'power', 'copy', 'one', or 'square'")
 
     new_angle = angle * exponents
     # Convert back to rectangular form
