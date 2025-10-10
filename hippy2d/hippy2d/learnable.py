@@ -108,6 +108,8 @@ def init_angular_part(kernel_size, orders, n_rings):
                 torch.from_numpy(low_pass_filter))
     return torch.stack(weights2filter_sampler)
 
+def flusser_basis_orders(max_order: int):
+    
 
 class LearnableFlusser(torch.nn.Module):
     """ 
@@ -118,39 +120,36 @@ class LearnableFlusser(torch.nn.Module):
                  out_channels: int, 
                  input_size: int = 64, # For compatible purposes
                  padding: str = "same", # "same" or "valid"
-                 max_order: int=4,
                  ring_count: int=3,
                  kernel_size: int=15,
+                 orders: List[int]=[0, 0, 0, 1, 1, 2, 2, 3, 4], 
                  preserve_energy: bool = False, 
                  norm_factor_function="copy"): # copy when rotating only the phase
         super(LearnableFlusser, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.max_order = max_order
         self.ring_count = ring_count
         self.kernel_size = kernel_size
         self.norm_factor_function = norm_factor_function
         self.padding = padding
         self.complex_multiplier = 2
+        # Assert orders are sorted
+        assert orders == sorted(orders), "Orders should be sorted"
 
-        orders = []
         # Centro-symmetric orders
         symmetric_polynomials = 0
-        for p in range(0, max_order//2 + 1):
-            orders.append(0)
-            symmetric_polynomials += 1
-        non_symmetric_polynomials = 0
+        for order in orders:
+            if order == 0:
+                symmetric_polynomials += 1
+            if order != 0:
+                assert order == 1, "The very first after 0 should be 1, other exponents not implemented"
+                break
         # Non-symmetric orders starting with (0, 1)
-        for p in range(0, max_order + 1):
-            for q in range(0, min(max_order + 1-p, p + 1)):
-                if p - q != 0:
-                    orders.append(p - q)
-                    non_symmetric_polynomials += 1
         self.symmetric_polynomials = symmetric_polynomials
-        self.non_symmetric_polynomials = non_symmetric_polynomials
+        self.non_symmetric_polynomials = len(orders) - symmetric_polynomials
         self.register_buffer("orders", torch.tensor(orders, dtype=torch.int32))
 
-        self.num_invariants = symmetric_polynomials + (non_symmetric_polynomials-1)*self.complex_multiplier + 1 # Minus one because of c_01 * c_10 is real
+        self.num_invariants = self.symmetric_polynomials + (self.non_symmetric_polynomials-1)*self.complex_multiplier + 1 # Minus one because of c_01 * c_10 is real
         self.preserve_energy = preserve_energy
 
         # Init angular part that is fixed self.angular_part 
