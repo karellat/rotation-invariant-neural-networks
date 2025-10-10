@@ -21,10 +21,10 @@ m_param:
   init_channels: [4, 8, 8]
   layer: LearnableFlusser
   layer_kwargs:
-    norm_factor_function: power
+    norm_factor_function: one
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: learnable-smaller-power
+run_name: learnable-smaller-one
 seed: 24
