@@ -22,6 +22,7 @@ m_param:
   layer: LearnableFlusser
   layer_kwargs:
     norm_factor_function: square
+    preserve_energy: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525

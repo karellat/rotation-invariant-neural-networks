@@ -121,6 +121,7 @@ class LearnableFlusser(torch.nn.Module):
                  max_order: int=4,
                  ring_count: int=3,
                  kernel_size: int=15,
+                 preserve_energy: bool = False, 
                  norm_factor_function="copy"): # copy when rotating only the phase
         super(LearnableFlusser, self).__init__()
         self.in_channels = in_channels
@@ -133,7 +134,7 @@ class LearnableFlusser(torch.nn.Module):
         self.complex_multiplier = 2
 
         orders = []
-        # Centro-symmetric orders 
+        # Centro-symmetric orders
         symmetric_polynomials = 0
         for p in range(0, max_order//2 + 1):
             orders.append(0)
@@ -150,6 +151,8 @@ class LearnableFlusser(torch.nn.Module):
         self.register_buffer("orders", torch.tensor(orders, dtype=torch.int32))
 
         self.num_invariants = symmetric_polynomials + (non_symmetric_polynomials-1)*self.complex_multiplier + 1 # Minus one because of c_01 * c_10 is real
+        self.preserve_energy = preserve_energy
+
         # Init angular part that is fixed self.angular_part 
         # Note: This part can be also made learnable
         self.register_buffer("angular_part", init_angular_part(kernel_size, self.orders.tolist(), ring_count).to(get_default_complex()))
@@ -174,6 +177,8 @@ class LearnableFlusser(torch.nn.Module):
             ic=self.in_channels,
             oc=self.out_channels)
         # Perform convolution 
+        if self.preserve_energy:
+            filters = filters / torch.sum(filters.abs(), dim=[-2, -1], keepdim=True)
         x = F.conv2d(input=x,
                      weight=filters, 
                      padding=self.padding)
