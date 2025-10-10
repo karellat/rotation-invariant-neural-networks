@@ -87,13 +87,12 @@ def get_interpolation_weights(fs, m, n_rings, angle_samples):
 
     # Normalizing the weights to calibrate the different steerable filters
     norm = np.sum(weights,
-                    axis=2,
-                    keepdims=True)
+                  axis=2,
+                  keepdims=True)
     assert np.all(norm != 0), "Normalizing by zero weights"
     return np.divide(weights,
-                        norm,
-                        where=(norm != 0)
-                        )
+                     norm,
+                     where=(norm != 0))
 
 def init_angular_part(kernel_size, orders, n_rings):
     N = get_angle_samples_count(kernel_size)
