@@ -108,8 +108,8 @@ def init_angular_part(kernel_size, orders, n_rings):
                 torch.from_numpy(low_pass_filter))
     return torch.stack(weights2filter_sampler)
 
-def flusser_basis_orders(max_order: int):
-    
+#def flusser_basis_orders(max_order: int):
+
 
 class LearnableFlusser(torch.nn.Module):
     """ 
