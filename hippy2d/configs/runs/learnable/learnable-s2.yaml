@@ -22,9 +22,10 @@ m_param:
   layer: LearnableFlusser
   layer_kwargs:
     preserve_energy: true
+    norm_factor_function: power
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: learnable-smaller
+run_name: learnable-smaller-power
 seed: 42
