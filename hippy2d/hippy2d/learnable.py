@@ -128,7 +128,7 @@ class LearnableFlusser(torch.nn.Module):
                  padding: str = "same", # "same" or "valid"
                  ring_count: int=3,
                  kernel_size: int=15,
-                 orders: List[int]=[0, 0, 0, 1, 1, 2, 2, 3, 4], 
+                 orders: List[int]=None, 
                  max_order: int=4, 
                  preserve_energy: bool = False, 
                  norm_factor_function="copy"): # copy when rotating only the phase
@@ -141,11 +141,11 @@ class LearnableFlusser(torch.nn.Module):
         self.padding = padding
         self.complex_multiplier = 2
 
+        if orders is None:
+            orders = flusser_basis_orders(max_order)
         # Assert orders are sorted
         assert orders == sorted(orders), "Orders should be sorted"
         assert all([o <= max_order for o in orders]), "Orders should be less than max_order"
-        if orders is None:
-            orders = flusser_basis_orders(max_order)
         # Centro-symmetric orders
         symmetric_polynomials = 0
         for order in orders:
