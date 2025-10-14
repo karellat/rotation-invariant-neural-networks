@@ -171,6 +171,7 @@ class LearnableFlusser(torch.nn.Module):
         # 1x1 real projection
         self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants * out_channels,
                                        out_channels=out_channels,
+                                       groups=out_channels,
                                        kernel_size=1)
 
 
@@ -210,7 +211,7 @@ class LearnableFlusser(torch.nn.Module):
                        diagonal,
                        nonsymmetric[:, 1:].real,
                        nonsymmetric[:, 1:].imag), dim=1)
-        x = rearrange(x, 'b m out h w -> b (m out) h w')
+        x = rearrange(x, 'b m out h w -> b (out m) h w')
         x = self.conv1x1(x)
         # Return the output
         return x
