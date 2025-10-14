@@ -16,13 +16,14 @@ m_param:
   input_size: 150
   n_blocks: 4
   m_layers: 3
-  init_channels: [8, 16, 24, 35]
+  init_channels: [8, 16, 31, 31]
   kernel_size: [15, 11, 11, 11]
   num_classes: 8
   layer: LearnableFlusser
-  activation: "ReLU"
+  layer_kwargs:
+    preserve_energy: true
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
 seed: 223
-run_name: learnable-histology-relu
+run_name: learnable-histology
