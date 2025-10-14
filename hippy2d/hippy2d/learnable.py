@@ -166,12 +166,11 @@ class LearnableFlusser(torch.nn.Module):
         # Note: This part can be also made learnable
         self.register_buffer("angular_part", init_angular_part(kernel_size, self.orders.tolist(), ring_count).to(get_default_complex()))
         # Init learnable radial part 
-        self.weights = torch.nn.Parameter(init_radial_part(in_channels, out_channels, self.orders.tolist(), ring_count),
+        self.weights = torch.nn.Parameter(init_radial_part(in_channels, in_channels, self.orders.tolist(), ring_count),
                                           requires_grad=True)
         # 1x1 real projection
-        self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants * out_channels,
+        self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants * in_channels,
                                        out_channels=out_channels,
-                                       groups=out_channels,
                                        kernel_size=1)
 
 
@@ -185,7 +184,7 @@ class LearnableFlusser(torch.nn.Module):
             h=self.kernel_size,
             w=self.kernel_size,
             ic=self.in_channels,
-            oc=self.out_channels)
+            oc=self.in_channels)
         # Perform convolution 
         if self.preserve_energy:
             filters = filters / torch.sum(filters.abs(), dim=[-2, -1], keepdim=True)
@@ -211,7 +210,7 @@ class LearnableFlusser(torch.nn.Module):
                        diagonal,
                        nonsymmetric[:, 1:].real,
                        nonsymmetric[:, 1:].imag), dim=1)
-        x = rearrange(x, 'b m out h w -> b (out m) h w')
+        x = rearrange(x, 'b m out h w -> b (m out) h w')
         x = self.conv1x1(x)
         # Return the output
         return x

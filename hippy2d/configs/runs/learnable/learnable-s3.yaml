@@ -24,5 +24,5 @@ model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: learnable-smaller-group-conv
+run_name: learnable-smaller-group-conv2
 seed: 32
