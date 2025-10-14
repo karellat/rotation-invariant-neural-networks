@@ -23,7 +23,7 @@ m_param:
   layer_kwargs:
     preserve_energy: true
     norm_factor_function: square
-  optimizer_hparams:
+optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
 seed: 390
