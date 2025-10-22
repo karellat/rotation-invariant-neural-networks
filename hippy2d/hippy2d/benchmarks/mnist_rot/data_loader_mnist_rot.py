@@ -23,7 +23,8 @@ class mnist_rot_dataset(data.Dataset):
                  root:str='./data',
                  transform=None,
                  target_transform=None,
-                 reshuffle_seed=None):
+                 reshuffle_seed=None,
+                 upscale_size=None):
         """
         :type  mode: string from ['train', 'valid', 'test']
         :param mode: determines which subset of the dataset is loaded and whether augmentation is used
@@ -33,6 +34,8 @@ class mnist_rot_dataset(data.Dataset):
         :param target_transform: transformation applied to labels
         :type  reshuffle_seed: int
         :param reshuffle_seed: seed to use to reshuffle train or valid sets. If None (default), they are not reshuffled
+        :type  upscale_size: tuple or int
+        :param upscale_size: size to resize images to. If None (default), images are not resized
         """
         assert os.path.exists(root) and os.path.isdir(root)
         assert mode in ['train', 'valid', 'trainval', 'test']
@@ -42,6 +45,7 @@ class mnist_rot_dataset(data.Dataset):
         self.transform = transform
         self.target_transform = target_transform
         self.num_classes = 10
+        self.upscale_size = upscale_size
 
         # load the numpy arrays
         if mode in ["train", "valid", "trainval"]:
@@ -100,6 +104,11 @@ class mnist_rot_dataset(data.Dataset):
         image, label = self.images[index], self.labels[index]
         # convert to PIL Image
         image = Image.fromarray(image)
+        
+        # resize image if upscale_size is specified
+        if self.upscale_size is not None:
+            image = image.resize((self.upscale_size,self.upscale_size), Image.BILINEAR)
+        
         # transform images and labels
         if self.transform is not None:
             self.transform.update_randomization()
@@ -112,13 +121,15 @@ class mnist_rot_dataset(data.Dataset):
         return len(self.labels)
 
 
+
 def build_mnist_rot_loader(mode,
                            batch_size, 
                            num_workers=8,
                            rot_interpol_augmentation=False,
                            interpolation=0,
                            reshuffle_seed=None,
-                           coords=False):
+                           coords=False, 
+                           upscale_size=None):
     """  """
     rng = np.random.RandomState(42)
 
@@ -162,7 +173,10 @@ def build_mnist_rot_loader(mode,
     
     transform = own_transforms.Compose(transform)
     
-    dataset = mnist_rot_dataset(mode, transform=transform, reshuffle_seed=reshuffle_seed)
+    dataset = mnist_rot_dataset(mode,
+                                transform=transform,
+                                reshuffle_seed=reshuffle_seed,
+                                upscale_size=upscale_size)
     loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=batch_size,

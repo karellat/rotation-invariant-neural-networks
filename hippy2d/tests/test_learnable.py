@@ -4,7 +4,7 @@ from einops import repeat
 from warnings import warn
 import torchvision.transforms.v2 as transforms
 
-from hippy2d.models import PrototypeOptimalInvCNN
+from hippy2d.models import PrototypeOptimalInvCNN, PrototypeTiny
 from hippy2d.learnable import LearnableFlusser
 from hippy2d.blocks import ResnetBlock 
 from hippy2d.utils import get_testing_img, get_default_complex
@@ -174,6 +174,23 @@ class TestLearnable:
         
         # Forward pass through the complex invariant convolution layer
         self._test_90_module(inv_conv, test_images, test_device)
+
+    def test_tiny_network(self, test_images, test_device):
+        """Test the 90-degree rotation network."""
+        net = PrototypeTiny(
+                         layer="LearnableFlusser",
+                         in_channels=IMAGE_CHANNELS,
+                         input_size=IMAGE_SIZE)
+        net.eval()
+
+        input_rgb, rot_input_rgb = test_images
+        y = net(input_rgb.to(test_device))
+        y_rot = net(rot_input_rgb.to(test_device))
+        torch.testing.assert_close(
+            y,
+            y_rot
+        )
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

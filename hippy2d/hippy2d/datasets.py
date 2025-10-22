@@ -341,6 +341,7 @@ class RotMnist(LightningDataModule, ABC):
                 interpolation:str="BILINEAR", 
                 test_batch_size:int=32,
                 augmentation: bool=True,
+                upscale_size: Optional[int]=None,
                 ):
         assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
         assert hasattr(Resampling, interpolation)
@@ -355,8 +356,12 @@ class RotMnist(LightningDataModule, ABC):
         self.num_workers = num_workers
         self.augmentation=augmentation
         self.reshuffle_seed = np.random.randint(0, 100000)
+        self.upscale_size = upscale_size
 
-        self._output_shape = [batch_size, 1, 28, 28]
+        if upscale_size is not None:
+            self._output_shape = [batch_size, 1, upscale_size, upscale_size]
+        else:
+            self._output_shape = [batch_size, 1, 28, 28]
 
 
     def prepare_data(self):
@@ -373,7 +378,8 @@ class RotMnist(LightningDataModule, ABC):
                                                rot_interpol_augmentation=True,
                                                interpolation=self.interpolation,
                                                reshuffle_seed=self.reshuffle_seed,
-                                               coords=False                                               )
+                                               coords=False,
+                                               upscale_size=self.upscale_size)
         self._valid_dataloader = dict(
             val=build_mnist_rot_loader(mode='valid',
                                        num_workers=self.num_workers,
@@ -381,15 +387,16 @@ class RotMnist(LightningDataModule, ABC):
                                        rot_interpol_augmentation=False,
                                        interpolation=self.interpolation,
                                        reshuffle_seed=self.reshuffle_seed,
-                                       coords=False)[0]
+                                       coords=False,
+                                       upscale_size=self.upscale_size)[0]
         )
         self._test_dataloader, _, _ = build_mnist_rot_loader(mode='test',
                                               num_workers=self.num_workers,
                                               batch_size=self.test_batch_size,
                                               rot_interpol_augmentation=False,
                                               interpolation=self.interpolation,
-                                              coords=False)
-        
+                                              coords=False,
+                                              upscale_size=self.upscale_size)
 
     def train_dataloader(self):
         return self._train_dataloader

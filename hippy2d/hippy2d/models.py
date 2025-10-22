@@ -368,73 +368,78 @@ class PrototypeOptimalInvCNN(torch.nn.Module):
 class PrototypeTiny(torch.nn.Module):
     def __init__(self,
                  in_channels: int = 1,
+                 # Layer settings
+                 layer : nn.Module = "ComplexInvariantConv2D",
+                 layer_kwargs: dict = dict(max_order=3), 
                  num_classes: int = 10, 
                  input_size: int = 28,
-                 scale_channels: int = 1):
+                 scale_channels: int = 1, 
+                 kernel_size: List[int] = [7, 5, 5, 5, 5, 5]):
         super(PrototypeTiny, self).__init__()
+        assert len(kernel_size) == 6, "kernel_size must be a list of 6 integers"
 
         # 28 px
-        self.layer_1 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
-                                   conv_kwargs=dict(max_order=3),
+        self.layer_1 = ResnetBlock(conv_layer=layer,
+                                   conv_kwargs=layer_kwargs,
                                    in_channels=in_channels,
                                    input_size=input_size,
                                    out_channels=16 * scale_channels, 
-                                   kernel_size=7,
-                                   conv_padding=1,
+                                   kernel_size=kernel_size[0],
+                                   conv_padding="same",
                                    channels_masking="none",
                                    subsampling=False)
         # 24 px 
-        self.layer_2 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
-                                   conv_kwargs=dict(max_order=3),
+        self.layer_2 = ResnetBlock(conv_layer=layer,
+                                   conv_kwargs=layer_kwargs,
                                    in_channels=16 * scale_channels,
-                                   input_size=input_size - 4,
+                                   input_size=input_size,
                                    out_channels=32 * scale_channels,
-                                   kernel_size=5,
-                                   conv_padding=2,
+                                   kernel_size=kernel_size[1],
+                                   conv_padding="same",
                                    channels_masking="none",
                                    subsampling=True)
 
         # 12 px
-        self.layer_3 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
-                                   conv_kwargs=dict(max_order=3),
+        self.layer_3 = ResnetBlock(conv_layer=layer,
+                                   conv_kwargs=layer_kwargs,
                                    in_channels=32 * scale_channels,
-                                   input_size=(input_size - 4) // 2,
+                                   input_size=input_size // 2,
                                    out_channels=32 * scale_channels,
-                                   kernel_size=5,
-                                   conv_padding=2,
+                                   kernel_size=kernel_size[2],
+                                   conv_padding="same",
                                    channels_masking="none",
                                    subsampling=False)
 
-        self.layer_4 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
-                                   conv_kwargs=dict(max_order=3),
+        self.layer_4 = ResnetBlock(conv_layer=layer,
+                                   conv_kwargs=layer_kwargs,
                                    in_channels=32 * scale_channels,
-                                   input_size=(input_size - 4) // 2,
+                                   input_size=input_size // 2,
                                    out_channels=32 * scale_channels,
-                                   kernel_size=5,
-                                   conv_padding=2,
+                                   kernel_size=kernel_size[3],
+                                   conv_padding="same",
                                    channels_masking="none",
                                    subsampling=True)
 
         # 6 px
-        self.layer_5 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
-                                   conv_kwargs=dict(max_order=3),
+        self.layer_5 = ResnetBlock(conv_layer=layer,
+                                   conv_kwargs=layer_kwargs,
                                    in_channels=32 * scale_channels,
-                                   input_size=(input_size - 4) // 4,
+                                   input_size=input_size // 4,
                                    out_channels=48 * scale_channels,
-                                   kernel_size=5,
-                                   conv_padding=2,
+                                   kernel_size=kernel_size[4],
+                                   conv_padding="same",
                                    channels_masking="none",
                                         subsampling=False)
 
-        self.layer_6 = ResnetBlock(conv_layer=ComplexInvariantConv2D, 
-                                   conv_kwargs=dict(max_order=3),
+        self.layer_6 = ResnetBlock(conv_layer=layer,
+                                   conv_kwargs=layer_kwargs,
                                    in_channels=48 * scale_channels,
-                                   input_size=(input_size - 4) // 4,
+                                   input_size=input_size // 4,
                                    out_channels=64 * scale_channels,
-                                   kernel_size=5,
-                                   conv_padding=2,
+                                   kernel_size=kernel_size[5],
+                                   conv_padding="same",
                                    channels_masking="none",
-                                        subsampling=False)
+                                   subsampling=False)
 
         self.pool = torch.nn.AdaptiveAvgPool2d((1, 1))
         self.flat = torch.nn.Flatten()
@@ -464,6 +469,7 @@ class RotMNISTE2CNN(ExpE2SFCNN):
     def __init__(self,
                  in_channels: int=1,
                  num_classes: int=10,
+                 input_size: int=28, # For compatibility, not used
                  layer_type:str="gated_norm_shared",
                  restrict:int = 0,
                  N:int=-3,
