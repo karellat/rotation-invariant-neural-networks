@@ -1,12 +1,74 @@
 import torch
 import numpy as np
 from typing import List
-from scipy.linalg import dft
 from einops import rearrange
+from scipy.linalg import dft
 import torch.nn.functional as F
+from scipy.special import legendre
 
 from hippy2d.flexibleconv2d import complex_power_moivre
 from hippy2d.utils import get_default_complex
+
+
+
+# Complex monomials 
+def phase_part(m, size=15): 
+    """ Create a angular part with phase m. 
+    Args:
+        m (int): angular frequency 
+        size (int): size of the filter 
+    Returns:
+        angular part as a 2D numpy array 
+    """
+    y, x = np.meshgrid(np.linspace(-1, 1, size), np.linspace(-1, 1, size))
+    angles = np.arctan2(y, x)
+    angular_part = np.exp(1j * m * angles)
+    return angular_part
+
+def monomial_basis(r, size=15):
+    y, x = np.meshgrid(np.linspace(-1, 1, size), np.linspace(-1, 1, size))
+    R = np.hypot(x, y)
+    # Define on circle of radius 1
+    radial = R**r
+    radial[R > 1] = 0
+    return radial
+
+def legendre_basis(r, size=15):
+    """ Create a radial part with Legendre polynomial of degree r. 
+    Args:
+        r (int): radial degree 
+        size (int): size of the filter 
+    Returns:
+        radial part as a 2D numpy array 
+    """
+    y, x = np.meshgrid(np.linspace(-1, 1, size), np.linspace(-1, 1, size))
+    R = np.hypot(x, y)
+    P_r = legendre(r)
+    radial = P_r(R)
+    radial[R > 1] = 0
+    return radial
+
+def legendre0_basis(r, size=15):
+    """
+    Create a radial part using a polynomial basis that vanishes at 0:
+    ψ_r(R) = R * P_r(R), where P_r is the Legendre polynomial of degree r.
+
+    Args:
+        r (int): radial degree
+        size (int): size of the filter
+    Returns:
+        radial (2D numpy array): radial part of the basis
+    """
+    y, x = np.meshgrid(np.linspace(-1, 1, size), np.linspace(-1, 1, size))
+    R = np.hypot(x, y)
+    P_r = legendre(r)
+    if r != 0:
+        radial = R * P_r(R)   # multiply by R to ensure it vanishes at 0
+    else:
+        radial = P_r(R)
+    radial[R > 1] = 0     # zero outside the unit disk
+    return radial
+
 
 def init_radial_part(in_channels: int, out_channels: int, orders: List[int], ring_count: int):
     """
@@ -192,6 +254,110 @@ class LearnableFlusser(torch.nn.Module):
                      weight=filters, 
                      padding=self.padding)
         x = rearrange(x, 'b (m out) h w -> b m out h w', m=len(self.orders))
+        # symmetrics 
+        symmetric = x[:, :self.symmetric_polynomials].real
+        # moments 
+        moments = x[:, self.symmetric_polynomials:]
+        norm_factor = moments[:, 0:1].conj()
+        # Compute invariants
+        nonsymmetric = moments * torch.view_as_complex(
+            complex_power_moivre(torch.view_as_real(norm_factor.resolve_conj()),
+                                               self.orders[self.symmetric_polynomials:, None, None, None],
+                                               magnitude_func=self.norm_factor_function)
+        )
+        diagonal = nonsymmetric[:, 0:1].real
+
+        # Concatenate all parts to form the output
+        x = torch.cat((symmetric, 
+                       diagonal,
+                       nonsymmetric[:, 1:].real,
+                       nonsymmetric[:, 1:].imag), dim=1)
+        x = rearrange(x, 'b m out h w -> b (m out) h w')
+        x = self.conv1x1(x)
+        # Return the output
+        return x
+
+
+class VarLearnableFlusser(torch.nn.Module):
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int, 
+                 input_size: int = 64, # For compatible purposes
+                 padding: str = "same", # "same" or "valid"
+                 kernel_size: int=15,
+                 radial_order: int=3,
+                 radial_basis:str = "monomial", 
+                 phase_orders: List[int]=[0, 1, 2, 3], 
+                 preserve_energy: bool = False, 
+                 norm_factor_function="copy"): # copy when rotating only the phase
+        
+        super(VarLearnableFlusser, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.padding = padding
+        self.preserve_energy = preserve_energy
+        self.norm_factor_function = norm_factor_function
+
+        # Assert orders are sorted
+        assert phase_orders == sorted(phase_orders), "Orders should be sorted"
+        # Centro-symmetric orders
+        symmetric_polynomials = 0
+        for order in phase_orders:
+            if order == 0:
+                symmetric_polynomials += 1
+            if order != 0:
+                assert order == 1, "The very first after 0 should be 1, other exponents not implemented"
+                break
+        # Non-symmetric orders starting with (0, 1)
+        self.symmetric_polynomials = symmetric_polynomials
+        self.non_symmetric_polynomials = len(phase_orders) - symmetric_polynomials
+        self.register_buffer("orders", torch.tensor(phase_orders, dtype=torch.int32))
+
+        self.num_invariants = self.symmetric_polynomials + (self.non_symmetric_polynomials-1)*2 + 1 # Minus one because of c_01 * c_10 is real
+        
+        if radial_basis == "legendre0":
+            _radial_func = legendre0_basis
+        elif radial_basis == "legendre":
+            _radial_func = legendre_basis
+        elif radial_basis == "monomial":
+            _radial_func = monomial_basis
+        else: 
+            raise ValueError(f"Unknown radial basis: {radial_basis}")
+
+        # Prepare fixed bases
+        radial_basis = np.array([_radial_func(r, size=kernel_size) for r in range(radial_order)])[np.newaxis, np.newaxis, np.newaxis, ...]
+        phase_basis = np.array([phase_part(m, size=kernel_size) for m in  phase_orders])[:, np.newaxis, np.newaxis, np.newaxis, ...]
+        # Merge basis
+        basis = torch.from_numpy(phase_basis * radial_basis).to(get_default_complex())
+        # TODO: This should be different for different phase
+        # Mask zeros
+        basis[symmetric_polynomials:, :, :, :, kernel_size//2, kernel_size//2] = 0.0
+        # TODO: This part can be shared 
+        self.register_buffer("basis", basis)
+
+        # Different weight for each [angular basis x out_channels x in_channels, radial basis]
+        weights = torch.randn([len(phase_orders), out_channels, in_channels, radial_order, 1, 1], dtype=torch.float32)
+        self.weights = torch.nn.Parameter(weights)
+        # 1x1 real projection
+        self.conv1x1 = torch.nn.Conv2d(in_channels=self.num_invariants * out_channels,
+                                       out_channels=out_channels,
+                                       kernel_size=1)
+        
+    def forward(self, x):
+        # Calculate the weights
+        # TODO: Fix the complex dtype by replacing the dtype 
+        x = x.to(get_default_complex())
+        filters = rearrange(torch.sum(self.basis * self.weights, dim=3), 
+                            "m o i h w -> (m o) i h w")
+        # Perform convolution 
+        if self.preserve_energy:
+            filters = filters / torch.sum(filters.abs(), dim=[-2, -1], keepdim=True)
+            
+        x = F.conv2d(input=x,
+                     weight=filters, 
+                     padding=self.padding)
+        x = rearrange(x, 'b (m out) h w -> b m out h w', m=len(self.orders))
+
         # symmetrics 
         symmetric = x[:, :self.symmetric_polynomials].real
         # moments 

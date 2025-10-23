@@ -5,7 +5,7 @@ from warnings import warn
 import torchvision.transforms.v2 as transforms
 
 from hippy2d.models import PrototypeOptimalInvCNN, PrototypeTiny
-from hippy2d.learnable import LearnableFlusser
+from hippy2d.learnable import LearnableFlusser, VarLearnableFlusser
 from hippy2d.blocks import ResnetBlock 
 from hippy2d.utils import get_testing_img, get_default_complex
 import time
@@ -190,6 +190,15 @@ class TestLearnable:
             y,
             y_rot
         )
+    
+    def test_90_var_layer(self, test_images, test_device):
+        """Test the 90-degree rotation layer with variable radial parts."""
+        for radial_basis in ["legendre0", "legendre", "monomial"]:
+            inv_conv = VarLearnableFlusser(out_channels=12, 
+                                    in_channels=3,
+                                    radial_basis=radial_basis).to(test_device)
+            # Forward pass through the complex invariant convolution layer
+            self._test_90_module(inv_conv, test_images, test_device)
 
 
 if __name__ == "__main__":
