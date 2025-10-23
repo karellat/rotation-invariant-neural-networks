@@ -8,6 +8,8 @@ lr_hparams:
   gamma: 0.95
 lr_name: ExponentialLR
 model_name: RotMNISTE2CNN
+m_param:
+  num_classes: 10
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
