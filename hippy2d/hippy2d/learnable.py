@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from scipy.special import legendre
 
 from hippy2d.flexibleconv2d import complex_power_moivre
-from hippy2d.utils import get_default_complex
+from hippy2d.utils import get_default_complex, tukey_2d
 
 
 
@@ -25,15 +25,19 @@ def phase_part(m, size=15):
     angular_part = np.exp(1j * m * angles)
     return angular_part
 
-def monomial_basis(r, size=15):
+def monomial_basis(r, size=15, masking="circ"):
     y, x = np.meshgrid(np.linspace(-1, 1, size), np.linspace(-1, 1, size))
     R = np.hypot(x, y)
     # Define on circle of radius 1
     radial = R**r
-    radial[R > 1] = 0
+    if masking == "circ":
+        radial[R > 1] = 0
+    elif masking == "tukey": 
+        tukey_window = tukey_2d(size, alpha=0.5)
+        radial = radial * tukey_window
     return radial
 
-def legendre_basis(r, size=15):
+def legendre_basis(r, size=15, masking="circ"):
     """ Create a radial part with Legendre polynomial of degree r. 
     Args:
         r (int): radial degree 
@@ -45,10 +49,14 @@ def legendre_basis(r, size=15):
     R = np.hypot(x, y)
     P_r = legendre(r)
     radial = P_r(R)
-    radial[R > 1] = 0
+    if masking == "circ":
+        radial[R > 1] = 0
+    elif masking == "tukey": 
+        tukey_window = tukey_2d(size, alpha=0.5)
+        radial = radial * tukey_window
     return radial
 
-def legendre0_basis(r, size=15):
+def legendre0_basis(r, size=15, masking="circ"):
     """
     Create a radial part using a polynomial basis that vanishes at 0:
     ψ_r(R) = R * P_r(R), where P_r is the Legendre polynomial of degree r.
@@ -66,7 +74,11 @@ def legendre0_basis(r, size=15):
         radial = R * P_r(R)   # multiply by R to ensure it vanishes at 0
     else:
         radial = P_r(R)
-    radial[R > 1] = 0     # zero outside the unit disk
+    if masking == "circ":
+        radial[R > 1] = 0     # zero outside the unit disk
+    elif masking == "tukey": 
+        tukey_window = tukey_2d(size, alpha=0.5)
+        radial = radial * tukey_window
     return radial
 
 
@@ -289,7 +301,8 @@ class VarLearnableFlusser(torch.nn.Module):
                  radial_basis:str = "monomial", 
                  phase_orders: List[int]=[0, 1, 2, 3], 
                  preserve_energy: bool = False, 
-                 norm_factor_function="copy"): # copy when rotating only the phase
+                 norm_factor_function="copy", 
+                 radial_masking="circ"): # copy when rotating only the phase
         
         super(VarLearnableFlusser, self).__init__()
         self.in_channels = in_channels
@@ -297,6 +310,7 @@ class VarLearnableFlusser(torch.nn.Module):
         self.padding = padding
         self.preserve_energy = preserve_energy
         self.norm_factor_function = norm_factor_function
+        self.radial_masking = radial_masking
 
         # Assert orders are sorted
         assert phase_orders == sorted(phase_orders), "Orders should be sorted"
@@ -325,7 +339,7 @@ class VarLearnableFlusser(torch.nn.Module):
             raise ValueError(f"Unknown radial basis: {radial_basis}")
 
         # Prepare fixed bases
-        radial_basis = np.array([_radial_func(r, size=kernel_size) for r in range(radial_order)])[np.newaxis, np.newaxis, np.newaxis, ...]
+        radial_basis = np.array([_radial_func(r, size=kernel_size, masking=self.radial_masking) for r in range(radial_order)])[np.newaxis, np.newaxis, np.newaxis, ...]
         phase_basis = np.array([phase_part(m, size=kernel_size) for m in  phase_orders])[:, np.newaxis, np.newaxis, np.newaxis, ...]
         # Merge basis
         basis = torch.from_numpy(phase_basis * radial_basis).to(get_default_complex())

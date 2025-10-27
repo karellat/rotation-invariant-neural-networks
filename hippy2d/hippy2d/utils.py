@@ -2,6 +2,7 @@ import os
 import ast
 import click 
 import torch
+import colorsys
 import numpy as np
 from PIL import Image
 import multiprocessing
@@ -121,3 +122,20 @@ class SafeAtan2(torch.autograd.Function):
         grad_x = -y / denom * grad_output
         grad_y =  x / denom * grad_output
         return grad_y, grad_x, None
+
+
+def complex_to_rgb(Z):
+    mag = np.abs(Z)
+    phase = np.angle(Z)
+    norm_mag = mag / mag.max()
+    
+    hsv = np.zeros(Z.shape + (3,))
+    hsv[..., 0] = (phase + np.pi) / (2*np.pi)   # hue
+    hsv[..., 1] = 1.0                           # saturation
+    hsv[..., 2] = norm_mag                      # value
+    
+    rgb = np.zeros_like(hsv)
+    for i in range(Z.shape[0]):
+        for j in range(Z.shape[1]):
+            rgb[i,j] = colorsys.hsv_to_rgb(*hsv[i,j])
+    return rgb
