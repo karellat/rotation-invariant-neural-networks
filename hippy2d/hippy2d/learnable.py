@@ -302,7 +302,8 @@ class VarLearnableFlusser(torch.nn.Module):
                  phase_orders: List[int]=[0, 1, 2, 3], 
                  preserve_energy: bool = False, 
                  norm_factor_function="copy", 
-                 radial_masking="circ"): # copy when rotating only the phase
+                 radial_masking="circ", 
+                 phase_radial_filtering=False): # copy when rotating only the phase
         
         super(VarLearnableFlusser, self).__init__()
         self.in_channels = in_channels
@@ -339,8 +340,14 @@ class VarLearnableFlusser(torch.nn.Module):
             raise ValueError(f"Unknown radial basis: {radial_basis}")
 
         # Prepare fixed bases
-        radial_basis = np.array([_radial_func(r, size=kernel_size, masking=self.radial_masking) for r in range(radial_order)])[np.newaxis, np.newaxis, np.newaxis, ...]
         phase_basis = np.array([phase_part(m, size=kernel_size) for m in  phase_orders])[:, np.newaxis, np.newaxis, np.newaxis, ...]
+        if not phase_radial_filtering:
+            radial_basis = np.array([_radial_func(r, size=kernel_size, masking=self.radial_masking) for r in range(radial_order)])[np.newaxis, np.newaxis, np.newaxis, ...]
+        else: 
+            radial_basis = np.zeros((len(phase_basis), 1, 1, radial_order, kernel_size, kernel_size))
+            for phase_order in phase_orders:
+                for radial_idx in range(radial_order):
+                    radial_basis[phase_order, 0, 0, radial_idx, :, :] = _radial_func(radial_idx+phase_order, size=kernel_size, masking=self.radial_masking)
         # Merge basis
         basis = torch.from_numpy(phase_basis * radial_basis).to(get_default_complex())
         # TODO: This should be different for different phase

@@ -23,10 +23,10 @@ m_param:
   layer_kwargs: 
     phase_orders: [0, 0, 0, 1, 1, 2, 2, 3, 4]
     radial_basis: legendre0
-    radial_masking: tukey
+    radial_masking: monomial
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: learnable-legendre0-tukey
+run_name: learnable-monomial-tukey
 seed: 32
