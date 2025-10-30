@@ -24,9 +24,10 @@ m_param:
     phase_orders: [0, 0, 0, 1, 1, 2, 2, 3, 4]
     radial_basis: monomial
     radial_masking: ftukey
+    phase_radial_filtering: true
 model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: learnable-monomial-ftukey
+run_name: learnable-monomial-ftukey-phase-filtered
 seed: 32
