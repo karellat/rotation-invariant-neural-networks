@@ -67,7 +67,7 @@ def monomial_basis(r, size=15, masking="circ"):
         tukey_window = tukey_2d(size, alpha=0.5)
         radial = radial * tukey_window
     elif masking == "ftukey":
-        ftukey_window = fixed_tukey(size,alpha=0.5)
+        ftukey_window = fixed_tukey(size,alpha=0.2)
         radial = radial * ftukey_window
     else:
         raise NotImplementedError("This is not implemented error.")

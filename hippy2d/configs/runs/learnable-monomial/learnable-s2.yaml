@@ -29,5 +29,5 @@ model_name: PrototypeOptimalInvCNN
 optimizer_hparams:
   lr: 0.01525
 optimizer_name: AdamW
-run_name: learnable-monomial-ftukey-phase-filtered
+run_name: learnable-monomial-ftukey-02-phase-filtered
 seed: 42
