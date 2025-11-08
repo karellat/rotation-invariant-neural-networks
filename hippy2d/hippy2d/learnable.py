@@ -40,8 +40,6 @@ def radial_tukey_from_R(R, alpha=0.5, r_max=1.0, dtype=np.float32):
     # outside r_max stays zero
     return W
 
-
-
 # Complex monomials 
 def phase_part(m, size=15): 
     """ Create a angular part with phase m. 
@@ -116,7 +114,6 @@ def legendre0_basis(r, size=15, masking="circ"):
         tukey_window = tukey_2d(size, alpha=0.5)
         radial = radial * tukey_window
     return radial
-
 
 def init_radial_part(in_channels: int, out_channels: int, orders: List[int], ring_count: int):
     """
@@ -212,6 +209,7 @@ def init_angular_part(kernel_size, orders, n_rings):
                                             m=order,
                                             n_rings=n_rings,
                                             angle_samples=N)
+        # TODO: Is this really low pass, it seems more like generating the phase part
         low_pass_filter = np.dot(dft(N)[order, :], weights).T
         weights2filter_sampler.append(
                 torch.from_numpy(low_pass_filter))
@@ -324,7 +322,6 @@ class LearnableFlusser(torch.nn.Module):
         x = self.conv1x1(x)
         # Return the output
         return x
-
 
 class VarLearnableFlusser(torch.nn.Module):
     def __init__(self,
