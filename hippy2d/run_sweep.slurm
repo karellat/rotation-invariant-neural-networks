@@ -3,7 +3,7 @@
 #SBATCH --output=./logs/%j_hippy2d_train.out
 #SBATCH --time=10:00:00            # Job duration
 #SBATCH --partition=volta-x86      # GPU partition name
-#SBATCH --gres=gpu:2               # Number of GPUs
+#SBATCH --gres=gpu:1               # Number of GPUs
 #SBATCH --cpus-per-task=16         # CPUs per task
 #SBATCH --mem=64G                  # RAM
 
@@ -36,6 +36,4 @@ fi
 # Run the training script
 echo "Running training script. Python=`which python`"
 
-source "$HOME/.bashrc"
-conda activate "$CONDAENV"
-PYTHONPATH="`pwd`" wandb agent "hippy2d/$SWEEPID"
+PYTHONPATH="`pwd`" wandb agent --entity "karella" --project "hippy2d"  "$SWEEPID"
