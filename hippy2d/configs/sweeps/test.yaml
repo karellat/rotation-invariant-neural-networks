@@ -1,4 +1,4 @@
-program: scripts/training_with_config.py
+program: scripts/training.py
 method: bayes
 metric:
   name: val_accuracy
