@@ -54,10 +54,6 @@ def training_loop(run_name: str,
     repo = Repo(search_parent_directories=True)
     sha = repo.head.object.hexsha
     # Logger
-    version = f"{sha}-{seed}"
-    csv_logger = lightning.pytorch.loggers.CSVLogger('./logs/csv', name=run_name, version=version)
-    
-    logger.add(csv_logger.log_dir + '/training.log', level='DEBUG', format="{time} {level} {message}")
     _log_dict = {
         'run_name': run_name,
         'early_stopping': early_stopping,
@@ -71,9 +67,9 @@ def training_loop(run_name: str,
         'optimizer_hparams': optimizer_hparams,
         'lr_name': lr_name,
         'lr_hparams': lr_hparams,
-        'seed': seed
+        'seed': seed,
+        'sha' : sha
     }
-    csv_logger.log_hyperparams(_log_dict)
 
     assert os.path.exists(WANDB_PATH), f"Wandb json not found at. {WANDB_PATH}"
 
@@ -91,7 +87,6 @@ def training_loop(run_name: str,
         entity="karella",
         config=_log_dict)
     
-
     # List available gpu
     if torch.cuda.is_available():
         accelerator = "gpu"
@@ -147,7 +142,7 @@ def training_loop(run_name: str,
                           lr_hparams=lr_hparams,
                           accelerator=accelerator,
                           trainer_params=trainer_params,
-                          trainer_loggers=[csv_logger, wandb_logger],
+                          trainer_loggers=[wandb_logger],
                           trainer_callbacks=trainer_callbacks,
                           float_precision=float_precision)
     # Lightning trainer
