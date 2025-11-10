@@ -7,38 +7,7 @@ import torch.nn.functional as F
 from scipy.special import legendre
 
 from hippy2d.flexibleconv2d import complex_power_moivre
-from hippy2d.utils import get_default_complex, tukey_2d
-
-
-def fixed_tukey(size:int, alpha): 
-    size += 2
-    assert (alpha >= 0.1) and (alpha <= 1.0), "Non-supported"
-    y, x = np.meshgrid(np.linspace(-1, 1, size), np.linspace(-1, 1, size))
-    R = np.hypot(x, y)              # 0 at center, ~1.414 at corners
-    W = radial_tukey_from_R(R, alpha=alpha, r_max=1.0)  # taper to 0 at radius 1
-    return W[1:-1, 1:-1]
-
-def radial_tukey_from_R(R, alpha=0.5, r_max=1.0, dtype=np.float32):
-    R = np.asarray(R, dtype=dtype)
-    W = np.zeros_like(R, dtype=dtype)
-
-    if alpha <= 0:
-        W[R <= r_max] = 1
-        return W
-
-    r0 = r_max * max(0.0, 1.0 - alpha)  # start of taper (plateau radius)
-
-    # plateau (skip when alpha == 1 so we don't miss the center)
-    if alpha < 1:
-        W[R <= r0] = 1
-
-    # cosine taper: from r0 to r_max
-    mask = (R >= r0) & (R <= r_max)
-    t = (R[mask] - r0) / (r_max * alpha)          # goes 0 -> 1 across the taper
-    W[mask] = 0.5 * (1 + np.cos(np.pi * t))       # 1 -> 0 over the taper
-
-    # outside r_max stays zero
-    return W
+from hippy2d.utils import get_default_complex, tukey_2d, fixed_tukey
 
 # Complex monomials 
 def phase_part(m, size=15): 

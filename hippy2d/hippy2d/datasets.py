@@ -16,10 +16,11 @@ from einops import rearrange
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, default_collate
 from torchvision.datasets import VisionDataset
 from torchvision.datasets import EuroSAT as EuroSATTorch
+from torchvision.datasets import PCAM as PCAMTorch
 from torchvision.datasets.utils import check_integrity, download_url
 import torchvision.transforms.v2 as transforms
 from torchvision.transforms.v2.functional import InterpolationMode
-from hippy2d.utils import get_optimal_workers, get_default_complex,tukey_2d
+from hippy2d.utils import get_optimal_workers, get_default_complex, tukey_2d, fixed_tukey
 from hippy2d.benchmarks.mnist_rot import build_mnist_rot_loader
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from torch.utils.data import DataLoader
@@ -423,6 +424,9 @@ class RESISC45(LightningDataModule):
                  batch_size: int = 32,
                  test_batch_size: int = 256,
                  to_complex=False,
+                 use_tukey_mask=True,
+                 tukey_alpha=0.3,
+                 target_size=96, 
                  num_workers=None):
         super().__init__()
         if num_workers is None:
@@ -431,38 +435,58 @@ class RESISC45(LightningDataModule):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size
+        self.use_tukey_mask = use_tukey_mask
+        self.tukey_alpha = tukey_alpha
+        self.target_size = target_size
 
-
+        # Base transforms without rotation
         self.train_transforms = [
             transforms.ToImage(),
-            transforms.Resize((160, 160)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomVerticalFlip(),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
-
         ]
 
         self.valid_transforms = [
             transforms.ToImage(),
-            transforms.Resize((160, 160)),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
         ]
 
+
+        # Resize after masking
+        self.train_transforms.extend([
+            transforms.Resize((target_size, target_size)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip()
+        ])
+
+        self.valid_transforms.append(transforms.Resize((target_size, target_size)))
+
         if to_complex:
             self.valid_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
+            transforms.ToDtype(dtype=get_default_complex())
             )
             self.train_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
+            transforms.ToDtype(dtype=get_default_complex())
             )
+        else: 
+            self.valid_transforms.append(
+                transforms.ToDtype(dtype=torch.get_default_dtype())
+            )
+            self.train_transforms.append(
+                transforms.ToDtype(dtype=torch.get_default_dtype())
+            )
+
+        if self.use_tukey_mask:
+            self.valid_transforms.append(TukeyMask(alpha=self.tukey_alpha))
+            self.train_transforms.append(TukeyMask(alpha=self.tukey_alpha))
 
         self.train_transforms = transforms.Compose(self.train_transforms)
         self.valid_transforms = transforms.Compose(self.valid_transforms)
 
-        self.valid_ds = None  # Multiple checking multiple angles
+
+        self.valid_ds = None
         self.test_ds = None
         self.train_ds = None
-        self.output_shape = [batch_size, 3, 224, 224]
+        self.output_shape = [batch_size, 3, target_size, target_size]
         self.num_workers = num_workers
         
 
@@ -474,9 +498,9 @@ class RESISC45(LightningDataModule):
 
     def setup(self, stage:str):
         self.ds_train = self.hg_dataset_train.with_transform(self.train_transforms)
-        self.ds_val = self.hg_dataset_valid.with_transform(self.valid_transforms)
         self.ds_test = self.hg_dataset_test.with_transform(self.valid_transforms)
-
+        self.ds_val = self.hg_dataset_valid.with_transform(self.valid_transforms)
+        
     def train_dataloader(self):
         return DataLoader(
             self.ds_train, 
@@ -490,7 +514,7 @@ class RESISC45(LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             self.ds_val, 
-            batch_size=self.batch_size, 
+            batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
             persistent_workers=True,
@@ -500,13 +524,14 @@ class RESISC45(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(
             self.ds_test, 
-            batch_size=self.batch_size, 
+            batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
             persistent_workers=True,
             collate_fn=collate_tuple
         )
 
+    
 class EuroSAT(LightningDataModule):
     total_samples = 27000
 
@@ -549,6 +574,7 @@ class EuroSAT(LightningDataModule):
             
         self.transform = transforms.Compose(valid_transform_list)
         self.train_transform = transforms.Compose(train_transform_list)
+
     def prepare_data(self):
         # Download dataset
         full_dataset = EuroSATTorch(root=self.data_dir, download=True)
@@ -656,6 +682,8 @@ class ColorectalHistology(LightningDataModule):
                  aug_crop=False,
                  aug_scale=False,
                  aug_clr_jitter=False,
+                 use_tukey_mask=True,
+                 tukey_alpha=0.3,
                  num_workers=None):
         super().__init__()
         if num_workers is None:
@@ -665,6 +693,8 @@ class ColorectalHistology(LightningDataModule):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size
+        self.use_tukey_mask = use_tukey_mask
+        self.tukey_alpha = tukey_alpha
         
         self.train_transforms = [transforms.ToImage()]
         self.valid_transforms = [transforms.ToImage()]
@@ -695,6 +725,10 @@ class ColorectalHistology(LightningDataModule):
             self.train_transforms.append(
                 transforms.ToDtype(dtype=get_default_complex())
             )
+
+        if use_tukey_mask:
+            self.valid_transforms.append(TukeyMask(alpha=tukey_alpha))
+            self.train_transforms.append(TukeyMask(alpha=tukey_alpha))
 
         self.train_transforms = transforms.Compose(self.train_transforms)
         self.valid_transforms = transforms.Compose(self.valid_transforms)
@@ -982,6 +1016,115 @@ class StrainedColorectalHistology(LightningDataModule):
             num_workers=self.num_workers,
             persistent_workers=True
         )
+    
+
+class PCam(LightningDataModule):
+    # PyTorch built-in PatchCamelyon dataset
+    _MEAN = [0.7009, 0.5384, 0.6916]
+    _STD = [0.2350, 0.2772, 0.2136]
+    
+    @property
+    def num_classes(self):
+        return 2
+
+    def __init__(self, 
+                 data_dir: str = "./data",
+                 batch_size: int = 32,
+                 test_batch_size: int = 256,
+                 to_complex=False,
+                 normalize=False,
+                 use_tukey_mask=False,
+                 tukey_alpha=0.3,
+                 target_size=None,
+                 num_workers=None):
+        super().__init__()
+        if num_workers is None:
+            num_workers = get_optimal_workers()
+
+        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        self.use_tukey_mask = use_tukey_mask
+        self.tukey_alpha = tukey_alpha
+        self.target_size = target_size
+        
+        self.train_transforms = [transforms.ToImage()]
+        self.valid_transforms = [transforms.ToImage()]
+        
+        self.train_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
+        self.valid_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
+
+        if normalize:
+            self.valid_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
+            self.train_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
+
+        if to_complex:
+            self.valid_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+            self.train_transforms.append(
+                transforms.ToDtype(dtype=get_default_complex())
+            )
+
+        # Add resize if target_size is specified
+        if target_size is not None:
+            self.train_transforms.append(transforms.Resize((target_size, target_size)))
+            self.valid_transforms.append(transforms.Resize((target_size, target_size)))
+
+        if use_tukey_mask:
+            self.valid_transforms.append(TukeyMask(alpha=tukey_alpha))
+            self.train_transforms.append(TukeyMask(alpha=tukey_alpha))
+
+        self.train_transforms = transforms.Compose(self.train_transforms)
+        self.valid_transforms = transforms.Compose(self.valid_transforms)
+
+        self.valid_ds = None
+        self.test_ds = None
+        self.train_ds = None
+        
+        # PCam images are 96x96 by default
+        output_size = target_size if target_size is not None else 96
+        self.output_shape = [batch_size, 3, output_size, output_size]
+        self.num_workers = num_workers
+
+    def prepare_data(self): 
+        # Download the dataset
+        PCAMTorch(root=self.data_dir, split='train', download=True)
+        PCAMTorch(root=self.data_dir, split='val', download=True)
+        PCAMTorch(root=self.data_dir, split='test', download=True)
+        
+    def setup(self, stage: str):
+        self.train_ds = PCAMTorch(root=self.data_dir, split='train', transform=self.train_transforms)
+        self.valid_ds = PCAMTorch(root=self.data_dir, split='val', transform=self.valid_transforms)
+        self.test_ds = PCAMTorch(root=self.data_dir, split='test', transform=self.valid_transforms)
+
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_ds, 
+            batch_size=self.batch_size, 
+            shuffle=True, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
+
+    def val_dataloader(self):
+        return DataLoader(
+            self.valid_ds, 
+            batch_size=self.test_batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_ds, 
+            batch_size=self.test_batch_size, 
+            shuffle=False, 
+            num_workers=self.num_workers,
+            persistent_workers=True
+        )
 
 # Transformations
 class CircularPad:
@@ -1001,15 +1144,26 @@ class CircularPad:
         assert x.shape[2] == self.circle_size
         return x * self.circular_mask[None, :, :]
 
-
-class TukeyMask:
-    def __init__(self, size, alpha=0.4):
-        self.size = size
+class TukeyMask(torch.nn.Module):
+    """Tukey window masking transform for 2D images"""
+    
+    def __init__(self, alpha: float = 0.3):
+        super().__init__()
         self.alpha = alpha
-        self.tukey_mask = torch.from_numpy(tukey_2d(size, alpha)).type(torch.get_default_dtype())
+        self._cached_mask = None
+        self._cached_size = None
 
-    def __call__(self, x: torch.Tensor):
-        assert x.ndim == 3
-        assert x.shape[1] == self.size
-        assert x.shape[2] == self.size
-        return x * self.tukey_mask[None, :, :]
+    def forward(self, x) -> torch.Tensor:
+        if isinstance(x, dict):
+            img = x['image'][0]
+            img_size = img.shape[-1]    
+            if self._cached_mask is None or self._cached_size != img_size:
+                self._cached_mask = torch.from_numpy(
+                    fixed_tukey(img_size, self.alpha)
+                    ).to(torch.get_default_dtype())
+                self._cached_size = img_size
+            assert self._cached_mask.shape == img.shape[-2:], "Tukey mask size does not match image size." 
+            x['image'] = [img * self._cached_mask for img in x['image']]
+            return x
+        else: 
+            raise NotImplementedError("TukeyMask only supports dict inputs with 'image' key.")
