@@ -1,0 +1,64 @@
+program: scripts/training.py
+method: bayes
+metric:
+  name: val_accuracy
+  goal: maximize
+parameters:
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      data_dir:
+        value: data
+      pad:
+        value: 0
+      to_complex:
+        value: false
+      normalize:
+        value: true
+  dataset_name:
+    value: MnistRotTest
+  early_stopping:
+    value: 10
+  epochs:
+    value: 50
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [10, 15, 25]
+  lr_name:
+    value: MultiStepLR
+  m_param:
+    parameters:
+      in_channels:
+        value: 1
+      input_size:
+        value: 64
+      num_classes:
+        value: 10
+      init_channels:
+        value: [5, 8, 8]
+      layer:
+        value: LearnableFlusser
+      layer_kwargs: 
+        parameters:
+          ring_count:
+            distribution: int_uniform
+            min: 3
+            max: 10
+  model_name:
+    value: PrototypeOptimalInvCNN
+  optimizer_hparams:
+    parameters:
+      lr:
+        distribution: log_uniform_values
+        min: 0.001
+        max: 0.1
+  optimizer_name:
+    value: AdamW
+  run_name:
+    value: nrings
+  seed:
+    value: 42

@@ -26,6 +26,33 @@ from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from torch.utils.data import DataLoader
 
 
+def collate_rotated_batch(batch_list):
+    """
+    Custom collate function for RotatedBatchDataset.
+    Input: list of (rotated_batch, label) tuples
+    Output: (images, labels) where images is [B*num_rotations, C, H, W]
+    """
+    images_list = []
+    labels_list = []
+    
+    for rotated_batch, label in batch_list:
+        # rotated_batch is [num_rotations, C, H, W]
+        images_list.append(rotated_batch)
+        # Repeat label for each rotation
+        num_rotations = rotated_batch.shape[0]
+        labels_list.extend([label] * num_rotations)
+    
+    # Concatenate all: [B, num_rotations, C, H, W] -> [B*num_rotations, C, H, W]
+    images = torch.cat(images_list, dim=0)
+    labels = torch.tensor(labels_list)
+    
+    return images, labels
+
+def collate_tuple(batch):
+    # Let PyTorch stack dicts first, then return a tuple
+    b = default_collate(batch)
+    return b["image"], b["label"]
+
 # Custom Transforms
 class NormalizeMagnitude(torch.nn.Module):
     def __init__(self, mean, std):
@@ -324,7 +351,6 @@ class MnistRotTest(LightningDataModule, ABC):
                                           persistent_workers=True),
         return CombinedLoader(loaders, mode="max_size_cycle")
 
-
 class RotMnist(LightningDataModule, ABC):
 
     @property
@@ -405,11 +431,6 @@ class RotMnist(LightningDataModule, ABC):
     def val_dataloader(self):
         return CombinedLoader(self._valid_dataloader, mode="max_size_cycle")
 
-def collate_tuple(batch):
-    # Let PyTorch stack dicts first, then return a tuple
-    b = default_collate(batch)
-    return b["image"], b["label"]
-
 class RESISC45(LightningDataModule):
     # Hugging face bridge
     total_samples = 31500
@@ -427,7 +448,8 @@ class RESISC45(LightningDataModule):
                  use_tukey_mask=True,
                  tukey_alpha=0.3,
                  target_size=96, 
-                 num_workers=None):
+                 num_workers=None,
+                 n_angles=64):  # Add n_angles parameter
         super().__init__()
         if num_workers is None:
             num_workers = get_optimal_workers()
@@ -438,7 +460,7 @@ class RESISC45(LightningDataModule):
         self.use_tukey_mask = use_tukey_mask
         self.tukey_alpha = tukey_alpha
         self.target_size = target_size
-
+        self.n_angles = n_angles
         # Base transforms without rotation
         self.train_transforms = [
             transforms.ToImage(),
@@ -449,7 +471,6 @@ class RESISC45(LightningDataModule):
             transforms.ToImage(),
             transforms.ToDtype(torch.get_default_dtype(), scale=True)
         ]
-
 
         # Resize after masking
         self.train_transforms.extend([
@@ -482,13 +503,12 @@ class RESISC45(LightningDataModule):
         self.train_transforms = transforms.Compose(self.train_transforms)
         self.valid_transforms = transforms.Compose(self.valid_transforms)
 
-
         self.valid_ds = None
         self.test_ds = None
+        self.test_ds_rotated = None  # Add this line
         self.train_ds = None
         self.output_shape = [batch_size, 3, target_size, target_size]
         self.num_workers = num_workers
-        
 
     def prepare_data(self):
         # Download 
@@ -497,13 +517,20 @@ class RESISC45(LightningDataModule):
         self.hg_dataset_test = datasets.load_dataset("timm/resisc45", split='test')
 
     def setup(self, stage:str):
-        self.ds_train = self.hg_dataset_train.with_transform(self.train_transforms)
-        self.ds_test = self.hg_dataset_test.with_transform(self.valid_transforms)
-        self.ds_val = self.hg_dataset_valid.with_transform(self.valid_transforms)
+        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms)
+        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
+        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms)
+
+        # Create rotated batch dataset for test
+        self.test_ds_rotated = RotatedBatchDataset(
+            base_dataset=self.hg_dataset_test,
+            n_angles=self.n_angles,
+            transform=self.valid_transforms
+        )
         
     def train_dataloader(self):
         return DataLoader(
-            self.ds_train, 
+            self.train_ds, 
             batch_size=self.batch_size, 
             shuffle=True, 
             num_workers=self.num_workers,
@@ -513,7 +540,7 @@ class RESISC45(LightningDataModule):
     
     def val_dataloader(self):
         return DataLoader(
-            self.ds_val, 
+            self.valid_ds, 
             batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
@@ -523,7 +550,7 @@ class RESISC45(LightningDataModule):
     
     def test_dataloader(self):
         return DataLoader(
-            self.ds_test, 
+            self.test_ds, 
             batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
@@ -531,7 +558,19 @@ class RESISC45(LightningDataModule):
             collate_fn=collate_tuple
         )
 
-    
+    def rotated_dataloader(self):  # Rename from rotated_test_dataloader
+        """
+        Returns dataloader where each batch contains all rotations.
+        """
+        return DataLoader(
+            self.test_ds_rotated,
+            batch_size=min(self.test_batch_size // self.n_angles, 1),
+            shuffle=False,
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_rotated_batch
+        )
+
 class EuroSAT(LightningDataModule):
     total_samples = 27000
 
@@ -622,53 +661,19 @@ class EuroSAT(LightningDataModule):
             persistent_workers=True
         )
         
-
-class StrainedNormalize(torch.nn.Module):
-    """
-    Torch-style wrapper for torchstain normalizers.
-    Can either take a fitted normalizer object or a path to a pickled one.
-    
-    Expects input: np.uint8 RGB image (HxWx3).
-    Returns: np.uint8 RGB image (HxWx3).
-    """
-    def __init__(self, normalizer=None, pickle_path=None):
-        super().__init__()
-        if normalizer is None and pickle_path is None:
-            raise ValueError("Provide either a normalizer or a pickle_path")
-        if pickle_path is not None:
-            with open(pickle_path, "rb") as f:
-                self.normalizer = pickle.load(f)
-        else:
-            self.normalizer = normalizer
-
-        self.min_tissue_ratio=0.15
-        self.sat_thresh=0.10
-
-    def forward(self, image: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
-        """
-        image: torch.uint8, 3xHxW (RGB)
-        """
-        if not isinstance(image, torch.Tensor):
-            raise ValueError("Input must be a torch Tensor")
-        assert image.ndim == 3 and image.shape[0] == 3, "Input must be 3xHxW RGB image"
-        assert image.dtype == torch.uint8, "Input must be uint8"
-        rgb_image = Image.fromarray(rearrange(image, 'c h w -> h w c').cpu().numpy(), mode='RGB')
-        hsv = np.array(rgb_image.convert('HSV'))
-        s = hsv[..., 1].astype(np.float32) / 255.0
-        tr = float((s > self.sat_thresh).mean())
-        if tr < self.min_tissue_ratio:
-            # Too little tissue -> return original to avoid empty-percentile crash
-            return image, label
-        image, _, _ = self.normalizer.normalize(image, stains=True)  # input uint8 [3xHxW] 
-        # assert the values 0 to 255
-        assert image.min() >= 0 and image.max() <= 255, "Output must be in range [0, 255]"
-        image = rearrange(image, 'h w c -> c h w').to(torch.uint8) # to HxWx3
-        return image, label
-
 class ColorectalHistology(LightningDataModule):
     # Hugging face bridge to https://huggingface.co/datasets/dpdl-benchmark/colorectal_histology
     _MEAN = [0.6497, 0.4718, 0.5838]
     _STD = [0.1412, 0.1451, 0.1271]
+
+    classes = {'0': 'TUMOR',
+               '1': 'STROMA',
+               '2': 'LYMPHOCYTE',
+               '3': 'DEBRIS',
+               '4': 'MUCOSA',
+               '5': 'ADIPOSE',
+               '6': 'NORMAL',
+               '7': 'EMPTY'}
     @property
     def num_classes(self):
         return 8
@@ -684,7 +689,8 @@ class ColorectalHistology(LightningDataModule):
                  aug_clr_jitter=False,
                  use_tukey_mask=True,
                  tukey_alpha=0.3,
-                 num_workers=None):
+                 num_workers=None,
+                 n_angles=16): 
         super().__init__()
         if num_workers is None:
             num_workers = get_optimal_workers()
@@ -695,7 +701,7 @@ class ColorectalHistology(LightningDataModule):
         self.test_batch_size = test_batch_size
         self.use_tukey_mask = use_tukey_mask
         self.tukey_alpha = tukey_alpha
-        
+        self.n_angles = n_angles  # Add this line
         self.train_transforms = [transforms.ToImage()]
         self.valid_transforms = [transforms.ToImage()]
         if aug_scale:
@@ -733,8 +739,9 @@ class ColorectalHistology(LightningDataModule):
         self.train_transforms = transforms.Compose(self.train_transforms)
         self.valid_transforms = transforms.Compose(self.valid_transforms)
 
-        self.valid_ds = None  # Multiple checking multiple angles
+        self.valid_ds = None
         self.test_ds = None
+        self.test_ds_rotated = None  # Add this line
         self.train_ds = None
         if aug_crop:
             self.output_shape = [batch_size, 3, 128, 128]
@@ -758,6 +765,13 @@ class ColorectalHistology(LightningDataModule):
         self.train_ds = self.hg_dataset.select(self.train_idx).with_transform(self.train_transforms)
         self.valid_ds = self.hg_dataset.select(self.valid_idx).with_transform(self.valid_transforms)
         self.test_ds = self.hg_dataset.select(self.test_idx).with_transform(self.valid_transforms)
+        
+        # Create rotated batch dataset for test
+        self.test_ds_rotated = RotatedBatchDataset(
+            base_dataset=self.hg_dataset.select(self.test_idx), 
+            n_angles=self.n_angles,
+            transform=self.valid_transforms
+        )
 
     def train_dataloader(self):
         return DataLoader(
@@ -772,7 +786,7 @@ class ColorectalHistology(LightningDataModule):
     def val_dataloader(self):
         return DataLoader(
             self.valid_ds, 
-            batch_size=self.batch_size, 
+            batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
             persistent_workers=True,
@@ -782,244 +796,28 @@ class ColorectalHistology(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(
             self.test_ds, 
-            batch_size=self.batch_size, 
+            batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
             persistent_workers=True,
             collate_fn=collate_tuple
         )
-
-class StrainedColorectalHistologyDataset(VisionDataset):
-    _FILE_NAME = f"colorectal_histology_stained.npz"
     
-    def __init__(
-        self,
-        root: str,
-        split: str = 'train',
-        transform: Optional[Callable] = None,
-        target_transform: Optional[Callable] = None,
-        download: bool = False
-    ):
+    def rotated_dataloader(self):
         """
-        Args:
-            root (str): Root directory where the .npz file is located
-            split (str): Dataset split to use ('train', 'valid', or 'test')
-            transform (callable, optional): A function/transform that takes in a PIL image
-                and returns a transformed version. E.g, transforms.RandomCrop
-            target_transform (callable, optional): A function/transform that takes in the
-                target and transforms it.
-            download (bool): If True, downloads the dataset from the internet and
-                puts it in root directory. If dataset is already downloaded, it is not
-                downloaded again.
+        Returns dataloader where each batch contains all rotations.
         """
-        super().__init__(root, transform=transform, target_transform=target_transform)
-        
-        if split not in ['train', 'valid', 'test']:
-            raise ValueError(f"Split must be one of ['train', 'valid', 'test'], got {split}")
-        
-        self.split = split
-        self.data_file = os.path.join(root, StrainedColorectalHistologyDataset._FILE_NAME)
-        
-        if download:
-            self.download()
-        
-        if not self._check_exists():
-            raise RuntimeError('Dataset not found. You can use download=True to download it')
-        
-        self._load_data()
-    
-    def _check_exists(self) -> bool:
-        """Check if the .npz file exists."""
-        return os.path.exists(self.data_file)
-    
-    def download(self):
-        """
-        Download the dataset. This should be implemented based on where the 
-        stain-normalized data is hosted.
-        """
-        if self._check_exists():
-            return
-        
-        raise NotImplementedError(
-            "Automatic download not implemented. Please create the stain-normalized "
-            f"dataset and save it as '{self.data_file}' using the notebook preprocessing steps."
-        )
-    
-    def _load_data(self):
-        """Load data from the .npz file."""
-        data = np.load(self.data_file)
-        
-        # Load appropriate split
-        if self.split == 'train':
-            self.data = data['train_imgs']
-            self.targets = data['train_labels']
-        elif self.split == 'valid':
-            self.data = data['valid_imgs']
-            self.targets = data['valid_labels']
-        elif self.split == 'test':
-            self.data = data['test_imgs']
-            self.targets = data['test_labels']
-        
-        # Ensure data is in the correct format
-        assert self.data.dtype == np.uint8, f"Expected uint8 images, got {self.data.dtype}"
-        assert self.targets.dtype == np.uint8, f"Expected uint8 labels, got {self.targets.dtype}"
-        assert len(self.data.shape) == 4, f"Expected 4D image array [N,3,H,W], got shape {self.data.shape}"
-        assert self.data.shape[1] == 3, f"Expected 3 channels, got {self.data.shape[1]}"
-        
-        print(f"Loaded {self.split} split: {len(self.data)} samples")
-    
-    def __getitem__(self, index: int) -> Tuple[Any, Any]:
-        """
-        Args:
-            index (int): Index
-            
-        Returns:
-            tuple: (image, target) where target is the class index.
-        """
-        img_array = self.data[index]  # Shape: [3, H, W]
-        target = int(self.targets[index])
-        
-        # Convert from CHW to HWC for PIL Image
-        img_array = img_array.transpose(1, 2, 0)  # [H, W, 3]
-        
-        # Create PIL Image
-        img = Image.fromarray(img_array, mode='RGB')
-        
-        if self.transform is not None:
-            img = self.transform(img)
-            
-        if self.target_transform is not None:
-            target = self.target_transform(target)
-            
-        return img, target
-    
-    def __len__(self) -> int:
-        return len(self.data)
-    
-    @property
-    def class_names(self):
-        """Return class names for the colorectal histology dataset."""
-        return [
-            'tumour epithelium',
-            'simple stroma', 
-            'complex stroma',
-            'immune cell conglomerates',
-            'debris and mucus',
-            'mucosal glands',
-            'adipose tissue',
-            'background'
-        ]
-    
-    def extra_repr(self) -> str:
-        return f"Split: {self.split}"
-
-class StrainedColorectalHistology(LightningDataModule):
-    """
-    Lightning DataModule for stain-normalized colorectal histology dataset.
-    Uses the StrainedColorectalHistologyDataset which loads from a pre-processed .npz file.
-    """
-    
-    @property
-    def num_classes(self):
-        return 8
-
-    def __init__(self, 
-                 data_dir: str = "./data",
-                 batch_size: int = 32,
-                 test_batch_size: int = 256,
-                 to_complex=False,
-                 num_workers=None):
-        super().__init__()
-        if num_workers is None:
-            num_workers = get_optimal_workers()
-
-        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
-        
-        self.data_dir = data_dir
-        self.batch_size = batch_size
-        self.test_batch_size = test_batch_size
-        
-        self.train_transforms = [
-            transforms.ToImage(),
-            transforms.ToDtype(torch.get_default_dtype(), scale=True)
-        ]
-
-        self.valid_transforms = [
-            transforms.ToImage(),
-            transforms.ToDtype(torch.get_default_dtype(), scale=True)
-        ]
-
-        if to_complex:
-            self.valid_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-            self.train_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-
-        self.train_transforms = transforms.Compose(self.train_transforms)
-        self.valid_transforms = transforms.Compose(self.valid_transforms)
-
-        self.train_ds = None
-        self.valid_ds = None
-        self.test_ds = None
-        self.output_shape = [batch_size, 3, 150, 150]
-        self.num_workers = num_workers
-
-    def prepare_data(self):
-        # Check if the stain-normalized dataset exists
-        npz_file = os.path.join(self.data_dir, StrainedColorectalHistologyDataset._FILE_NAME)
-        if not os.path.exists(npz_file):
-            logger.warning(f"Stain-normalized dataset not found at {npz_file}. "
-                          "Please run the preprocessing notebook to create it.")
-
-    def setup(self, stage: str):
-        self.train_ds = StrainedColorectalHistologyDataset(
-            root=self.data_dir,
-            split='train',
-            transform=self.train_transforms
-        )
-        self.valid_ds = StrainedColorectalHistologyDataset(
-            root=self.data_dir,
-            split='valid',
-            transform=self.valid_transforms
-        )
-        self.test_ds = StrainedColorectalHistologyDataset(
-            root=self.data_dir,
-            split='test',
-            transform=self.valid_transforms
-        )
-
-    def train_dataloader(self):
         return DataLoader(
-            self.train_ds, 
-            batch_size=self.batch_size, 
-            shuffle=True, 
+            self.test_ds_rotated,
+            batch_size=max(self.test_batch_size // self.n_angles, 1),
+            shuffle=False,
             num_workers=self.num_workers,
-            persistent_workers=True
-        )
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.valid_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True
-        )
-
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=collate_rotated_batch
         )
     
-
 class PCam(LightningDataModule):
-    # PyTorch built-in PatchCamelyon dataset
+    # Hugging Face version of PatchCamelyon dataset
     _MEAN = [0.7009, 0.5384, 0.6916]
     _STD = [0.2350, 0.2772, 0.2136]
     
@@ -1036,7 +834,8 @@ class PCam(LightningDataModule):
                  use_tukey_mask=False,
                  tukey_alpha=0.3,
                  target_size=None,
-                 num_workers=None):
+                 num_workers=None,
+                 n_angles=64):  # Number of angles to divide 360 degrees
         super().__init__()
         if num_workers is None:
             num_workers = get_optimal_workers()
@@ -1048,6 +847,10 @@ class PCam(LightningDataModule):
         self.use_tukey_mask = use_tukey_mask
         self.tukey_alpha = tukey_alpha
         self.target_size = target_size
+        self.n_angles = n_angles
+        
+        # Generate equally spaced angles from 0 to 360 (exclusive)
+        self.test_rotations = [360.0 * i / n_angles for i in range(n_angles)]
         
         self.train_transforms = [transforms.ToImage()]
         self.valid_transforms = [transforms.ToImage()]
@@ -1081,6 +884,7 @@ class PCam(LightningDataModule):
 
         self.valid_ds = None
         self.test_ds = None
+        self.test_ds_rotated = None  # For rotated dataloader
         self.train_ds = None
         
         # PCam images are 96x96 by default
@@ -1089,15 +893,22 @@ class PCam(LightningDataModule):
         self.num_workers = num_workers
 
     def prepare_data(self): 
-        # Download the dataset
-        PCAMTorch(root=self.data_dir, split='train', download=True)
-        PCAMTorch(root=self.data_dir, split='val', download=True)
-        PCAMTorch(root=self.data_dir, split='test', download=True)
+        # Download from Hugging Face
+        self.hg_dataset_train = datasets.load_dataset("1aurent/PatchCamelyon", split='train')
+        self.hg_dataset_valid = datasets.load_dataset("1aurent/PatchCamelyon", split='valid')
+        self.hg_dataset_test = datasets.load_dataset("1aurent/PatchCamelyon", split='test')
         
     def setup(self, stage: str):
-        self.train_ds = PCAMTorch(root=self.data_dir, split='train', transform=self.train_transforms)
-        self.valid_ds = PCAMTorch(root=self.data_dir, split='val', transform=self.valid_transforms)
-        self.test_ds = PCAMTorch(root=self.data_dir, split='test', transform=self.valid_transforms)
+        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms)
+        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms)
+        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
+    
+        # Create rotated batch dataset for test
+        self.test_ds_rotated = RotatedBatchDataset(
+            base_dataset=self.hg_dataset_test,
+            n_angles=self.n_angles,
+            transform=self.valid_transforms
+        )
 
     def train_dataloader(self):
         return DataLoader(
@@ -1105,7 +916,8 @@ class PCam(LightningDataModule):
             batch_size=self.batch_size, 
             shuffle=True, 
             num_workers=self.num_workers,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=collate_tuple
         )
 
     def val_dataloader(self):
@@ -1114,7 +926,8 @@ class PCam(LightningDataModule):
             batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=collate_tuple
         )
 
     def test_dataloader(self):
@@ -1123,8 +936,78 @@ class PCam(LightningDataModule):
             batch_size=self.test_batch_size, 
             shuffle=False, 
             num_workers=self.num_workers,
-            persistent_workers=True
+            persistent_workers=True,
+            collate_fn=collate_tuple
         )
+    
+    def rotated_dataloader(self):
+        """
+        Returns dataloader where each batch contains all rotations.
+        With n_angles=64 and test_batch_size=1:
+        - Each iteration yields images of shape [64, C, H, W] (one sample, 64 rotations)
+        
+        With n_angles=64 and test_batch_size=8:
+        - Each iteration yields images of shape [512, C, H, W] (8 samples * 64 rotations)
+        """
+        return DataLoader(
+            self.test_ds_rotated,
+            batch_size=max(self.test_batch_size // self.n_angles, 1),
+            shuffle=False,
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_rotated_batch
+        )
+
+class RotatedBatchDataset(torch.utils.data.Dataset):
+    """
+    Dataset wrapper that yields batches containing all rotations of a single image.
+    Each __getitem__ returns a batch of [num_rotations, C, H, W] instead of single image.
+    """
+    def __init__(self, base_dataset, n_angles=64, transform=None):
+        """
+        Args:
+            base_dataset: Dataset with raw images (no transforms applied yet)
+            n_angles: Number of equally spaced angles to divide 360 degrees (default: 64)
+            transform: Transform to apply AFTER rotation
+        """
+        self.base_dataset = base_dataset
+        self.n_angles = n_angles
+        # Generate equally spaced angles from 0 to 360 (exclusive)
+        self.angles = np.linspace(0, 360, num=n_angles, endpoint=False).tolist()
+        self.transform = transform
+        
+    def __len__(self):
+        return len(self.base_dataset)
+    
+    def __getitem__(self, idx):
+        # Get raw image and label (no transforms yet)
+        if isinstance(self.base_dataset[idx], dict):
+            img = self.base_dataset[idx]['image']
+            label = self.base_dataset[idx]['label']
+        else:
+            img, label = self.base_dataset[idx]
+        
+        # Convert to PIL if needed
+        if not isinstance(img, Image.Image):
+            if isinstance(img, np.ndarray):
+                img = Image.fromarray(img)
+            else:
+                raise TypeError(f"Unexpected image type: {type(img)}")
+        
+        # Create rotated versions
+        rotated_images = []
+        for angle in self.angles:
+            rotated = img.rotate(angle, resample=Resampling.BILINEAR)
+            if self.transform is not None:
+                rotated = self.transform(rotated)
+            rotated_images.append(rotated)
+        
+        # Stack into batch: [num_rotations, C, H, W]
+        batch = torch.stack(rotated_images, dim=0)
+        
+        # Return batch of images with single label
+        return batch, label
+
 
 # Transformations
 class CircularPad:
@@ -1165,5 +1048,14 @@ class TukeyMask(torch.nn.Module):
             assert self._cached_mask.shape == img.shape[-2:], "Tukey mask size does not match image size." 
             x['image'] = [img * self._cached_mask for img in x['image']]
             return x
+        elif isinstance(x, torch.Tensor):
+            img_size = x.shape[-1]
+            if self._cached_mask is None or self._cached_size != img_size:
+                self._cached_mask = torch.from_numpy(
+                    fixed_tukey(img_size, self.alpha)
+                    ).to(torch.get_default_dtype())
+                self._cached_size = img_size
+            assert self._cached_mask.shape == x.shape[-2:], "Tukey mask size does not match image size." 
+            return x * self._cached_mask
         else: 
             raise NotImplementedError("TukeyMask only supports dict inputs with 'image' key.")
