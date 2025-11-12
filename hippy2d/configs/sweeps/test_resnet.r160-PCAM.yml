@@ -15,7 +15,7 @@ parameters:
       target_size:
         values: [64, 96, 128]
   dataset_name:
-    value: PCAM
+    value: PCam
   early_stopping:
     value: 15
   epochs:

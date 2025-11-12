@@ -899,9 +899,9 @@ class PCam(LightningDataModule):
         self.hg_dataset_test = datasets.load_dataset("1aurent/PatchCamelyon", split='test')
         
     def setup(self, stage: str):
-        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms)
-        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms)
-        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
+        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms).cast_column("label", datasets.Value("int64"))
+        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms).cast_column("label", datasets.Value("int64"))
+        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms).cast_column("label", datasets.Value("int64"))
     
         # Create rotated batch dataset for test
         self.test_ds_rotated = RotatedBatchDataset(
