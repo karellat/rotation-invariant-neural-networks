@@ -1,10 +1,10 @@
 d_hparams:
   batch_size: 32
-  data_dir: data
+  data_dir: /Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data
   to_complex: false
 dataset_name: RESISC45
 early_stopping: 15
-epochs: 100
+epochs: 1
 lr_hparams:
   gamma: 0.1
   milestones:

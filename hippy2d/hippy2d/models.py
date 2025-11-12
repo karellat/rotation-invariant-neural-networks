@@ -107,10 +107,10 @@ class InvNet(L.LightningModule):
             norm = norm.mean()
             cos_sim = sim.mean()
 
-            self.log(f'{k}_rci_norm', norm, sync_dist=True)
-            self.log(f'{k}_rci_sim', cos_sim, sync_dist=True)
-            self.log(f'{k}_rci_norm_max', norm_max, sync_dist=True, reduce_fx="max")
-            self.log(f'{k}_rci_sim_min', cos_min, sync_dist=True, reduce_fx="min")
+            self.log(f'{k}_rci_norm_n4', norm, sync_dist=True)
+            self.log(f'{k}_rci_sim_n4', cos_sim, sync_dist=True)
+            self.log(f'{k}_rci_norm_max_n4', norm_max, sync_dist=True, reduce_fx="max")
+            self.log(f'{k}_rci_sim_min_n4', cos_min, sync_dist=True, reduce_fx="min")
 
 # Model Zoo
 class Resnet18(nn.Module): 

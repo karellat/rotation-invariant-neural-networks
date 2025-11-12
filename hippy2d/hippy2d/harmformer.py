@@ -1633,6 +1633,7 @@ class Channels2Patches(nn.Module):
     def forward(self, x: torch.Tensor):
         return rearrange(x, "b o c h w -> b o (h w) c")
 
+
 class GAPMLP(nn.Module):
     def __init__(self,
                  in_channels: int = 16,

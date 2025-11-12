@@ -39,6 +39,6 @@ parameters:
   optimizer_name:
     value: AdamW
   run_name:
-    value: test_resnet-pcam
+    value: test_resnet-hist
   seed:
     values: [42, 7, 123, 24, 74]

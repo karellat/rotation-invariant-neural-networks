@@ -564,7 +564,7 @@ class RESISC45(LightningDataModule):
         """
         return DataLoader(
             self.test_ds_rotated,
-            batch_size=min(self.test_batch_size // self.n_angles, 1),
+            batch_size=1,
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=True,
@@ -809,7 +809,7 @@ class ColorectalHistology(LightningDataModule):
         """
         return DataLoader(
             self.test_ds_rotated,
-            batch_size=max(self.test_batch_size // self.n_angles, 1),
+            batch_size=1,
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=True,
@@ -951,7 +951,7 @@ class PCam(LightningDataModule):
         """
         return DataLoader(
             self.test_ds_rotated,
-            batch_size=max(self.test_batch_size // self.n_angles, 1),
+            batch_size=1,
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=True,
