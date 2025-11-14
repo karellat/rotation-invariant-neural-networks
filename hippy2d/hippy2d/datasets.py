@@ -1,4 +1,4 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 import os
 
 from lightning import LightningDataModule
@@ -10,7 +10,7 @@ import datasets
 import numpy as np
 from PIL import Image
 from PIL.Image import Resampling
-from typing import Optional, Callable, Tuple, Any, Dict
+from typing import Optional, Callable, OrderedDict, Tuple, Any, Dict
 from einops import rearrange
 
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, default_collate
@@ -25,12 +25,16 @@ from hippy2d.benchmarks.mnist_rot import build_mnist_rot_loader
 from lightning.pytorch.utilities.combined_loader import CombinedLoader
 from torch.utils.data import DataLoader
 
+ROTATED_TEST_SET_KEY = 'rotated_test'
+N_ANGLES = 16
 
+
+# Collate for HF 
 def collate_rotated_batch(batch_list):
     """
     Custom collate function for RotatedBatchDataset.
-    Input: list of (rotated_batch, label) tuples
-    Output: (images, labels) where images is [B*num_rotations, C, H, W]
+    Input: list of (rotated_images, label) tuples where rotated_images is [num_rotations, C, H, W]
+    Output: (images, labels) where images is [B, num_rotations, C, H, W] and labels is [B, num_rotations]
     """
     images_list = []
     labels_list = []
@@ -40,11 +44,12 @@ def collate_rotated_batch(batch_list):
         images_list.append(rotated_batch)
         # Repeat label for each rotation
         num_rotations = rotated_batch.shape[0]
-        labels_list.extend([label] * num_rotations)
+        labels_list.append(torch.full((num_rotations,), label, dtype=torch.long))
     
-    # Concatenate all: [B, num_rotations, C, H, W] -> [B*num_rotations, C, H, W]
-    images = torch.cat(images_list, dim=0)
-    labels = torch.tensor(labels_list)
+    # Stack batches: [B, num_rotations, C, H, W]
+    images = torch.stack(images_list, dim=0)
+    # Stack labels: [B, num_rotations]
+    labels = torch.stack(labels_list, dim=0)
     
     return images, labels
 
@@ -52,6 +57,7 @@ def collate_tuple(batch):
     # Let PyTorch stack dicts first, then return a tuple
     b = default_collate(batch)
     return b["image"], b["label"]
+
 
 # Custom Transforms
 class NormalizeMagnitude(torch.nn.Module):
@@ -69,6 +75,500 @@ class NormalizeMagnitude(torch.nn.Module):
         norm = normalized_magnitude / torch.clamp(magnitude, min=eps)
         return norm * img
 
+# HF: Abstract Classes
+class HuggingFaceDataModule(LightningDataModule, ABC):
+    """
+    Abstract base class for Hugging Face datasets.
+    
+    Child classes should implement:
+    - DATASET_NAME: str - HuggingFace dataset identifier
+    - NUM_CLASSES: int - Number of classes
+    - MEAN: List[float] - Normalization mean (optional)
+    - STD: List[float] - Normalization std (optional)
+    - DEFAULT_IMAGE_SIZE: int - Default output image size
+    - setup_splits() - How to create train/val/test splits
+    """
+    
+    DATASET_NAME: str = None
+    NUM_CLASSES: int = None
+    MEAN: Optional[list] = None
+    STD: Optional[list] = None
+    DEFAULT_IMAGE_SIZE: int = 128
+    
+    @property
+    @abstractmethod
+    def num_classes(self):
+        return self.NUM_CLASSES
+    
+    def __init__(
+        self,
+        data_dir: str = "./data",
+        batch_size: int = 32,
+        test_batch_size: int = 256,
+        to_complex: bool = False,
+        normalize: bool = False,
+        use_tukey_mask: bool = True,
+        tukey_alpha: float = 0.3,
+        target_size: Optional[int] = None,
+        num_workers: Optional[int] = None,
+        n_angles: int = N_ANGLES,
+        use_rotated_test: bool = True,
+        **kwargs  # For dataset-specific parameters
+    ):
+        super().__init__()
+        if num_workers is None:
+            num_workers = get_optimal_workers()
+        
+        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
+        
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        self.use_tukey_mask = use_tukey_mask
+        self.tukey_alpha = tukey_alpha
+        self.target_size = target_size or self.DEFAULT_IMAGE_SIZE
+        self.num_workers = num_workers
+        self.n_angles = n_angles
+        self.use_rotated_test = use_rotated_test
+        self.to_complex = to_complex
+        self.normalize = normalize
+        
+        # Initialize datasets
+        self.train_ds = None
+        self.valid_ds = None
+        self.test_ds = None
+        self.test_ds_rotated = None
+        
+        # Build transforms
+        self.train_transforms = self._build_train_transforms(**kwargs)
+        self.valid_transforms = self._build_valid_transforms(**kwargs)
+        
+        # Output shape
+        channels = self._get_num_channels()
+        self.output_shape = [batch_size, channels, self.target_size, self.target_size]
+    
+    def _get_num_channels(self) -> int:
+        """Override if dataset has different number of channels"""
+        return 3
+    
+    def _build_base_transforms(self) -> list:
+        """Base transforms applied to all datasets"""
+        transforms_list = [
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True)
+        ]
+        return transforms_list
+    
+    def _build_train_transforms(self, **kwargs) -> transforms.Compose:
+        """Build training transforms. Override to add augmentations."""
+        transform_list = self._build_base_transforms()
+        
+        # Add resize
+        transform_list.append(transforms.Resize((self.target_size, self.target_size)))
+        
+        # Add normalization if enabled
+        if self.normalize and self.MEAN is not None and self.STD is not None:
+            transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
+        
+        # Add Tukey mask if enabled
+        if self.use_tukey_mask:
+            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+        
+        # Add dtype conversion
+        if self.to_complex:
+            transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
+
+        return transforms.Compose(transform_list)
+    
+    def _build_valid_transforms(self, **kwargs) -> transforms.Compose:
+        """Build validation/test transforms"""
+        transform_list = self._build_base_transforms()
+        
+        # Add resize
+        transform_list.append(transforms.Resize((self.target_size, self.target_size)))
+        
+        # Add normalization if enabled
+        if self.normalize and self.MEAN is not None and self.STD is not None:
+            transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
+        
+        # Add Tukey mask if enabled
+        if self.use_tukey_mask:
+            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+        
+        # Add dtype conversion
+        if self.to_complex:
+            transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
+
+        return transforms.Compose(transform_list)
+    
+    @abstractmethod
+    def prepare_data(self):
+        """Download and prepare datasets. Must set self.hg_dataset_* attributes"""
+        pass
+    
+    @abstractmethod
+    def setup_splits(self, stage: str):
+        """
+        Create train/val/test datasets from HuggingFace datasets.
+        Should set self.train_ds, self.valid_ds, self.test_ds
+        """
+        pass
+    
+    def setup(self, stage: str):
+        """Common setup logic"""
+        self.setup_splits(stage)
+        
+        # Create rotated test dataset if enabled
+        if self.use_rotated_test and hasattr(self, 'hg_dataset_test'):
+            self.test_ds_rotated = RotatedBatchDataset(
+                base_dataset=self.hg_dataset_test,
+                n_angles=self.n_angles,
+                transform=self.valid_transforms
+            )
+    
+    def train_dataloader(self):
+        return DataLoader(
+            self.train_ds,
+            batch_size=self.batch_size,
+            shuffle=True,
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_tuple
+        )
+    
+    def val_dataloader(self):
+        return DataLoader(
+            self.valid_ds,
+            batch_size=self.test_batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_tuple
+        )
+    
+    def test_dataloader(self):
+        """
+        Returns combined loader with both regular test and rotated test sets.
+        Returns single loader if use_rotated_test is False.
+        """
+        test_loader = DataLoader(
+            self.test_ds,
+            batch_size=self.test_batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_tuple
+        )
+        
+        if not self.use_rotated_test or self.test_ds_rotated is None:
+            return test_loader
+        # Check how many n_angles you can fit in the batch size
+        rotated_batch_size = self.test_batch_size // self.n_angles
+        
+        rotated_loader = DataLoader(
+            self.test_ds_rotated,
+            batch_size=rotated_batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_rotated_batch
+        )
+        
+        loaders = OrderedDict({
+            'test': test_loader,
+            ROTATED_TEST_SET_KEY: rotated_loader
+        })
+
+        self.test_loaders_names = list(loaders.keys())
+        
+        return CombinedLoader(loaders, mode='sequential')
+    
+    def rotated_dataloader(self):
+        """
+        Deprecated: Use test_dataloader() which now includes rotated loader.
+        Returns only the rotated dataloader for backward compatibility.
+        """
+        if not self.use_rotated_test or self.test_ds_rotated is None:
+            raise ValueError("Rotated test dataset not available")
+        
+        return DataLoader(
+            self.test_ds_rotated,
+            batch_size=1,
+            shuffle=False,
+            num_workers=self.num_workers,
+            persistent_workers=True,
+            collate_fn=collate_rotated_batch
+        )
+
+class RotatedBatchDataset(torch.utils.data.Dataset):
+    """
+    Dataset wrapper that yields batches containing all rotations of a single image.
+    Each __getitem__ returns a batch of [num_rotations, C, H, W] instead of single image.
+    """
+    def __init__(self, 
+                 base_dataset,
+                 n_angles=N_ANGLES,
+                 transform=None):
+        """
+        Args:
+            base_dataset: Dataset with raw images (no transforms applied yet)
+            n_angles: Number of equally spaced angles to divide 360 degrees (default: 64)
+            transform: Transform to apply AFTER rotation
+        """
+        self.base_dataset = base_dataset
+        self.n_angles = n_angles
+        # Generate equally spaced angles from 0 to 360 (exclusive)
+        self.angles = np.linspace(0, 360, num=n_angles, endpoint=False).tolist()
+        self.transform = transform
+        
+    def __len__(self):
+        return len(self.base_dataset)
+    
+    def __getitem__(self, idx):
+        # Get raw image and label (no transforms yet)
+        if isinstance(self.base_dataset[idx], dict):
+            img = self.base_dataset[idx]['image']
+            label = self.base_dataset[idx]['label']
+        else:
+            img, label = self.base_dataset[idx]
+        
+        # Convert to PIL if needed
+        if not isinstance(img, Image.Image):
+            if isinstance(img, np.ndarray):
+                img = Image.fromarray(img)
+            else:
+                raise TypeError(f"Unexpected image type: {type(img)}")
+        
+        # Create rotated versions
+        rotated_images = []
+        for angle in self.angles:
+            rotated = img.rotate(angle, resample=Resampling.BILINEAR)
+            if self.transform is not None:
+                rotated = self.transform(rotated)
+            rotated_images.append(rotated)
+        
+        # Stack into batch: [num_rotations, C, H, W]
+        batch = torch.stack(rotated_images, dim=0)
+        
+        # Return batch of images with single label
+        return batch, label
+
+# HF: Histology Datasets
+class ColorectalHistology(HuggingFaceDataModule):
+    DATASET_NAME = "dpdl-benchmark/colorectal_histology"
+    NUM_CLASSES = 8
+    DEFAULT_IMAGE_SIZE = 150
+    MEAN = [0.6497, 0.4718, 0.5838]
+    STD = [0.1412, 0.1451, 0.1271]
+    
+    classes = {'0': 'TUMOR', '1': 'STROMA', '2': 'LYMPHOCYTE', 
+               '3': 'DEBRIS', '4': 'MUCOSA', '5': 'ADIPOSE', 
+               '6': 'NORMAL', '7': 'EMPTY'}
+    
+    @property
+    def num_classes(self):
+        return self.NUM_CLASSES
+    
+    def __init__(self,
+                 aug_crop=False,
+                 aug_scale=False,
+                 aug_clr_jitter=False,
+                 **kwargs):
+        self.aug_crop = aug_crop
+        self.aug_scale = aug_scale
+        self.aug_clr_jitter = aug_clr_jitter
+        super().__init__(**kwargs)
+        
+        # Update output shape if cropping
+        if aug_crop:
+            self.output_shape = [self.batch_size, 3, 128, 128]
+    
+    def _build_train_transforms(self, **kwargs):
+        transform_list = [transforms.ToImage()]
+        
+        if self.aug_scale:
+            transform_list.append(transforms.RandomResize(min_size=128, max_size=170))
+        if self.aug_crop:
+            transform_list.append(transforms.RandomCrop((128, 128)))
+        if self.aug_clr_jitter:
+            transform_list.append(transforms.ColorJitter(
+                brightness=0.1, contrast=0.1, saturation=0.1, hue=0.03
+            ))
+        
+        transform_list.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
+        
+        if self.normalize:
+            transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
+        
+        if self.use_tukey_mask:
+            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+
+        if self.to_complex:
+            transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
+        
+        return transforms.Compose(transform_list)
+    
+    def _build_valid_transforms(self, **kwargs):
+        transform_list = [transforms.ToImage()]
+        
+        if self.aug_crop:
+            transform_list.append(transforms.CenterCrop((128, 128)))
+        
+        transform_list.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
+        
+        if self.normalize:
+            transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
+
+        if self.use_tukey_mask:
+            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+        
+        if self.to_complex:
+            transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
+        
+        
+        return transforms.Compose(transform_list)
+    
+    def prepare_data(self):
+        self.hg_dataset = datasets.load_dataset(self.DATASET_NAME, split='train')
+        labels = np.array([example['label'] for example in self.hg_dataset])
+        
+        self.train_idx, test_valid_idx = train_test_split(
+            np.arange(len(labels)), test_size=0.2, random_state=42, stratify=labels
+        )
+        self.valid_idx, self.test_idx = train_test_split(
+            test_valid_idx, test_size=0.5, random_state=42, 
+            stratify=labels[test_valid_idx]
+        )
+    
+    def setup_splits(self, stage: str):
+        self.train_ds = self.hg_dataset.select(self.train_idx).with_transform(self.train_transforms)
+        self.valid_ds = self.hg_dataset.select(self.valid_idx).with_transform(self.valid_transforms)
+        self.test_ds = self.hg_dataset.select(self.test_idx).with_transform(self.valid_transforms)
+        
+        # Store for rotated dataset
+        self.hg_dataset_test = self.hg_dataset.select(self.test_idx)
+
+class PCam(HuggingFaceDataModule):
+    DATASET_NAME = "1aurent/PatchCamelyon"
+    NUM_CLASSES = 2
+    DEFAULT_IMAGE_SIZE = 96
+    MEAN = [0.7009, 0.5384, 0.6916]
+    STD = [0.2350, 0.2772, 0.2136]
+    
+    @property
+    def num_classes(self):
+        return self.NUM_CLASSES
+    
+    def prepare_data(self): 
+        # Download from Hugging Face
+        self.hg_dataset_train = datasets.load_dataset(self.DATASET_NAME, split='train')
+        self.hg_dataset_valid = datasets.load_dataset(self.DATASET_NAME, split='valid')
+        self.hg_dataset_test = datasets.load_dataset(self.DATASET_NAME, split='test')
+        
+    def setup_splits(self, stage: str):
+        # Cast label column to int64 for PCam compatibility
+        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms).cast_column("label", datasets.Value("int64"))
+        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms).cast_column("label", datasets.Value("int64"))
+        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms).cast_column("label", datasets.Value("int64"))
+    
+# HF: Satellite Datasets
+class RESISC45(HuggingFaceDataModule):
+    DATASET_NAME = "timm/resisc45"
+    NUM_CLASSES = 45
+    DEFAULT_IMAGE_SIZE = 96
+    total_samples = 31500
+    
+    @property
+    def num_classes(self):
+        return self.NUM_CLASSES
+    
+    def _build_train_transforms(self, **kwargs):
+        """Add data augmentation for training"""
+        transform_list = self._build_base_transforms()
+        
+        # Resize
+        transform_list.append(transforms.Resize((self.target_size, self.target_size)))
+        
+        # Add augmentations
+        transform_list.extend([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip()
+        ])
+        
+        # Tukey mask (before dtype conversion)
+        if self.use_tukey_mask:
+            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+        
+        # Dtype conversion
+        if self.to_complex:
+            transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
+        
+        return transforms.Compose(transform_list)
+    
+    def prepare_data(self):
+        self.hg_dataset_train = datasets.load_dataset(self.DATASET_NAME, split='train')
+        self.hg_dataset_valid = datasets.load_dataset(self.DATASET_NAME, split='validation')
+        self.hg_dataset_test = datasets.load_dataset(self.DATASET_NAME, split='test')
+    
+    def setup_splits(self, stage: str):
+        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms)
+        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms)
+        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
+    
+class EuroSAT(HuggingFaceDataModule):
+    DATASET_NAME = "timm/eurosat-rgb"  # or the appropriate HF dataset
+    NUM_CLASSES = 10
+    DEFAULT_IMAGE_SIZE = 64
+    MEAN = [0.3444, 0.3803, 0.4078]
+    STD = [0.0914, 0.0651, 0.0552]
+    total_samples = 27000
+    
+    @property
+    def num_classes(self):
+        return self.NUM_CLASSES
+    
+    def prepare_data(self):
+        # Download from Hugging Face
+        self.hg_dataset = datasets.load_dataset(self.DATASET_NAME, split='train')
+        
+        # Create train/val/test splits since HF version only has 'train'
+        labels = np.array([example['label'] for example in self.hg_dataset])
+        indices = np.arange(len(labels))
+        
+        # 70% train, 15% val, 15% test
+        train_idx, temp_idx = train_test_split(
+            indices, test_size=0.3, stratify=labels, random_state=42
+        )
+        self.valid_idx, self.test_idx = train_test_split(
+            temp_idx, test_size=0.5, stratify=labels[temp_idx], random_state=42
+        )
+        self.train_idx = train_idx
+    
+    def setup_splits(self, stage: str):
+        self.train_ds = self.hg_dataset.select(self.train_idx).with_transform(self.train_transforms)
+        self.valid_ds = self.hg_dataset.select(self.valid_idx).with_transform(self.valid_transforms)
+        self.test_ds = self.hg_dataset.select(self.test_idx).with_transform(self.valid_transforms)
+        
+        # Store for rotated dataset (required for parent class)
+        self.hg_dataset_test = self.hg_dataset.select(self.test_idx)
+    
+# Custom Transforms
+class NormalizeMagnitude(torch.nn.Module):
+    def __init__(self, mean, std):
+        super().__init__()
+        assert std != 0, "Standard deviation cannot be zero"
+        self.mean = mean
+        self.std = std
+
+    def forward(self, img, eps=1e-6):
+        # Do some transformations
+        assert img.dtype == get_default_complex(), "Input must be complex"
+        magnitude = img.abs()
+        normalized_magnitude = (img.abs() - self.mean) / self.std
+        norm = normalized_magnitude / torch.clamp(magnitude, min=eps)
+        return norm * img
+
+# Custom Datasets
 class MnistRotTestDataset(VisionDataset):
     # TODO: Connect to hugging faces URL and MD5Sum
     """
@@ -430,584 +930,6 @@ class RotMnist(LightningDataModule, ABC):
 
     def val_dataloader(self):
         return CombinedLoader(self._valid_dataloader, mode="max_size_cycle")
-
-class RESISC45(LightningDataModule):
-    # Hugging face bridge
-    total_samples = 31500
-
-    @property
-    def num_classes(self):
-        return 45
-
-    def __init__(self,
-                 data_dir: str = "./data",
-                 pad: int = 0,
-                 batch_size: int = 32,
-                 test_batch_size: int = 256,
-                 to_complex=False,
-                 use_tukey_mask=True,
-                 tukey_alpha=0.3,
-                 target_size=96, 
-                 num_workers=None,
-                 n_angles=64):  # Add n_angles parameter
-        super().__init__()
-        if num_workers is None:
-            num_workers = get_optimal_workers()
-        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
-        self.data_dir = data_dir
-        self.batch_size = batch_size
-        self.test_batch_size = test_batch_size
-        self.use_tukey_mask = use_tukey_mask
-        self.tukey_alpha = tukey_alpha
-        self.target_size = target_size
-        self.n_angles = n_angles
-        # Base transforms without rotation
-        self.train_transforms = [
-            transforms.ToImage(),
-            transforms.ToDtype(torch.get_default_dtype(), scale=True)
-        ]
-
-        self.valid_transforms = [
-            transforms.ToImage(),
-            transforms.ToDtype(torch.get_default_dtype(), scale=True)
-        ]
-
-        # Resize after masking
-        self.train_transforms.extend([
-            transforms.Resize((target_size, target_size)),
-            transforms.RandomHorizontalFlip(),
-            transforms.RandomVerticalFlip()
-        ])
-
-        self.valid_transforms.append(transforms.Resize((target_size, target_size)))
-
-        if to_complex:
-            self.valid_transforms.append(
-            transforms.ToDtype(dtype=get_default_complex())
-            )
-            self.train_transforms.append(
-            transforms.ToDtype(dtype=get_default_complex())
-            )
-        else: 
-            self.valid_transforms.append(
-                transforms.ToDtype(dtype=torch.get_default_dtype())
-            )
-            self.train_transforms.append(
-                transforms.ToDtype(dtype=torch.get_default_dtype())
-            )
-
-        if self.use_tukey_mask:
-            self.valid_transforms.append(TukeyMask(alpha=self.tukey_alpha))
-            self.train_transforms.append(TukeyMask(alpha=self.tukey_alpha))
-
-        self.train_transforms = transforms.Compose(self.train_transforms)
-        self.valid_transforms = transforms.Compose(self.valid_transforms)
-
-        self.valid_ds = None
-        self.test_ds = None
-        self.test_ds_rotated = None  # Add this line
-        self.train_ds = None
-        self.output_shape = [batch_size, 3, target_size, target_size]
-        self.num_workers = num_workers
-
-    def prepare_data(self):
-        # Download 
-        self.hg_dataset_train = datasets.load_dataset("timm/resisc45", split='train')
-        self.hg_dataset_valid = datasets.load_dataset("timm/resisc45", split='validation')
-        self.hg_dataset_test = datasets.load_dataset("timm/resisc45", split='test')
-
-    def setup(self, stage:str):
-        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms)
-        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
-        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms)
-
-        # Create rotated batch dataset for test
-        self.test_ds_rotated = RotatedBatchDataset(
-            base_dataset=self.hg_dataset_test,
-            n_angles=self.n_angles,
-            transform=self.valid_transforms
-        )
-        
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_ds, 
-            batch_size=self.batch_size, 
-            shuffle=True, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-    
-    def val_dataloader(self):
-        return DataLoader(
-            self.valid_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-    
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-
-    def rotated_dataloader(self):  # Rename from rotated_test_dataloader
-        """
-        Returns dataloader where each batch contains all rotations.
-        """
-        return DataLoader(
-            self.test_ds_rotated,
-            batch_size=1,
-            shuffle=False,
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_rotated_batch
-        )
-
-class EuroSAT(LightningDataModule):
-    total_samples = 27000
-
-    @property
-    def num_classes(self):
-        return 10
-    @property
-    def output_shape(self):
-        return [self.batch_size, 3, 64, 64]
-        
-    _MEAN = [0.3444, 0.3803, 0.4078]
-    _STD = [0.0914, 0.0651, 0.0552]
-
-    def __init__(self, data_dir: str = "./data", batch_size: int = 32, num_workers: int = 4, to_complex=False):
-        super().__init__()
-        self.data_dir = data_dir
-        self.batch_size = batch_size
-        self.num_workers = num_workers
-        
-        # Define transforms
-        valid_transform_list = [
-            transforms.ToTensor(),
-            transforms.Normalize(mean=EuroSAT._MEAN, 
-                               std=EuroSAT._STD)
-        ]
-        
-        train_transform_list = [
-            transforms.ToTensor(),
-            transforms.Normalize(mean=EuroSAT._MEAN,
-                               std=EuroSAT._STD)
-        ]
-    
-        if to_complex:
-            valid_transform_list.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-            train_transform_list.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-            
-        self.transform = transforms.Compose(valid_transform_list)
-        self.train_transform = transforms.Compose(train_transform_list)
-
-    def prepare_data(self):
-        # Download dataset
-        full_dataset = EuroSATTorch(root=self.data_dir, download=True)
-        indices = list(range(len(full_dataset)))
-        labels = [full_dataset[i][1] for i in indices]  # class labels
-        self.train_idx, temp_idx = train_test_split(indices, test_size=0.3, stratify=labels, random_state=42)
-        self.val_idx, self.test_idx = train_test_split(temp_idx, test_size=0.5, stratify=[labels[i] for i in temp_idx], random_state=42)
-
-    def setup(self, stage: str = None):
-        # Load full dataset
-        traintest_dataset = EuroSATTorch(root=self.data_dir, transform=self.train_transform)
-        valid_dataset = EuroSATTorch(root=self.data_dir, transform=self.transform)
-
-        self.train_dataset = torch.utils.data.Subset(traintest_dataset, self.train_idx)
-        self.val_dataset = torch.utils.data.Subset(valid_dataset, self.val_idx)
-        self.test_dataset = torch.utils.data.Subset(traintest_dataset, self.test_idx)
-
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True
-        )
-    
-    def val_dataloader(self):
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True
-        )
-    
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=True,
-            persistent_workers=True
-        )
-        
-class ColorectalHistology(LightningDataModule):
-    # Hugging face bridge to https://huggingface.co/datasets/dpdl-benchmark/colorectal_histology
-    _MEAN = [0.6497, 0.4718, 0.5838]
-    _STD = [0.1412, 0.1451, 0.1271]
-
-    classes = {'0': 'TUMOR',
-               '1': 'STROMA',
-               '2': 'LYMPHOCYTE',
-               '3': 'DEBRIS',
-               '4': 'MUCOSA',
-               '5': 'ADIPOSE',
-               '6': 'NORMAL',
-               '7': 'EMPTY'}
-    @property
-    def num_classes(self):
-        return 8
-
-    def __init__(self, 
-                 data_dir: str = "./data",
-                 batch_size: int = 32,
-                 test_batch_size: int = 256,
-                 to_complex=False,
-                 normalize=False,
-                 aug_crop=False,
-                 aug_scale=False,
-                 aug_clr_jitter=False,
-                 use_tukey_mask=True,
-                 tukey_alpha=0.3,
-                 num_workers=None,
-                 n_angles=16): 
-        super().__init__()
-        if num_workers is None:
-            num_workers = get_optimal_workers()
-
-        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
-        self.data_dir = data_dir
-        self.batch_size = batch_size
-        self.test_batch_size = test_batch_size
-        self.use_tukey_mask = use_tukey_mask
-        self.tukey_alpha = tukey_alpha
-        self.n_angles = n_angles  # Add this line
-        self.train_transforms = [transforms.ToImage()]
-        self.valid_transforms = [transforms.ToImage()]
-        if aug_scale:
-            self.train_transforms.append(transforms.RandomResize(min_size=128, max_size=170))
-        if aug_crop:
-            self.train_transforms.append(transforms.RandomCrop((128, 128)))
-            self.valid_transforms.append(transforms.CenterCrop((128, 128)))
-        if aug_clr_jitter:
-            self.train_transforms.append(
-                transforms.ColorJitter(                            
-                    brightness=0.1,
-                    contrast=0.1,
-                   saturation=0.1,
-                    hue=0.03,
-                ))
-        self.train_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
-        self.valid_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
-
-        if normalize:
-            self.valid_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
-            self.train_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
-
-        if to_complex:
-            self.valid_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-            self.train_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-
-        if use_tukey_mask:
-            self.valid_transforms.append(TukeyMask(alpha=tukey_alpha))
-            self.train_transforms.append(TukeyMask(alpha=tukey_alpha))
-
-        self.train_transforms = transforms.Compose(self.train_transforms)
-        self.valid_transforms = transforms.Compose(self.valid_transforms)
-
-        self.valid_ds = None
-        self.test_ds = None
-        self.test_ds_rotated = None  # Add this line
-        self.train_ds = None
-        if aug_crop:
-            self.output_shape = [batch_size, 3, 128, 128]
-        else:
-            self.output_shape = [batch_size, 3, 150, 150]
-        self.num_workers = num_workers
-
-    def prepare_data(self): 
-        # Download and prepare the dataset
-        self.hg_dataset = datasets.load_dataset("dpdl-benchmark/colorectal_histology", split='train')
-        labels = np.array([example['label'] for example in self.hg_dataset])
-        self.train_idx, test_valid_idx = train_test_split(np.arange(len(labels)),
-                                             test_size=0.2, 
-                                             random_state=42,
-                                             stratify=labels)
-        self.valid_idx, self.test_idx = train_test_split(test_valid_idx,
-                                       test_size=0.5,
-                                       random_state=42,
-                                       stratify=labels[test_valid_idx])
-    def setup(self, stage: str):
-        self.train_ds = self.hg_dataset.select(self.train_idx).with_transform(self.train_transforms)
-        self.valid_ds = self.hg_dataset.select(self.valid_idx).with_transform(self.valid_transforms)
-        self.test_ds = self.hg_dataset.select(self.test_idx).with_transform(self.valid_transforms)
-        
-        # Create rotated batch dataset for test
-        self.test_ds_rotated = RotatedBatchDataset(
-            base_dataset=self.hg_dataset.select(self.test_idx), 
-            n_angles=self.n_angles,
-            transform=self.valid_transforms
-        )
-
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_ds, 
-            batch_size=self.batch_size, 
-            shuffle=True, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.valid_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-    
-    def rotated_dataloader(self):
-        """
-        Returns dataloader where each batch contains all rotations.
-        """
-        return DataLoader(
-            self.test_ds_rotated,
-            batch_size=1,
-            shuffle=False,
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_rotated_batch
-        )
-    
-class PCam(LightningDataModule):
-    # Hugging Face version of PatchCamelyon dataset
-    _MEAN = [0.7009, 0.5384, 0.6916]
-    _STD = [0.2350, 0.2772, 0.2136]
-    
-    @property
-    def num_classes(self):
-        return 2
-
-    def __init__(self, 
-                 data_dir: str = "./data",
-                 batch_size: int = 32,
-                 test_batch_size: int = 256,
-                 to_complex=False,
-                 normalize=False,
-                 use_tukey_mask=False,
-                 tukey_alpha=0.3,
-                 target_size=None,
-                 num_workers=None,
-                 n_angles=64):  # Number of angles to divide 360 degrees
-        super().__init__()
-        if num_workers is None:
-            num_workers = get_optimal_workers()
-
-        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
-        self.data_dir = data_dir
-        self.batch_size = batch_size
-        self.test_batch_size = test_batch_size
-        self.use_tukey_mask = use_tukey_mask
-        self.tukey_alpha = tukey_alpha
-        self.target_size = target_size
-        self.n_angles = n_angles
-        
-        # Generate equally spaced angles from 0 to 360 (exclusive)
-        self.test_rotations = [360.0 * i / n_angles for i in range(n_angles)]
-        
-        self.train_transforms = [transforms.ToImage()]
-        self.valid_transforms = [transforms.ToImage()]
-        
-        self.train_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
-        self.valid_transforms.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
-
-        if normalize:
-            self.valid_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
-            self.train_transforms.append(transforms.Normalize(mean=self._MEAN, std=self._STD))
-
-        if to_complex:
-            self.valid_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-            self.train_transforms.append(
-                transforms.ToDtype(dtype=get_default_complex())
-            )
-
-        # Add resize if target_size is specified
-        if target_size is not None:
-            self.train_transforms.append(transforms.Resize((target_size, target_size)))
-            self.valid_transforms.append(transforms.Resize((target_size, target_size)))
-
-        if use_tukey_mask:
-            self.valid_transforms.append(TukeyMask(alpha=tukey_alpha))
-            self.train_transforms.append(TukeyMask(alpha=tukey_alpha))
-
-        self.train_transforms = transforms.Compose(self.train_transforms)
-        self.valid_transforms = transforms.Compose(self.valid_transforms)
-
-        self.valid_ds = None
-        self.test_ds = None
-        self.test_ds_rotated = None  # For rotated dataloader
-        self.train_ds = None
-        
-        # PCam images are 96x96 by default
-        output_size = target_size if target_size is not None else 96
-        self.output_shape = [batch_size, 3, output_size, output_size]
-        self.num_workers = num_workers
-
-    def prepare_data(self): 
-        # Download from Hugging Face
-        self.hg_dataset_train = datasets.load_dataset("1aurent/PatchCamelyon", split='train')
-        self.hg_dataset_valid = datasets.load_dataset("1aurent/PatchCamelyon", split='valid')
-        self.hg_dataset_test = datasets.load_dataset("1aurent/PatchCamelyon", split='test')
-        
-    def setup(self, stage: str):
-        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms).cast_column("label", datasets.Value("int64"))
-        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms).cast_column("label", datasets.Value("int64"))
-        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms).cast_column("label", datasets.Value("int64"))
-    
-        # Create rotated batch dataset for test
-        self.test_ds_rotated = RotatedBatchDataset(
-            base_dataset=self.hg_dataset_test,
-            n_angles=self.n_angles,
-            transform=self.valid_transforms
-        )
-
-    def train_dataloader(self):
-        return DataLoader(
-            self.train_ds, 
-            batch_size=self.batch_size, 
-            shuffle=True, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-
-    def val_dataloader(self):
-        return DataLoader(
-            self.valid_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-
-    def test_dataloader(self):
-        return DataLoader(
-            self.test_ds, 
-            batch_size=self.test_batch_size, 
-            shuffle=False, 
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_tuple
-        )
-    
-    def rotated_dataloader(self):
-        """
-        Returns dataloader where each batch contains all rotations.
-        With n_angles=64 and test_batch_size=1:
-        - Each iteration yields images of shape [64, C, H, W] (one sample, 64 rotations)
-        
-        With n_angles=64 and test_batch_size=8:
-        - Each iteration yields images of shape [512, C, H, W] (8 samples * 64 rotations)
-        """
-        return DataLoader(
-            self.test_ds_rotated,
-            batch_size=1,
-            shuffle=False,
-            num_workers=self.num_workers,
-            persistent_workers=True,
-            collate_fn=collate_rotated_batch
-        )
-
-class RotatedBatchDataset(torch.utils.data.Dataset):
-    """
-    Dataset wrapper that yields batches containing all rotations of a single image.
-    Each __getitem__ returns a batch of [num_rotations, C, H, W] instead of single image.
-    """
-    def __init__(self, base_dataset, n_angles=64, transform=None):
-        """
-        Args:
-            base_dataset: Dataset with raw images (no transforms applied yet)
-            n_angles: Number of equally spaced angles to divide 360 degrees (default: 64)
-            transform: Transform to apply AFTER rotation
-        """
-        self.base_dataset = base_dataset
-        self.n_angles = n_angles
-        # Generate equally spaced angles from 0 to 360 (exclusive)
-        self.angles = np.linspace(0, 360, num=n_angles, endpoint=False).tolist()
-        self.transform = transform
-        
-    def __len__(self):
-        return len(self.base_dataset)
-    
-    def __getitem__(self, idx):
-        # Get raw image and label (no transforms yet)
-        if isinstance(self.base_dataset[idx], dict):
-            img = self.base_dataset[idx]['image']
-            label = self.base_dataset[idx]['label']
-        else:
-            img, label = self.base_dataset[idx]
-        
-        # Convert to PIL if needed
-        if not isinstance(img, Image.Image):
-            if isinstance(img, np.ndarray):
-                img = Image.fromarray(img)
-            else:
-                raise TypeError(f"Unexpected image type: {type(img)}")
-        
-        # Create rotated versions
-        rotated_images = []
-        for angle in self.angles:
-            rotated = img.rotate(angle, resample=Resampling.BILINEAR)
-            if self.transform is not None:
-                rotated = self.transform(rotated)
-            rotated_images.append(rotated)
-        
-        # Stack into batch: [num_rotations, C, H, W]
-        batch = torch.stack(rotated_images, dim=0)
-        
-        # Return batch of images with single label
-        return batch, label
-
 
 # Transformations
 class CircularPad:

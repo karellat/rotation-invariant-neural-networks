@@ -1,15 +1,17 @@
 import torch
 from torch import nn
 import lightning as L
-from typing import List, Any, Dict, Optional
 from loguru import logger
-from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
-from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D
-from hippy2d.e2sfcnn import ExpE2SFCNN
-from hippy2d.blocks import ResnetBlock
-
-from hippy2d.utils import get_default_complex   
+from einops import rearrange
 from torch.nn import functional as F
+from typing import List, Any, Dict, Optional
+
+from hippy2d.blocks import ResnetBlock
+from hippy2d.e2sfcnn import ExpE2SFCNN
+from hippy2d.utils import get_default_complex   
+from hippy2d.datasets import ROTATED_TEST_SET_KEY
+from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D
+from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
 
 # Lightning wrapper
 class InvNet(L.LightningModule):
@@ -84,33 +86,111 @@ class InvNet(L.LightningModule):
             'preds': res_preds
         }
 
-    def test_step(self, batch, batch_idx):
-        batch = batch if type(batch) is dict else {'test': batch}
-        for k, v in batch.items():
-            x, y = v
+    def test_step(self, batch, batch_idx, dataloader_idx=0):
+        """
+        Handle sequential combined test loader with both regular and rotated test sets.
+        
+        With CombinedLoader sequential mode, batches come in order:
+        - First all batches from 'test' loader (dataloader_idx=0)
+        - Then all batches from 'rotated_test' loader (dataloader_idx=1)
+        
+        The dataloader_idx parameter indicates which loader in the sequence.
+        """
+        # Get dataloader name from the saved list in datamodule
+        datamodule = self.trainer.datamodule
+        if hasattr(self.trainer.datamodule, 'test_loaders_names'):
+            dataloader_names = self.trainer.datamodule.test_loaders_names
+            dataloader_name = dataloader_names[dataloader_idx]
+        else:
+            dataloader_name = 'test'
+        
+        x, y = batch
+        
+        if dataloader_name == 'test': 
             y_hat, loss, acc = self.shared_step(x, y)
-            # NOTE: Return the validation loss with key 'val'
-            # Other datasets are only for debugging purposes
-            self.log(f'{k}_loss', loss, sync_dist=True)
-            self.log(f'{k}_acc', acc, sync_dist=True)
+            
+            # Log basic metrics
+            self.log(f'{dataloader_name}_loss', loss, sync_dist=True, batch_size=datamodule.test_batch_size)
+            self.log(f'{dataloader_name}_acc', acc, sync_dist=True, batch_size=datamodule.test_batch_size)
+            
+            # Compute rotation consistency metrics (RCI) with N=4 rotations
             x_90, x_180, x_270 = torch.rot90(x, 1, [-2, -1]), torch.rot90(x, 2, [-2, -1]), torch.rot90(x, 3, [-2, -1])
             y_hat_90, _, _ = self.shared_step(x_90, y)
             y_hat_180, _, _ = self.shared_step(x_180, y)
             y_hat_270, _, _ = self.shared_step(x_270, y)
 
+            # Stack rotated predictions
             y_hat_rd = torch.stack([y_hat_90, y_hat_180, y_hat_270], dim=1)
+            
+            # Compute consistency metrics
             norm = torch.norm(y_hat_rd - y_hat[:, None], dim=-1)
             sim = F.cosine_similarity(y_hat_rd, y_hat[:, None], dim=-1) 
             norm_max = norm.max()
             cos_min = sim.min()
+            norm_mean = norm.mean()
+            cos_sim_mean = sim.mean()
 
-            norm = norm.mean()
-            cos_sim = sim.mean()
+            # Log RCI metrics
+            self.log(f'{dataloader_name}_rci_norm_n4', norm_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'{dataloader_name}_rci_sim_n4', cos_sim_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'{dataloader_name}_rci_norm_max_n4', norm_max, sync_dist=True, reduce_fx="max", batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'{dataloader_name}_rci_sim_min_n4', cos_min, sync_dist=True, reduce_fx="min", batch_size=self.trainer.datamodule.test_batch_size)
+            
+        elif dataloader_name == ROTATED_TEST_SET_KEY:
+            # x is [B, n_angles, C, H, W] - batch of images, each with all rotations
+            # y is [B, n_angles] - labels repeated for each rotation
+            n_angles = self.trainer.datamodule.n_angles 
+            batch_size = x.shape[0]
+            
+            # Reshape to process all rotations at once: [B*n_angles, C, H, W]
+            x_flat = rearrange(x, 'b n c h w -> (b n) c h w')
+            y_flat = rearrange(y, 'b n -> (b n)')
+            
+            # Get predictions for all rotations
+            logits, _, _ = self.shared_step(x_flat, y_flat)
+            y_hat = torch.argmax(logits, dim=1)
+            correct = rearrange((y_hat == y_flat), '(b n) -> b n',
+                                 b=batch_size,
+                                 n=n_angles)
 
-            self.log(f'{k}_rci_norm_n4', norm, sync_dist=True)
-            self.log(f'{k}_rci_sim_n4', cos_sim, sync_dist=True)
-            self.log(f'{k}_rci_norm_max_n4', norm_max, sync_dist=True, reduce_fx="max")
-            self.log(f'{k}_rci_sim_min_n4', cos_min, sync_dist=True, reduce_fx="min")
+            # Reshape back: [B, n_angles, num_classes]
+            logits = rearrange(logits, '(b n) c -> b n c',
+                               b=batch_size,
+                               n=n_angles)
+            y_hat = rearrange(y_hat, '(b n) -> b n', 
+                              b=batch_size,
+                              n=n_angles)
+            
+            # First rotation (0 degrees) is the upright image
+            upright_logits = logits[:, 0:1]
+            rotated_logits = logits[:, 1:]
+            
+            # Compute consistency metrics between upright and rotated predictions
+            norm = torch.norm(rotated_logits - upright_logits, dim=-1)
+            sim = F.cosine_similarity(rotated_logits, upright_logits, dim=-1)
+            
+            # Upright predictions correctness: [B]
+            upright_correct = correct[:, 0]
+            rotated_correct = correct[:, 1:]
+
+            # Rotation mismatch rate estimate
+            rmie = (~rotated_correct).float().mean(dim=1)
+            rmie_valid = rmie[upright_correct]
+            if len(rmie_valid) > 0: 
+                self.log(f'rmie', rmie_valid.mean(), sync_dist=True)
+                # Invalid samples norm
+                norm_valid = norm[(~rotated_correct) & upright_correct[:, None]]
+                sim_valid =  sim[(~rotated_correct) & upright_correct[:, None]]
+                if len(norm_valid) > 0:
+                    self.log(f'mi_norm', norm_valid.mean(), sync_dist=True)
+                    self.log(f'mi_sim', sim_valid.mean(), sync_dist=True)
+            self.log(f'test_rci_norm_n{n_angles}', norm.mean(), sync_dist=True)
+            self.log(f'test_rci_sim_n{n_angles}', sim.mean(), sync_dist=True)
+            self.log(f'test_rci_norm_max_n{n_angles}', norm.max(), sync_dist=True, reduce_fx="max")
+            self.log(f'test_rci_sim_min_n{n_angles}', sim.min(), sync_dist=True, reduce_fx="min")
+
+        else:
+            raise ValueError(f"Unexpected test dataset key: {dataloader_name}")
 
 # Model Zoo
 class Resnet18(nn.Module): 

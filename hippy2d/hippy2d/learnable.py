@@ -403,3 +403,95 @@ class VarLearnableFlusser(torch.nn.Module):
         x = self.conv1x1(x)
         # Return the output
         return x
+
+
+class ComplexLearnableFlusser(torch.nn.Module):
+    """ 
+    Complex Flusser layer as described in the notebook.
+    """
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int, 
+                 orders: list = [-4, -3, -2, -2, -1, -1, 0, 0, 0, 1, 1, 2, 2, 3, 4],
+                 ring_count: int=3,
+                 kernel_size: int=15,
+                 norm_factor_function="copy"): # copy when rotating only the phase
+        super(ComplexLearnableFlusser, self).__init__()
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+        self.ring_count = ring_count
+        self.kernel_size = kernel_size
+        self.norm_factor_function = norm_factor_function
+
+        assert 0 in orders, "No symmetric orders found"
+        assert 1 in orders, "No order 1 found for normalization"
+        def _sort(order): 
+            return abs(order) + 0.5 if order < 0 else order 
+        orders = np.array(sorted(orders, key=_sort))
+        norm_factor_idx = np.argwhere(np.array(orders) == 1)[0,0]
+
+        type0_mask = orders != 0
+        type1_mask = orders != 1
+
+        type0_exp = -orders[type0_mask]
+        type1_exp = 1 - orders[type1_mask]
+        type0_exp = torch.from_numpy(type0_exp[:,None, None, None])
+        type1_exp = torch.from_numpy(type1_exp[:,None, None, None])
+
+        self.register_buffer("orders", torch.tensor(orders, dtype=torch.int32))
+        self.register_buffer("type0_mask", torch.tensor(type0_mask))
+        self.register_buffer("type1_mask", torch.tensor(type1_mask))
+        self.register_buffer("type0_exp", type0_exp)
+        self.register_buffer("type1_exp", type1_exp)
+        self.norm_factor_idx = norm_factor_idx
+
+        # Init angular part that is fixed self.angular_part 
+        # Note: This part can be also made learnable
+        self.register_buffer("angular_part", init_angular_part(kernel_size, self.orders.tolist(), ring_count))
+        # Init learnable radial part 
+        self.weights = torch.nn.Parameter(init_radial_part(in_channels, out_channels, self.orders.tolist(), ring_count),
+                                          requires_grad=True)
+        # 1x1 real projection
+        self.conv1x1_type0 = torch.nn.Conv2d(in_channels=len(orders) * in_channels,
+                                             out_channels=out_channels,
+                                             kernel_size=1,
+                                             dtype=get_default_complex())
+        self.conv1x1_type1 = torch.nn.Conv2d(in_channels=len(orders) * in_channels,
+                                             out_channels=out_channels,
+                                             kernel_size=1,
+                                             dtype=get_default_complex())
+
+
+    def forward(self, x):
+        assert x.dtype == get_default_complex(), "Input tensor must be of complex dtype"
+        # Calculate the weights
+        filters = rearrange(
+            tensor=torch.matmul(self.angular_part, self.weights.to(get_default_complex())),
+            pattern="o (h w) (ic oc) -> (o oc) ic h w",
+            h=self.kernel_size,
+            w=self.kernel_size,
+            ic=self.in_channels,
+            oc=self.out_channels)
+        # Perform convolution 
+        x = torch.conv2d(input=x,
+                         weight=filters)
+        x = rearrange(x, 'b (m out) h w -> b m out h w', m=len(self.orders))
+        norm_factor = torch.view_as_real(x[:, self.norm_factor_idx:self.norm_factor_idx + 1]) 
+        # Compute type 0 copy 
+        type0 = torch.cat(dim=1, 
+                          tensors=[x[:, ~self.type0_mask],
+                                   x[:, self.type0_mask] * torch.view_as_complex(
+                                       complex_power_moivre(norm_factor,
+                                                           self.type0_exp,
+                                                           magnitude_func=self.norm_factor_function)
+                                   )
+                          ])
+        type1 = torch.cat(dim=1, 
+                          tensors=[x[:, ~self.type1_mask],
+                                   x[:, self.type1_mask] * torch.view_as_complex(
+                                       complex_power_moivre(norm_factor,
+                                                           self.type1_exp,
+                                                           magnitude_func=self.norm_factor_function)
+                                   )
+                          ])
+        return type0, type1 

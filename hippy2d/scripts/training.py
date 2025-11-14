@@ -1,8 +1,10 @@
+from modulefinder import test
 import os
 import json
 import click
 import torch
 import wandb
+import numpy as np
 from git import Repo
 from tqdm import tqdm
 from pathlib import Path
@@ -173,40 +175,7 @@ def training_loop(run_name: str,
 
             trainer.test(model=best_model,
                          datamodule=datamodule)
-            # If there more rotated samples 
-            with torch.no_grad():
-                best_model.eval()
-                if hasattr(datamodule, 'rotated_dataloader'):
-                    assert datamodule.n_angles is not None, "datamodule.n_angles is None"
-                    assert datamodule.n_angles > 4, "datamodule.n_angles > 4"
-                    logger.debug(f"Computing RCI metrics on test set with {datamodule.n_angles} rotations.")
-                    for rotated_imgs, y in tqdm(datamodule.rotated_dataloader(), desc="RCI evaluation"): 
-                        rotated_imgs = rotated_imgs.to(best_model.device)
-                        outputs = best_model(rotated_imgs)
-                        y_hat = torch.argmax(outputs, dim=1).cpu()
-                        assert outputs.shape[0] == datamodule.n_angles, f"Expected {datamodule.n_angles} outputs, got {outputs.shape[0]}"
-                        upright_img = outputs[0]
-                        outputs = outputs[1:]
-                        norm = torch.norm(outputs - upright_img[None, ...], dim=-1)
-                        sim = F.cosine_similarity(outputs, upright_img[None, ...], dim=-1) 
-                        correct = (y_hat == y)
-                        if correct[0]: 
-                            rmie = torch.sum(~correct[1:]) / (datamodule.n_angles - 1)
-                            if rmie != 0.0:
-                                mi_norm = norm[~correct[1:]].mean()
-                                mi_sim = sim[~correct[1:]].mean()
-                                wandb.log({f'RIMR_n{datamodule.n_angles}': rmie,
-                                           f"MI_rci_norm_n{datamodule.n_angles}": mi_norm,
-                                           f"MI_rci_sim_n{datamodule.n_angles}": mi_sim})
-                            else: 
-                                wandb.log({f'RIMR_n{datamodule.n_angles}': rmie})
-                        norm = norm.mean()
-                        cos_sim = sim.mean()
-                        wandb.log({f'test_rci_norm_n{datamodule.n_angles}': norm, 
-                                   f'test_rci_sim_n{datamodule.n_angles}': cos_sim}) 
-
-                _wandb_out_status = "success"
-
+            _wandb_out_status = "success"
         else:
             logger.warning("Best model not found.")
         wandb_logger.finalize(_wandb_out_status)
