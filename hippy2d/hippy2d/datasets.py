@@ -381,21 +381,23 @@ class ColorectalHistology(HuggingFaceDataModule):
         
         # Update output shape if cropping
         if aug_crop:
-            self.output_shape = [self.batch_size, 3, 128, 128]
+            self.output_shape = [self.batch_size, 3, self.target_size, self.target_size]
     
     def _build_train_transforms(self, **kwargs):
         transform_list = [transforms.ToImage()]
         
         if self.aug_scale:
-            transform_list.append(transforms.RandomResize(min_size=128, max_size=170))
+            transform_list.append(transforms.RandomResize(min_size=self.target_size, max_size=ColorectalHistology.DEFAULT_IMAGE_SIZE))
         if self.aug_crop:
-            transform_list.append(transforms.RandomCrop((128, 128)))
+            transform_list.append(transforms.RandomCrop((self.target_size, self.target_size)))
         if self.aug_clr_jitter:
             transform_list.append(transforms.ColorJitter(
                 brightness=0.1, contrast=0.1, saturation=0.1, hue=0.03
             ))
         
         transform_list.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
+        # Resize to target size
+        transform_list.append(transforms.Resize((self.target_size, self.target_size)))
         
         if self.normalize:
             transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
@@ -412,9 +414,12 @@ class ColorectalHistology(HuggingFaceDataModule):
         transform_list = [transforms.ToImage()]
         
         if self.aug_crop:
-            transform_list.append(transforms.CenterCrop((128, 128)))
+            transform_list.append(transforms.CenterCrop((self.target_size, self.target_size)))
         
         transform_list.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
+
+        # Resize to target size
+        transform_list.append(transforms.Resize((self.target_size, self.target_size)))
         
         if self.normalize:
             transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))

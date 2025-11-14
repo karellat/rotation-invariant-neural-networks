@@ -110,8 +110,8 @@ class InvNet(L.LightningModule):
             y_hat, loss, acc = self.shared_step(x, y)
             
             # Log basic metrics
-            self.log(f'test_loss', loss, sync_dist=True, batch_size=datamodule.test_batch_size)
-            self.log(f'test_acc', acc, sync_dist=True, batch_size=datamodule.test_batch_size)
+            self.log(f'test_loss', loss, sync_dist=True, batch_size=datamodule.test_batch_size, add_dataloader_idx=False)
+            self.log(f'test_acc', acc, sync_dist=True, batch_size=datamodule.test_batch_size, add_dataloader_idx=False)
             
             # Compute rotation consistency metrics (RCI) with N=4 rotations
             x_90, x_180, x_270 = torch.rot90(x, 1, [-2, -1]), torch.rot90(x, 2, [-2, -1]), torch.rot90(x, 3, [-2, -1])
@@ -131,10 +131,10 @@ class InvNet(L.LightningModule):
             cos_sim_mean = sim.mean()
 
             # Log RCI metrics
-            self.log(f'test_rci_norm_n4', norm_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
-            self.log(f'test_rci_sim_n4', cos_sim_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
-            self.log(f'test_rci_norm_max_n4', norm_max, sync_dist=True, reduce_fx="max", batch_size=self.trainer.datamodule.test_batch_size)
-            self.log(f'test_rci_sim_min_n4', cos_min, sync_dist=True, reduce_fx="min", batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'test_rci_norm_n4', norm_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size, add_dataloader_idx=False)
+            self.log(f'test_rci_sim_n4', cos_sim_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size, add_dataloader_idx=False)
+            self.log(f'test_rci_norm_max_n4', norm_max, sync_dist=True, reduce_fx="max", batch_size=self.trainer.datamodule.test_batch_size, add_dataloader_idx=False)
+            self.log(f'test_rci_sim_min_n4', cos_min, sync_dist=True, reduce_fx="min", batch_size=self.trainer.datamodule.test_batch_size, add_dataloader_idx=False)
             
         elif dataloader_name == ROTATED_TEST_SET_KEY:
             # x is [B, n_angles, C, H, W] - batch of images, each with all rotations
@@ -177,17 +177,17 @@ class InvNet(L.LightningModule):
             rmie = (~rotated_correct).float().mean(dim=1)
             rmie_valid = rmie[upright_correct]
             if len(rmie_valid) > 0: 
-                self.log(f'rmie', rmie_valid.mean(), sync_dist=True)
+                self.log(f'rmie', rmie_valid.mean(), sync_dist=True, add_dataloader_idx=False)
                 # Invalid samples norm
                 norm_valid = norm[(~rotated_correct) & upright_correct[:, None]]
                 sim_valid =  sim[(~rotated_correct) & upright_correct[:, None]]
                 if len(norm_valid) > 0:
-                    self.log(f'mi_norm', norm_valid.mean(), sync_dist=True)
-                    self.log(f'mi_sim', sim_valid.mean(), sync_dist=True)
-            self.log(f'test_rci_norm_n{n_angles}', norm.mean(), sync_dist=True)
-            self.log(f'test_rci_sim_n{n_angles}', sim.mean(), sync_dist=True)
-            self.log(f'test_rci_norm_max_n{n_angles}', norm.max(), sync_dist=True, reduce_fx="max")
-            self.log(f'test_rci_sim_min_n{n_angles}', sim.min(), sync_dist=True, reduce_fx="min")
+                    self.log(f'mi_norm', norm_valid.mean(), sync_dist=True, add_dataloader_idx=False)
+                    self.log(f'mi_sim', sim_valid.mean(), sync_dist=True, add_dataloader_idx=False)
+            self.log(f'test_rci_norm_n{n_angles}', norm.mean(), sync_dist=True, add_dataloader_idx=False)
+            self.log(f'test_rci_sim_n{n_angles}', sim.mean(), sync_dist=True, add_dataloader_idx=False)
+            self.log(f'test_rci_norm_max_n{n_angles}', norm.max(), sync_dist=True, reduce_fx="max", add_dataloader_idx=False)
+            self.log(f'test_rci_sim_min_n{n_angles}', sim.min(), sync_dist=True, reduce_fx="min", add_dataloader_idx=False)
 
         else:
             raise ValueError(f"Unexpected test dataset key: {dataloader_name}")

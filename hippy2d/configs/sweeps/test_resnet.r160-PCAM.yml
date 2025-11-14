@@ -1,3 +1,4 @@
+name: test_resnet-hist
 program: scripts/training.py
 method: grid
 metric:
