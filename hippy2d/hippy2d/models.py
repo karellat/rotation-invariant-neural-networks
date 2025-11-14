@@ -110,8 +110,8 @@ class InvNet(L.LightningModule):
             y_hat, loss, acc = self.shared_step(x, y)
             
             # Log basic metrics
-            self.log(f'{dataloader_name}_loss', loss, sync_dist=True, batch_size=datamodule.test_batch_size)
-            self.log(f'{dataloader_name}_acc', acc, sync_dist=True, batch_size=datamodule.test_batch_size)
+            self.log(f'test_loss', loss, sync_dist=True, batch_size=datamodule.test_batch_size)
+            self.log(f'test_acc', acc, sync_dist=True, batch_size=datamodule.test_batch_size)
             
             # Compute rotation consistency metrics (RCI) with N=4 rotations
             x_90, x_180, x_270 = torch.rot90(x, 1, [-2, -1]), torch.rot90(x, 2, [-2, -1]), torch.rot90(x, 3, [-2, -1])
@@ -131,10 +131,10 @@ class InvNet(L.LightningModule):
             cos_sim_mean = sim.mean()
 
             # Log RCI metrics
-            self.log(f'{dataloader_name}_rci_norm_n4', norm_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
-            self.log(f'{dataloader_name}_rci_sim_n4', cos_sim_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
-            self.log(f'{dataloader_name}_rci_norm_max_n4', norm_max, sync_dist=True, reduce_fx="max", batch_size=self.trainer.datamodule.test_batch_size)
-            self.log(f'{dataloader_name}_rci_sim_min_n4', cos_min, sync_dist=True, reduce_fx="min", batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'test_rci_norm_n4', norm_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'test_rci_sim_n4', cos_sim_mean, sync_dist=True, batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'test_rci_norm_max_n4', norm_max, sync_dist=True, reduce_fx="max", batch_size=self.trainer.datamodule.test_batch_size)
+            self.log(f'test_rci_sim_min_n4', cos_min, sync_dist=True, reduce_fx="min", batch_size=self.trainer.datamodule.test_batch_size)
             
         elif dataloader_name == ROTATED_TEST_SET_KEY:
             # x is [B, n_angles, C, H, W] - batch of images, each with all rotations
