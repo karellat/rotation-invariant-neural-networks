@@ -25,6 +25,5 @@ dependencies:
     - scikit-learn==1.7.*
     - timm==1.0.*
     - wandb==0.22.*
-    - yaml==0.2.*
     - h5py==3.15.*
     - gdown==5.2.*

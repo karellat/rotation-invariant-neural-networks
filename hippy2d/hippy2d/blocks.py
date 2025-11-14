@@ -123,4 +123,3 @@ class ResnetBlock(torch.nn.Module):
             # Add the residual connection
             x = x + self.residual_conv(identity)
         return x
-
