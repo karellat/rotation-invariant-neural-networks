@@ -139,7 +139,7 @@ class TimmBasicBlock(torch.nn.Module):
                  in_channels: int, 
                  out_channels: int,
                  tukey_masking: bool = True,
-                 conv_layer: Optional[torch.nn.Module] = nn.Conv2, 
+                 conv_layer: Optional[torch.nn.Module] = nn.Conv2d,  
                  conv_kwargs: dict=dict(stride=1,
                                         padding=1,
                                         bias=False),
