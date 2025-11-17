@@ -6,7 +6,7 @@ import torchvision.transforms.v2 as transforms
 
 from hippy2d.models import PrototypeOptimalInvCNN, PrototypeTiny
 from hippy2d.learnable import LearnableFlusser, VarLearnableFlusser
-from hippy2d.blocks import ResnetBlock 
+from hippy2d.blocks import ResnetBlock, TimmBasicBlock 
 from hippy2d.utils import get_testing_img, get_default_complex
 import time
 import logging
@@ -90,6 +90,18 @@ class TestLearnable:
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
 
+    def test_90_timm_block(self, test_images, test_device):
+        """Test the 90-degree rotation block."""
+        inv_block = TimmBasicBlock(
+                                input_size=IMAGE_SIZE,
+                                in_channels=IMAGE_CHANNELS,
+                                out_channels=12,
+                                conv_layer=LearnableFlusser,
+                                conv_kwargs=dict(kernel_size=15,
+                                                 input_size=IMAGE_SIZE)).to(test_device)
+        # Forward pass through the complex invariant block
+        self._test_90_module(inv_block, test_images, test_device)
+        
     def test_90_network(self, test_images, test_device):
         """Test the 90-degree rotation network."""
         net = PrototypeOptimalInvCNN(
