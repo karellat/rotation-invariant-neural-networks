@@ -185,7 +185,7 @@ class TimmBasicBlock(torch.nn.Module):
         # 1. layer
         self.mask1 = None if not tukey_masking else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
         self.conv1 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
-        self.norm1 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv1_output_shape, conv1_output_shape))
+        self.norm1 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv1_output_shape, conv1_output_shape), elementwise_affine=False)
         self.drop_block = torch.nn.Identity() # TODO: implement drop_block
         self.act1 = act_layer(inplace=True)
         if aa_layer is not None:
@@ -202,7 +202,7 @@ class TimmBasicBlock(torch.nn.Module):
             self.mask2 = None
 
         self.conv2 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
-        self.norm2 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv2_output_shape, conv2_output_shape))
+        self.norm2 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv2_output_shape, conv2_output_shape), elementwise_affine=False)
         # self.drop_path  = torch.nn.Identity()
         self.act2 = act_layer(inplace=True) 
 
