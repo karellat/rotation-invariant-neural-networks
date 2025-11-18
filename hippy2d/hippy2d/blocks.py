@@ -140,7 +140,7 @@ class TimmBasicBlock(torch.nn.Module):
                  in_channels: int, 
                  out_channels: int,
                  tukey_masking: bool = True,
-                 conv_layer: Optional[torch.nn.Module] = nn.Conv2d,  
+                 conv_layer: Optional[torch.nn.Module] = "Conv2d",  
                  conv_kwargs: dict=dict(stride=1,
                                         padding=1,
                                         bias=False),
@@ -166,12 +166,14 @@ class TimmBasicBlock(torch.nn.Module):
 
         # Padding
         if padding == "same":
-            conv_output_shape = input_size
+            conv1_output_shape = input_size
+            conv2_output_shape = input_size if aa_layer is None else input_size // 2
         else:
-            conv_output_shape = input_size + (2 * padding) - kernel_size + 1
-        
-        assert (input_size - conv_output_shape) % 2 == 0, "Input size must be even for valid padding"
-        
+            conv1_output_shape = input_size + (2 * padding) - kernel_size + 1
+            conv2_output_shape = conv1_output_shape + (2 * padding) - kernel_size + 1
+
+        assert (input_size - conv1_output_shape) % 2 == 0, "Input size must be even for valid padding"
+
         conv_kwargs = conv_kwargs.copy()  # To avoid modifying the original dictionary
 
         conv_kwargs['in_channels'] = in_channels
@@ -183,7 +185,7 @@ class TimmBasicBlock(torch.nn.Module):
         # 1. layer
         self.mask1 = None if not tukey_masking else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
         self.conv1 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
-        self.norm1 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv_output_shape, conv_output_shape))
+        self.norm1 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv1_output_shape, conv1_output_shape))
         self.drop_block = torch.nn.Identity() # TODO: implement drop_block
         self.act1 = act_layer(inplace=True)
         if aa_layer is not None:
@@ -195,16 +197,12 @@ class TimmBasicBlock(torch.nn.Module):
         conv_kwargs['in_channels'] = out_channels
         # 2. layer
         if tukey_masking:
-            if aa_layer is not None:
-                reduced_size = conv_output_shape // 2
-            else:
-                reduced_size = conv_output_shape
-            self.mask2 = torch.nn.Parameter(torch.from_numpy(tukey_2d(reduced_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
+            self.mask2 = torch.nn.Parameter(torch.from_numpy(tukey_2d(conv2_output_shape, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
         else:
             self.mask2 = None
 
         self.conv2 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
-        self.norm2 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv_output_shape, conv_output_shape))
+        self.norm2 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv2_output_shape, conv2_output_shape))
         # self.drop_path  = torch.nn.Identity()
         self.act2 = act_layer(inplace=True) 
 

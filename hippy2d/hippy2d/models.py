@@ -486,7 +486,7 @@ class Resnet(torch.nn.Module):
             self.stem = torch.nn.Sequential(
                 conv_factory.get_conv_layer(layer, stem_layer_kwargs),
                 pool_layer(kernel_size=2, stride=2),
-                norm(inplanes),
+                norm(inplanes) if norm is nn.BatchNorm2d else norm((inplanes, input_size // 2, input_size // 2)),
                 act(inplace=True)
             )
             self.feature_info = [dict(num_chs=inplanes, reduction=2, module='act1')]

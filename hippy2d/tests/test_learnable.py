@@ -97,7 +97,7 @@ class TestLearnable:
                                 in_channels=IMAGE_CHANNELS,
                                 out_channels=12,
                                 kernel_size=15, 
-                                conv_layer=LearnableFlusser,
+                                conv_layer="LearnableFlusser",
                                 conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
