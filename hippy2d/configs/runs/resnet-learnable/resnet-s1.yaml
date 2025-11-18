@@ -1,0 +1,28 @@
+d_hparams:
+  test_batch_size: 32
+  batch_size: 64
+  data_dir: data
+  pad: 0
+  to_complex: false
+  normalize: true
+dataset_name: MnistRotTest
+early_stopping: 10
+epochs: 50
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 10
+  - 15
+  - 25
+lr_name: MultiStepLR
+m_param:
+  in_channels: 1
+  input_size: 64
+  num_classes: 10
+model_name: Resnet 
+optimizer_hparams:
+  lr: 0.01525
+optimizer_name: AdamW
+run_name: resnet-test
+seed: 24
+debug: true
