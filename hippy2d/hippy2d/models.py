@@ -6,8 +6,10 @@ from einops import rearrange
 from torch.nn import functional as F
 from typing import List, Any, Dict, Optional
 
-from hippy2d.blocks import ResnetBlock
+from hippy2d import conv_factory
+from hippy2d.blocks import ResnetBlock, TimmBasicBlock
 from hippy2d.e2sfcnn import ExpE2SFCNN
+from hippy2d.learnable import LearnableFlusser
 from hippy2d.utils import get_default_complex   
 from hippy2d.datasets import ROTATED_TEST_SET_KEY
 from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D
@@ -347,6 +349,198 @@ class ResHNeXtv3(nn.Module):
     def forward(self, x: torch.Tensor):
         x = self.hnext(x)
         x = self.classifier(x)
+        return x
+
+# Timm inspired Resnet
+def make_blocks(layer, 
+                layer_kwargs, 
+                input_size,
+                # Block settings
+                block_types,
+                kernels_size,
+                channels, 
+                layers, 
+                norm,
+                act,
+                channels_masking):
+    """
+    Create ResNet-style stages with specified block configurations.
+    
+    Args:
+        layer: Convolutional layer class/function to use (e.g., ComplexInvariantConv2D, LearnableFlusser)
+        layer_kwargs: Dictionary of kwargs to pass to layer constructor
+        input_size: Size of input feature maps at this stage
+        block_types: List of block types for each stage (e.g., TimmBasicBlock)
+        kernels_size: List of kernel sizes for each stage
+        channels: List of output channels for each stage
+        layers: List of number of blocks in each stage
+        norm: Normalization layer class
+        act: Activation layer class
+        channels_masking: Whether to use Tukey masking on channels
+        
+    Returns:
+        Tuple of (stage_modules, feature_info):
+            - stage_modules: List of (name, nn.Sequential) tuples for each stage
+            - feature_info: List of dicts with stage metadata
+    """
+    stages = []
+    feature_info = []
+    inplanes = channels[0]  # First stage output channels
+    current_size = input_size
+    
+    for stage_idx in range(len(block_types)):
+        stage_name = f'layer{stage_idx + 1}'
+        block_fn = block_types[stage_idx]
+        num_blocks = layers[stage_idx]
+        out_channels = channels[stage_idx]
+        kernel_size = kernels_size[stage_idx] if isinstance(kernels_size, list) else kernels_size
+        
+        blocks = []
+        for block_idx in range(num_blocks):
+            # Determine if this is the first block in the stage
+            is_first_block = (block_idx == 0)
+            
+            # Apply downsampling (via aa_layer) only on first block of stages 2, 3, 4
+            # Stage 1 (stage_idx=0) doesn't downsample
+            use_downsample = (stage_idx > 0) and is_first_block
+            aa_layer = nn.AvgPool2d if use_downsample else None
+            
+            # Build block kwargs
+            block_kwargs = {
+                'input_size': current_size,
+                'in_channels': inplanes,
+                'out_channels': out_channels,
+                'kernel_size': kernel_size,
+                'tukey_masking': channels_masking,
+                'conv_layer': layer,
+                'conv_kwargs': layer_kwargs.copy(),
+                'act_layer': act,
+                'norm_layer': norm,
+                'aa_layer': aa_layer,
+                'drop_path': None,  # Can be added later for stochastic depth
+                'drop_block': None,
+            }
+            
+            blocks.append(block_fn(**block_kwargs))
+            
+            # Update state for next block
+            inplanes = out_channels
+            if use_downsample:
+                current_size = current_size // 2
+        
+        # Create stage as sequential module
+        stages.append((stage_name, nn.Sequential(*blocks)))
+        
+        # Track feature info for this stage
+        reduction = input_size // current_size
+        feature_info.append({
+            'num_chs': out_channels,
+            'reduction': reduction,
+            'module': stage_name
+        })
+    
+    return stages, feature_info
+
+class Resnet(torch.nn.Module): 
+    def __init__(self, 
+                 stem: str = "single", # single, deep, None 
+                 # Layer settings
+                 layer : str = "LearnableFlusser",
+                 default_layer_kwargs: dict = dict(), 
+                 # Shape informations
+                 in_channels:int = 3,
+                 input_size:int = 64,
+                 stem_kernel_size: int = 15,
+                 kernels_size: int = [11, 11, 11, 11],
+                 block_types: list = [TimmBasicBlock, TimmBasicBlock, TimmBasicBlock, TimmBasicBlock],
+                 layers: list = [1, 1, 1, 1], 
+                 channels: list = [10, 10, 10, 10],
+                 # Block settings
+                 norm:str = "layer", 
+                 activation: str = "ELU",
+                 channels_masking:bool = True,
+                 # Classifier settings
+                 classification:bool = True, 
+                 hidden_classifier_size:int = 64,
+                 num_classes:int = 10,
+                 drop_rate: float = 0.0): 
+        super(Resnet, self).__init__()
+        assert len(block_types) == len(layers) == len(channels), "block_types, layers and channels must have the same length"
+        assert len(block_types) == 4, "Currently only 4 stages are supported"
+
+
+        norm = nn.BatchNorm2d if norm == "batch" else nn.LayerNorm
+        act = getattr(nn, activation)
+        pool_layer = nn.AvgPool2d
+        self.drop_rate = drop_rate
+        self.num_classes = num_classes
+    
+        if stem == "single":
+            logger.warning("Stem for ResNet expects masked inputs")
+            inplanes = channels[0]
+            stem_layer_kwargs = default_layer_kwargs.copy()
+            stem_layer_kwargs['in_channels'] = in_channels
+            stem_layer_kwargs['out_channels'] = inplanes
+            stem_layer_kwargs['input_size'] = input_size
+            stem_layer_kwargs['kernel_size'] = stem_kernel_size
+            self.stem = torch.nn.Sequential(
+                conv_factory.get_conv_layer(layer, stem_layer_kwargs),
+                pool_layer(kernel_size=2, stride=2),
+                norm(inplanes),
+                act(inplace=True)
+            )
+            self.feature_info = [dict(num_chs=inplanes, reduction=2, module='act1')]
+        else: 
+            NotImplementedError("Only 'single' stem is implemented")
+
+        stage_modules, stage_feature_info = make_blocks(
+            layer=layer,
+            layer_kwargs=default_layer_kwargs,
+            input_size=input_size // 2,  # After stem pooling
+            block_types=block_types,
+            kernels_size=kernels_size,
+            channels=channels,
+            layers=layers,
+            norm=norm,
+            act=act,
+            channels_masking=channels_masking,
+        )
+        for stage in stage_modules:
+            self.add_module(*stage)  # layer1, layer2, etc
+        self.feature_info.extend(stage_feature_info)
+
+        # Head (Pooling and Classifier)
+        self.num_feature = self.head_hidden_size = channels[-1]
+        self.classification = classification
+        if classification:
+            self.global_pool = torch.nn.AdaptiveAvgPool2d((1, 1))
+            self.flat = torch.nn.Flatten()
+            self.classifier = torch.nn.Sequential(
+                torch.nn.Linear(in_features=self.head_hidden_size, out_features=hidden_classifier_size),
+                torch.nn.BatchNorm1d(num_features=hidden_classifier_size),
+                act(inplace=True),
+                torch.nn.Linear(in_features=hidden_classifier_size, out_features=num_classes)
+            )
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        return x
+
+    def forward_head(self, x: torch.Tensor) -> torch.Tensor:
+        if self.classification:
+            x = self.global_pool(x)
+            x = self.flat(x)
+            x = F.dropout(x, p=self.drop_rate, training=self.training)
+            x = self.classifier(x)
+        return x
+
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.forward_features(x)
+        x = self.forward_head(x)
         return x
 
 # Optimal Convolution

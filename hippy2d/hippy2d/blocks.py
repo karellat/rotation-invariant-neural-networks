@@ -2,6 +2,7 @@ from typing import Optional, Type
 import torch
 from torch import nn
 
+from hippy2d import conv_factory
 from hippy2d.utils import tukey_2d
 from hippy2d.conv_factory import get_conv_layer
 
@@ -181,8 +182,8 @@ class TimmBasicBlock(torch.nn.Module):
         
         # 1. layer
         self.mask1 = None if not tukey_masking else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
-        self.conv1 = conv_layer(**conv_kwargs)
-        self.bn1 = norm_layer(out_channels)
+        self.conv1 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
+        self.norm1 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv_output_shape, conv_output_shape))
         self.drop_block = torch.nn.Identity() # TODO: implement drop_block
         self.act1 = act_layer(inplace=True)
         if aa_layer is not None:
@@ -192,10 +193,18 @@ class TimmBasicBlock(torch.nn.Module):
 
         conv_kwargs = conv_kwargs.copy()  # To avoid modifying the original dictionary
         conv_kwargs['in_channels'] = out_channels
-        # 2. layer 
-        self.mask2 = None if not tukey_masking else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
-        self.conv2 = conv_layer(**conv_kwargs)
-        self.bn2 = norm_layer(out_channels)
+        # 2. layer
+        if tukey_masking:
+            if aa_layer is not None:
+                reduced_size = conv_output_shape // 2
+            else:
+                reduced_size = conv_output_shape
+            self.mask2 = torch.nn.Parameter(torch.from_numpy(tukey_2d(reduced_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
+        else:
+            self.mask2 = None
+
+        self.conv2 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
+        self.norm2 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv_output_shape, conv_output_shape))
         # self.drop_path  = torch.nn.Identity()
         self.act2 = act_layer(inplace=True) 
 
@@ -204,11 +213,12 @@ class TimmBasicBlock(torch.nn.Module):
             self.identity= torch.nn.Conv2d(in_channels=in_channels,
                                            out_channels=out_channels,
                                            kernel_size=1,
+                                           #TODO: Add padding 
                                            bias=False)
         else: 
             self.identity = torch.nn.Identity()
-        if aa_layer is not None:
-            self.downsample = aa_layer(kernel_size=2, stride=2)
+        self.downsample = aa_layer(kernel_size=2, stride=2) if aa_layer is not None else torch.nn.Identity()
+        
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = self.identity(self.downsample(x))
@@ -217,7 +227,7 @@ class TimmBasicBlock(torch.nn.Module):
         if self.mask1 is not None:
             x = x * self.mask1
         x = self.conv1(x) 
-        x = self.bn1(x) # TODO: Mask should be here too
+        x = self.norm1(x) # TODO: Mask should be here too
         x = self.drop_block(x)
         x = self.act1(x)
         x = self.aa(x) # TODO: mask should be here too
@@ -226,7 +236,7 @@ class TimmBasicBlock(torch.nn.Module):
         if self.mask2 is not None:
             x = x * self.mask2
         x = self.conv2(x)
-        x = self.bn2(x) # TODO: Mask should be here too
+        x = self.norm2(x) # TODO: Mask should be here too
 
         # TODO: Here is also squeze-and-excitation can be added
         # x = drop_path(x)

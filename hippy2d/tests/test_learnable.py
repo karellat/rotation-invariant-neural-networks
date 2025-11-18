@@ -4,7 +4,7 @@ from einops import repeat
 from warnings import warn
 import torchvision.transforms.v2 as transforms
 
-from hippy2d.models import PrototypeOptimalInvCNN, PrototypeTiny
+from hippy2d.models import PrototypeOptimalInvCNN, PrototypeTiny, Resnet
 from hippy2d.learnable import LearnableFlusser, VarLearnableFlusser
 from hippy2d.blocks import ResnetBlock, TimmBasicBlock 
 from hippy2d.utils import get_testing_img, get_default_complex
@@ -96,9 +96,9 @@ class TestLearnable:
                                 input_size=IMAGE_SIZE,
                                 in_channels=IMAGE_CHANNELS,
                                 out_channels=12,
+                                kernel_size=15, 
                                 conv_layer=LearnableFlusser,
-                                conv_kwargs=dict(kernel_size=15,
-                                                 input_size=IMAGE_SIZE)).to(test_device)
+                                conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
         
@@ -109,6 +109,19 @@ class TestLearnable:
                          in_channels=IMAGE_CHANNELS,
                          input_size=IMAGE_SIZE,
                          classification=False).to(test_device)
+        net.eval()
+        self._test_90_module(net, test_images, test_device)
+
+    def test_90_resnet(self, test_images, test_device): 
+        """Test the 90-degree rotation network with Resnet blocks."""
+        net = Resnet(stem='single',
+                     layer="LearnableFlusser",
+                     default_layer_kwargs=dict(),
+                     block_types=[TimmBasicBlock, TimmBasicBlock, TimmBasicBlock, TimmBasicBlock],
+                     layers=[1, 1, 1, 1],
+                     in_channels=IMAGE_CHANNELS,
+                     input_size=IMAGE_SIZE,
+                     classification=False).to(test_device)
         net.eval()
         self._test_90_module(net, test_images, test_device)
 
