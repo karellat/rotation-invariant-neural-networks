@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from typing import List, Any, Dict, Optional
 
 from hippy2d import conv_factory
-from hippy2d.blocks import ResnetBlock, TimmBasicBlock
+from hippy2d.blocks import ResnetBlock, TimmBasicBlock, choose_groups
 from hippy2d.e2sfcnn import ExpE2SFCNN
 from hippy2d.learnable import LearnableFlusser
 from hippy2d.utils import get_default_complex   
@@ -469,7 +469,6 @@ class Resnet(torch.nn.Module):
         assert len(block_types) == 4, "Currently only 4 stages are supported"
 
 
-        norm = nn.BatchNorm2d if norm == "batch" else nn.LayerNorm
         act = getattr(nn, activation)
         pool_layer = nn.AvgPool2d
         self.drop_rate = drop_rate
@@ -483,10 +482,18 @@ class Resnet(torch.nn.Module):
             stem_layer_kwargs['out_channels'] = inplanes
             stem_layer_kwargs['input_size'] = input_size
             stem_layer_kwargs['kernel_size'] = stem_kernel_size
+            if norm == "batch":
+                stem_norm = nn.BatchNorm2d(inplanes, affine=False)
+            elif norm == "layer":
+                stem_norm = nn.LayerNorm([inplanes, input_size // 2, input_size // 2], elementwise_affine=False)
+            elif norm == "group":
+                stem_norm = nn.GroupNorm(num_groups=choose_groups(inplanes), num_channels=inplanes, affine=False)
+            else:
+                raise ValueError(f"Unknown normalization layer: {norm}")
             self.stem = torch.nn.Sequential(
                 conv_factory.get_conv_layer(layer, stem_layer_kwargs),
                 pool_layer(kernel_size=2, stride=2),
-                norm(inplanes) if norm is nn.BatchNorm2d else norm((inplanes, input_size // 2, input_size // 2), elementwise_affine=False),
+                stem_norm,
                 act(inplace=True)
             )
             self.feature_info = [dict(num_chs=inplanes, reduction=2, module='act1')]

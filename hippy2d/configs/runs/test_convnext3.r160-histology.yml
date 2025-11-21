@@ -12,9 +12,11 @@ lr_hparams:
   - 60 
 m_param:
   pretrained: false
-model_name: timm:test_convnext3.r160_in1k 
+model_name: timm:test_resnet.r160_in1k 
 optimizer_hparams:
-  lr: 0.001
+  lr: 0.001525
+  weight_decay: 0.05
 optimizer_name: AdamW
-run_name: test_convnext3.r160-histology-nor
+run_name: test_resnet-histology-regularized
+label_smoothing: 0.1
 seed: 42

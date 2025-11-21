@@ -36,6 +36,7 @@ WANDB_PATH = os.path.join(Path.home(), ".wandb_key.json")
 @click.option('--optimizer_hparams', default=dict(lr=1e-2), type=ClickDictionaryType(), help='Optimizer hyperparameters.')
 @click.option('--lr_name', default='MultiStepLR', type=str, help='Learning rate scheduler name.')
 @click.option('--lr_hparams', default=dict(milestones=[10, 50, 90], gamma=0.1), type=ClickDictionaryType(), help='Learning rate scheduler hyperparameters.')
+@click.option('--label_smoothing', default=0.0, type=float, help='Label smoothing value.')
 @click.option('--seed', default=42, type=int)
 @click.option('--float_precision', default='float32', type=str, help='Float precision for training.')
 def training_loop(run_name: str,
@@ -50,6 +51,7 @@ def training_loop(run_name: str,
                   optimizer_name: str,
                   optimizer_hparams: dict,
                   lr_name: str,
+                  label_smoothing: float,
                   lr_hparams: dict,
                   float_precision: str):
 
@@ -110,9 +112,9 @@ def training_loop(run_name: str,
         # NOTE: Debug does not work running parallel workers
         d_hparams['num_workers'] = 1
         trainer_params = dict(
-            limit_train_batches=0.125,
-            limit_val_batches=0.125,
-            limit_test_batches=0.125,
+            limit_train_batches=0.25,
+            limit_val_batches=0.5,
+            limit_test_batches=0.5,
             detect_anomaly=True,
             deterministic="warn",
         )
@@ -139,6 +141,7 @@ def training_loop(run_name: str,
                           d_hparams=d_hparams,
                           model_name=model_name,
                           m_param=m_param,
+                          label_smoothing=label_smoothing,
                           optimizer_name=optimizer_name,
                           optimizer_hparams=optimizer_hparams,
                           lr_name=lr_name,

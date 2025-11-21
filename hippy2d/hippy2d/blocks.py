@@ -101,7 +101,7 @@ class ResnetBlock(torch.nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of the complex invariant convolution block.
-        :param x: Input tensor of shape (batch_size, in_channels, height, width)
+        :param x: Input tensor of shape (batch_size, in_channels, heighistologyht, width)
         :return: Output tensor of shape (batch_size, out_channels, height', width')
         """
 
@@ -133,6 +133,14 @@ def get_padding(kernel_size: int, stride: int, dilation: int = 1) -> int:
     return padding
 
 
+def choose_groups(C, target_groups=32, min_cpg=2, max_cpg=16):
+    # Find divisors of C
+    divs = [g for g in range(1, C+1) if C % g == 0]
+    # Filter by channels-per-group window if possible
+    candidates = [g for g in divs if min_cpg <= (C // g) <= max_cpg] or divs
+    # Pick the candidate closest to the target
+    return min(candidates, key=lambda g: abs(g - target_groups))
+
 class TimmBasicBlock(torch.nn.Module): 
     def __init__(self, 
                  # Conv Settings 
@@ -147,7 +155,7 @@ class TimmBasicBlock(torch.nn.Module):
                  kernel_size:int=3,
                  # Layers Settings
                  act_layer: Type[nn.Module] = nn.ReLU, 
-                 norm_layer: Type[nn.Module] = nn.BatchNorm2d,
+                 norm_layer: str = "batch", 
                  aa_layer: Optional[Type[nn.Module]] = nn.AvgPool2d,
                  drop_path: Optional[torch.nn.Module] = None,
                  drop_block:Optional[torch.nn.Module] = None, 
@@ -156,6 +164,8 @@ class TimmBasicBlock(torch.nn.Module):
 
         assert drop_path is None, "drop_path is not implemented yet"
         assert drop_block is None, "drop_block is not implemented yet"
+        # Normalization layer
+        assert norm_layer in ["batch", "layer", "group"], f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer' or 'group'."
         
         # Prepare convolutional layer
         
@@ -185,7 +195,16 @@ class TimmBasicBlock(torch.nn.Module):
         # 1. layer
         self.mask1 = None if not tukey_masking else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
         self.conv1 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
-        self.norm1 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv1_output_shape, conv1_output_shape), elementwise_affine=False)
+        if norm_layer == "batch":
+            self.norm1 = nn.BatchNorm2d(out_channels, affine=False)
+        elif norm_layer == "layer":
+            self.norm1 = nn.LayerNorm((out_channels, conv1_output_shape, conv1_output_shape), elementwise_affine=False)
+        elif norm_layer == "group":
+            if out_channels < 32:
+                num_groups = choose_groups(out_channels)
+            self.norm1 = nn.GroupNorm(num_groups=num_groups, num_channels=out_channels, affine=False)
+        else: 
+            raise ValueError(f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer' or 'group'.")
         self.drop_block = torch.nn.Identity() # TODO: implement drop_block
         self.act1 = act_layer(inplace=True)
         if aa_layer is not None:
@@ -202,7 +221,16 @@ class TimmBasicBlock(torch.nn.Module):
             self.mask2 = None
 
         self.conv2 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
-        self.norm2 = norm_layer(out_channels) if norm_layer is nn.BatchNorm2d else norm_layer((out_channels, conv2_output_shape, conv2_output_shape), elementwise_affine=False)
+        if norm_layer == "batch":
+            self.norm2 = nn.BatchNorm2d(out_channels, affine=False)
+        elif norm_layer == "layer":
+            self.norm2 = nn.LayerNorm((out_channels, conv2_output_shape, conv2_output_shape), elementwise_affine=False)
+        elif norm_layer == "group":
+            if out_channels < 32:
+                num_groups = choose_groups(out_channels)
+            self.norm2 = nn.GroupNorm(num_groups=num_groups, num_channels=out_channels, affine=False)
+        else: 
+            raise ValueError(f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer' or 'group'.")
         # self.drop_path  = torch.nn.Identity()
         self.act2 = act_layer(inplace=True) 
 

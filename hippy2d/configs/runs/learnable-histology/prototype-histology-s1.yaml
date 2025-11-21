@@ -1,5 +1,5 @@
 d_hparams:
-  batch_size: 64
+  batch_size: 8
 dataset_name: ColorectalHistology
 early_stopping: 30
 epochs: 150
@@ -18,7 +18,7 @@ m_param:
   input_size: 150
   n_blocks: 4
   m_layers: 1
-  init_channels: [16, 16, 31, 31]
+  init_channels: [12, 12, 31, 31]
   kernel_size: [15, 11, 11, 11]
   num_classes: 8
   layer: LearnableFlusser

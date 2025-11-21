@@ -1,5 +1,4 @@
 d_hparams:
-  test_batch_size: 32
   batch_size: 64
   data_dir: data
   pad: 0
@@ -19,10 +18,10 @@ m_param:
   in_channels: 1
   input_size: 64
   num_classes: 10
+  preserve_energy: true
 model_name: Resnet 
 optimizer_hparams:
-  lr: 0.01525
+  lr: 0.001525
 optimizer_name: AdamW
 run_name: resnet-test
 seed: 24
-debug: true

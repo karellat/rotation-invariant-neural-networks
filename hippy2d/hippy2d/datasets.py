@@ -373,10 +373,12 @@ class ColorectalHistology(HuggingFaceDataModule):
                  aug_crop=False,
                  aug_scale=False,
                  aug_clr_jitter=False,
+                 aug_rotation=False,
                  **kwargs):
         self.aug_crop = aug_crop
         self.aug_scale = aug_scale
         self.aug_clr_jitter = aug_clr_jitter
+        self.aug_rotation = aug_rotation
         super().__init__(**kwargs)
         
         # Update output shape if cropping
@@ -394,6 +396,9 @@ class ColorectalHistology(HuggingFaceDataModule):
             transform_list.append(transforms.ColorJitter(
                 brightness=0.1, contrast=0.1, saturation=0.1, hue=0.03
             ))
+        if self.aug_rotation:
+            transform_list.append(transforms.RandomRotation(degrees=(0, 359),
+                                                            interpolation=InterpolationMode.BILINEAR))
         
         transform_list.append(transforms.ToDtype(torch.get_default_dtype(), scale=True))
         # Resize to target size

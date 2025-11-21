@@ -8,6 +8,7 @@ from hippy2d.models import PrototypeOptimalInvCNN, PrototypeTiny, Resnet
 from hippy2d.learnable import LearnableFlusser, VarLearnableFlusser
 from hippy2d.blocks import ResnetBlock, TimmBasicBlock 
 from hippy2d.utils import get_testing_img, get_default_complex
+from hippy2d.escnn_prototype import LearnableIrep2InvLayer
 import time
 import logging
 
@@ -78,6 +79,19 @@ class TestLearnable:
                                 in_channels=3).to(test_device)
         # Forward pass through the complex invariant convolution layer
         self._test_90_module(inv_conv, test_images, test_device)
+    
+
+    def test_90_escnn_layer(self, test_images, test_device):
+        """Test the 90-degree rotation layer."""
+        # Change default to 32-bit for escnn layer
+        prev_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(torch.float32)
+        test_images = (test_images[0].to(torch.float32), test_images[1].to(torch.float32))
+        inv_conv = LearnableIrep2InvLayer(out_channels=12, 
+                                          in_channels=3).to(test_device)
+        # Forward pass through the complex invariant convolution layer
+        self._test_90_module(inv_conv, test_images, test_device)
+        torch.set_default_dtype(prev_dtype)
 
     def test_90_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
@@ -97,6 +111,7 @@ class TestLearnable:
                                 in_channels=IMAGE_CHANNELS,
                                 out_channels=12,
                                 kernel_size=15, 
+                                norm_layer="group", 
                                 conv_layer="LearnableFlusser",
                                 conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
         # Forward pass through the complex invariant block
