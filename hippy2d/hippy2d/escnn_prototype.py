@@ -142,6 +142,29 @@ class MomentLayer(torch.nn.Module):
 
         return super().train(mode)
 
+class InvariantsLayer(torch.nn.Module):
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int, 
+                 padding: str='same'):
+        super().__init__()
+        # Parameters
+        self.orders = orders
+        self.trivial_idx = np.sum(np.array(self.orders) ==0)
+        self.register_buffer("exponents", torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None]) 
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivial = moments[:, :, :self.trivial_idx, :, :]
+        non_trivial = moments[:, :, self.trivial_idx:, :, :]
+        # Non-trivial to complex 
+        non_trivial = rearrange(non_trivial, 'b ch (o c) h w -> b ch o c h w', o=non_trivial.shape[2]//2, c=2)
+        norm = non_trivial[:, :, 0:1] 
+        norm[..., 1, :, :] *= -1  # Conjugate 
+        norm = _rotate_moments(norm, self.exponents, magnitude_func='copy')
+        non_trivial = rearrange(_complex_mul(non_trivial[:, :, 1:], norm), 'b ch o c h w -> b ch (o c) h w')
+        invariants = rearrange(torch.cat([trivial, non_trivial], dim=2), 'b ch o h w -> b (ch o) h w') 
+        return invariants
+
 class LearnableCesa(torch.nn.Module): 
     # Flusser basis but basis learnable as in Cesa Escnn
     def __init__(self,
@@ -155,18 +178,19 @@ class LearnableCesa(torch.nn.Module):
         super().__init__()
         self.orders = flusser_basis_orders(max_order) 
         self.out_channels = out_channels
-        # Compute basis params
-        self.trivial_idx=  np.argwhere(np.array(self.orders) ==0)[-1][0]
-        self.register_buffer("exponents", torch.tensor(self.orders[self.trivial_idx+2:], dtype=torch.int32)[:, None, None]) 
-
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
         self.moment_layer = MomentLayer(orders=self.orders,
                                         max_order=max_order,
                                         in_channels=in_channels,
                                         padding=padding,
                                         kernel_size=kernel_size)
-        self.input_channels = in_channels
-        self.kernel_size = kernel_size
+        # Construct invariants
         self.moment_types = self.moment_layer.out_type
+        self.invariants_layer = InvariantsLayer(orders=self.orders,
+                                            in_channels=in_channels)
+
 
         # TODO: Here should be some kind of normalization of either moments and invariants
         number_of_invariants = self.moment_types.size - 2*self.input_channels # Remove the norm part 
@@ -179,16 +203,8 @@ class LearnableCesa(torch.nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
         # Separate trivials 
-        trivial = moments[:, :, :self.trivial_idx+1, :, :]
-        non_trivial = moments[:, :, self.trivial_idx+1:, :, :]
-        # Non-trivial to complex 
-        non_trivial = rearrange(non_trivial, 'b ch (o c) h w -> b ch o c h w', o=non_trivial.shape[2]//2, c=2)
-        norm = non_trivial[:, :, 0:1] 
-        norm[..., 1, :, :] *= -1  # Conjugate 
-        norm = _rotate_moments(norm, self.exponents, magnitude_func='copy')
-        non_trivial = rearrange(_complex_mul(non_trivial[:, :, 1:], norm), 'b ch o c h w -> b ch (o c) h w')
-        invariants = rearrange(torch.cat([trivial, non_trivial], dim=2), 'b ch o h w -> b (ch o) h w') 
         out = self.conv1x1(invariants)
         return out
             
