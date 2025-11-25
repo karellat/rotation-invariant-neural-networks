@@ -263,7 +263,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
         if not self.use_rotated_test or self.test_ds_rotated is None:
             return test_loader
         # Check how many n_angles you can fit in the batch size
-        rotated_batch_size = self.test_batch_size // self.n_angles
+        rotated_batch_size = max(self.test_batch_size // self.n_angles, 1)
         
         rotated_loader = DataLoader(
             self.test_ds_rotated,

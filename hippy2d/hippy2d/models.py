@@ -15,6 +15,9 @@ from hippy2d.datasets import ROTATED_TEST_SET_KEY
 from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
 
+import torch
+from pytorch_lightning import Callback
+
 # Lightning wrapper
 class InvNet(L.LightningModule):
     def __init__(self,
@@ -746,56 +749,3 @@ class PrototypeTiny(torch.nn.Module):
         x = self.classifier(x)
         return x
 
-class RotMNISTE2CNN(ExpE2SFCNN):
-    def __init__(self,
-                 in_channels: int=1,
-                 num_classes: int=10,
-                 input_size: int=28, # For compatibility, not used
-                 layer_type:str="gated_norm_shared",
-                 restrict:int = 0,
-                 N:int=-3,
-                 fixparams:bool=True,
-                 F:Optional[int]=None,
-                 J:Optional[int]=None,
-                 sigma:Optional[float]=None,
-                 deltaorth:bool=False,
-                 antialiasing:float=0.0,
-                 sgsize:Optional[int]=None,
-                 flip:bool=False
-                 ):
-        """
-        RotMNIST E2CNN model for rotation-invariant classification.
-        
-        Args:
-            n_inputs (int, optional): Number of input channels. Defaults to 1.
-            n_outputs (int, optional): Number of output classes. Defaults to 10.
-            layer_type (str, optional): Type of fiber for the EXP model. Defaults to "gated_norm_shared".
-            restrict (int, optional): Layer where to restrict SFCNN from E(2) to SE(2). 
-                Defaults to 0. Use -1 to disable restriction.
-            N (int, optional): Size of cyclic group for GCNN and maximum frequency for HNET. 
-                Defaults to -3.
-            fixparams (bool, optional): Keep the number of parameters of the model fixed 
-                by adjusting its topology. Defaults to True.
-            F (Optional[int], optional): Frequency cut-off: maximum frequency at radius "r" 
-                is "F*r". If None, no frequency cut-off is applied. Defaults to None.
-            J (Optional[int], optional): Number of additional frequencies in the interwiners 
-                of finite groups. If None, uses default value. Defaults to None.
-            sigma (Optional[float], optional): Width of the rings building the bases 
-                (std of the gaussian window). If None, uses default value. Defaults to None.
-            deltaorth (bool, optional): Use delta orthogonal initialization in conv layers. 
-                Defaults to False.
-            antialiasing (float, optional): Std for the gaussian blur in the max-pool layer. 
-                If zero, standard maxpooling is performed. Defaults to 0.0.
-            sgsize (Optional[int], optional): Number of rotations in the subgroup to restrict 
-                to in the EXP e2sfcnn models. If None, uses full group. Defaults to None.
-            flip (bool, optional): Use also reflection equivariance in the EXP model. 
-                Defaults to False.
-        """
-        super().__init__(in_channels, 
-                         num_classes,
-                         layer_type=layer_type,
-                         restrict=restrict,
-                         N=N,
-                         fix_param=fixparams, fco=F, J=J, sigma=sigma,
-                         deltaorth=deltaorth, antialias=antialiasing, sgsize=sgsize,
-                         flip=flip)
