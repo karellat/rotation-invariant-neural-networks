@@ -47,6 +47,8 @@ def get_trainer(seed: int,
         m_param["in_channels"] = datamodule.output_shape[1]
     if "num_classes" not in m_param:
         m_param["num_classes"] = datamodule.num_classes
+    if "input_size" not in m_param:
+        m_param["input_size"] = datamodule.output_shape[-1]
 
     logger.debug(f"Using dataset: {dataset_name} with parameters: {d_hparams}")
     model = get_model(model_name, m_param)

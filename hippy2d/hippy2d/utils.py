@@ -1,5 +1,6 @@
 import os
 import ast
+import math
 import click 
 import torch
 import colorsys
@@ -12,7 +13,9 @@ import multiprocessing
 import torch
 import numpy as np
 import pytorch_lightning as pl
+from torch.optim.lr_scheduler import _LRScheduler
 from pytorch_lightning.utilities import rank_zero_only
+
 # Optimal number of workers
 def get_optimal_workers():
     """Calculate optimal number of workers for DataLoader"""

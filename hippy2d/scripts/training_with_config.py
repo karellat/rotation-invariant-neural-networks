@@ -30,7 +30,7 @@ if __name__ == '__main__':
     #    print("Usage: python training_with_config.py <path_to_yaml_config>")
     #    sys.exit(1)
     #yaml_path = sys.argv[1]
-    yaml_path = 'configs/runs/resnet-learnable/resnet-histology.yaml'
+    yaml_path = 'configs/runs/resnet-learnable/e2cnn.yaml'
     if not yaml_path.endswith('.yaml') and not yaml_path.endswith('.yml'):
         print("Error: The provided file is not a YAML file.")
         sys.exit(1)

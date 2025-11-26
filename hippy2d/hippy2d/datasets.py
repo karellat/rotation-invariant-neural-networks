@@ -358,8 +358,8 @@ class ColorectalHistology(HuggingFaceDataModule):
     DATASET_NAME = "dpdl-benchmark/colorectal_histology"
     NUM_CLASSES = 8
     DEFAULT_IMAGE_SIZE = 150
-    MEAN = [0.6497, 0.4718, 0.5838]
-    STD = [0.1412, 0.1451, 0.1271]
+    MEAN = [0.485, 0.456, 0.406]
+    STD = [0.229, 0.224, 0.225]
     
     classes = {'0': 'TUMOR', '1': 'STROMA', '2': 'LYMPHOCYTE', 
                '3': 'DEBRIS', '4': 'MUCOSA', '5': 'ADIPOSE', 
@@ -369,16 +369,22 @@ class ColorectalHistology(HuggingFaceDataModule):
     def num_classes(self):
         return self.NUM_CLASSES
     
+    def _get_num_channels(self):
+        return self._channels
+    
     def __init__(self,
                  aug_crop=False,
                  aug_scale=False,
                  aug_clr_jitter=False,
                  aug_rotation=False,
+                 aug_gray_scale=False,
                  **kwargs):
         self.aug_crop = aug_crop
         self.aug_scale = aug_scale
         self.aug_clr_jitter = aug_clr_jitter
         self.aug_rotation = aug_rotation
+        self.aug_gray_scale = aug_gray_scale
+        self._channels = 3 if not aug_gray_scale else 1
         super().__init__(**kwargs)
         
         # Update output shape if cropping
@@ -404,6 +410,10 @@ class ColorectalHistology(HuggingFaceDataModule):
         # Resize to target size
         transform_list.append(transforms.Resize((self.target_size, self.target_size)))
         
+        if self.aug_gray_scale:
+            assert not self.normalize, "Cannot use grayscale augmentation with normalization"
+            transform_list.append(transforms.Grayscale(num_output_channels=1))
+
         if self.normalize:
             transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
         
@@ -426,6 +436,9 @@ class ColorectalHistology(HuggingFaceDataModule):
         # Resize to target size
         transform_list.append(transforms.Resize((self.target_size, self.target_size)))
         
+        if self.aug_gray_scale:
+            assert not self.normalize, "Cannot use grayscale augmentation with normalization"
+            transform_list.append(transforms.Grayscale(num_output_channels=1))
         if self.normalize:
             transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
 

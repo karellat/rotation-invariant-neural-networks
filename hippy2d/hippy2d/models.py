@@ -7,13 +7,18 @@ from torch.nn import functional as F
 from typing import List, Any, Dict, Optional
 
 from hippy2d import conv_factory
-from hippy2d.blocks import ResnetBlock, TimmBasicBlock, choose_groups
+from hippy2d import blocks
+from hippy2d.blocks import ResnetBlock, choose_groups
 from hippy2d.e2sfcnn import ExpE2SFCNN
 from hippy2d.learnable import LearnableFlusser
 from hippy2d.utils import get_default_complex   
 from hippy2d.datasets import ROTATED_TEST_SET_KEY
 from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
+
+# ESCNN 
+import escnn
+from escnn import gspaces
 
 import torch
 from pytorch_lightning import Callback
@@ -79,7 +84,7 @@ class InvNet(L.LightningModule):
             preds, loss, acc = self.shared_step(x, y)
             # NOTE: Return the validation loss with key 'val'
             # Other datasets are only for debugging purposes
-            self.log(f'{k}_loss', loss, sync_dist=True)
+            self.log(f'{k}_loss', loss, sync_dist=True, prog_bar=True, on_step=False, on_epoch=True)
             self.log(f'{k}_acc', acc, prog_bar=True, sync_dist=True)
             if k == 'val':
                 res_preds = preds
@@ -455,7 +460,7 @@ class Resnet(torch.nn.Module):
                  input_size:int = 64,
                  stem_kernel_size: int = 15,
                  kernels_size: int = [11, 11, 11, 11],
-                 block_types: list = [TimmBasicBlock, TimmBasicBlock, TimmBasicBlock, TimmBasicBlock],
+                 block_types: list = ["TimmBasicBlock", "TimmBasicBlock", "TimmBasicBlock", "TimmBasicBlock"],
                  layers: list = [1, 1, 1, 1], 
                  channels: list = [10, 10, 10, 10],
                  # Block settings
@@ -469,7 +474,14 @@ class Resnet(torch.nn.Module):
                  drop_rate: float = 0.0): 
         super(Resnet, self).__init__()
         assert len(block_types) == len(layers) == len(channels), "block_types, layers and channels must have the same length"
-        assert len(block_types) == 4, "Currently only 4 stages are supported"
+        assert len(block_types) == 3
+        _new_block_types = []
+        for block_type in block_types:
+            if not hasattr(blocks, block_type):
+                raise ValueError(f"Unknown block type: {block_type}")
+            else: 
+                _new_block_types.append(getattr(blocks, block_type))
+        block_types = _new_block_types
 
 
         act = getattr(nn, activation)
@@ -519,7 +531,7 @@ class Resnet(torch.nn.Module):
             self.add_module(*stage)  # layer1, layer2, etc
         self.feature_info.extend(stage_feature_info)
 
-        # Head (Pooling and Classifier)
+        # Head (Pooling and Classifier,)
         self.num_feature = self.head_hidden_size = channels[-1]
         self.classification = classification
         if classification:
@@ -536,7 +548,8 @@ class Resnet(torch.nn.Module):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
-        x = self.layer4(x)
+        #TODO: Fix this
+        #x = self.layer4(x)
         return x
 
     def forward_head(self, x: torch.Tensor) -> torch.Tensor:
@@ -749,3 +762,195 @@ class PrototypeTiny(torch.nn.Module):
         x = self.classifier(x)
         return x
 
+# ESCNN tools
+_TRIVIAL = 'trivials'
+_VECTORS = 'vectors'
+
+def _label_field_types(field_type: escnn.nn.FieldType):
+    labels = [_TRIVIAL if repr.is_trivial() else _VECTORS for repr in field_type]
+    return  labels, field_type.group_by_labels(labels=labels)
+
+class E2Cnn(torch.nn.Module): 
+
+    def _get_field_types(self, channels: int): 
+        scalar_field = escnn.nn.FieldType(self.r2_act, 
+                                     channels * [self.trivial])
+        vector_fields = escnn.nn.FieldType(self.r2_act,
+                                           [irrep for irrep in self.irreps for _ in range(channels)])
+        return scalar_field, vector_fields
+
+
+    def __init__(self, 
+                 input_size:int,
+                 in_channels:int = 3,
+                 num_classes:int = 10, 
+                 max_order: int = 3,
+                 vector_norm: str = "IIDBatchNorm2d",
+                 stem_channels: int = 16, 
+                 stem_kernel_size: int = 7,
+                 stem_pool: bool = False,
+                 blocks : list = [1, 2, 2], 
+                 channels: list = [52, 69, 103],
+                 kernel_size: List[int] = [5, 5, 5],
+                 block_type: str = "GatedBlock",
+                 drop_rate: float = 0.0,
+                 classifier_size: int = 64,
+                 pool_size: int = 2, 
+                 ):
+        super(E2Cnn, self).__init__()
+        assert len(blocks) == len(channels), "blocks and channels must have the same length"
+        assert len(blocks) == len(kernel_size), "blocks and kernel_size must have the same length"
+        assert len(blocks) > 0, "At least one block must be specified"
+        assert block_type == "GatedBlock", "Only GatedBlock is implemented"
+        assert stem_pool == False, "Stem pooling is not implemented"
+
+        self.r2_act = gspaces.rot2dOnR2(N=-1, maximum_frequency=max_order)
+        self.in_channels = in_channels
+        self.input_size = input_size
+        self.pool_size = pool_size
+        self.trivial = self.r2_act.trivial_repr
+        self.irreps = self.r2_act.irreps[1:]
+        self.drop_rate = drop_rate
+
+        self.in_type = escnn.nn.FieldType(self.r2_act,
+                                     self.in_channels * [self.trivial])
+        out_trivial, out_irreps =  self._get_field_types(stem_channels)
+
+        self.mask = escnn.nn.MaskModule(self.in_type, S=input_size)
+        self.stem = GatedBlock(r2_act=self.r2_act,
+                               in_type=self.in_type,
+                               out_scalar_type=out_trivial,
+                               out_vector_type=out_irreps,
+                               channels=stem_channels,
+                               kernel_size=stem_kernel_size,
+                               vector_norm=vector_norm)
+        out_type = self.stem.out_type
+
+        # Feature Extractor 
+        blocks = []
+        for block_idx, num_layers in enumerate(blocks):
+            layers = []
+            for layer_idx in range(num_layers):
+                out_trivial, out_irreps = self._get_field_types(channels[block_idx])
+                layer = GatedBlock(r2_act=self.r2_act,
+                                         in_type=out_type,
+                                         out_scalar_type=out_trivial,
+                                         out_vector_type=out_irreps,
+                                         channels=channels[block_idx],
+                                         kernel_size=kernel_size[block_idx],
+                                         vector_norm=vector_norm)
+                layers.append(layer)
+                out_type = layer.out_type
+            # Pooling 
+            if block_idx < len(blocks) - 1:
+                labels, labeled_out_type =  _label_field_types(out_type)
+                pool = escnn.nn.MultipleModule(
+                    modules=[(escnn.nn.PointwiseMaxPool2D(labels= labeled_out_type[_TRIVIAL], kernel_size=self.pool_size), _TRIVIAL),
+                             (escnn.nn.NormMaxPool(labeled_out_type[_VECTORS], kernel_size=self.pool_size), _VECTORS)],
+                    in_type=out_type,
+                    labels=labels)
+                layers.append(pool)
+                out_type = pool.out_type
+
+            blocks.append(escnn.nn.SequentialModule(*layers))
+
+        self.blocks = escnn.nn.SequentialModule(*blocks)
+
+        # Pooling & Invariant Map
+        labels, labeled_out_type =  _label_field_types(out_type)
+        self.invariant_map = escnn.nn.MultipleModule(
+            modules=[
+                (escnn.nn.IdentityModule(labeled_out_type[_TRIVIAL]), _TRIVIAL), 
+                (escnn.nn.NormPool(labeled_out_type[_VECTORS]), _VECTORS)],
+            in_type=out_type,
+            labels=labels,
+            reshuffle=0, 
+        ) 
+        self.pool = escnn.nn.PointwiseAdaptiveMaxPool(self.invariant_map.out_type, output_size=1)
+
+        # Classifier
+        self.classifier = torch.nn.Sequential(
+            torch.nn.Linear(self.invariant_map.out_type.size, classifier_size),
+            torch.nn.BatchNorm1d(classifier_size),
+            torch.nn.ELU(inplace=True),
+            torch.nn.Linear(classifier_size, num_classes),
+        )
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = escnn.nn.GeometricTensor(x, self.in_type)
+        x = self.mask(x)
+        x = self.stem(x)
+        x = self.blocks(x)
+        x = self.invariant_map(x)
+        x = self.pool(x)
+        x = x.tensor.view(x.tensor.size(0), -1)
+        x = F.dropout(x, p=self.drop_rate, training=self.training)
+        x = self.classifier(x)
+        return x
+        
+
+
+
+class GatedBlock(escnn.nn.modules.EquivariantModule): 
+    _IMPLEMENTED_VECTOR_ACTIVATIONS = ['shared-gated', 'gated']
+    def __init__(self, 
+                 r2_act: escnn.gspaces.GSpace,
+                 in_type: escnn.nn.FieldType, 
+                 out_scalar_type: escnn.nn.FieldType,
+                 out_vector_type: escnn.nn.FieldType,
+                 channels: int, 
+                 kernel_size: int,
+                 padding: int = 0,
+                 conv_sigma: float = 0.0,
+                 scalar_norm: str = 'InnerBatchNorm',
+                 vector_norm: str = 'IIDBatchNorm2d',
+                 scalar_activation: str = "ELU",
+                 vector_activation: str = "shared-gated"):
+        out_type = out_scalar_type + out_vector_type
+        super(GatedBlock, self).__init__(in_type, out_type)
+        assert vector_activation in self._IMPLEMENTED_VECTOR_ACTIVATIONS, f"Only {self._IMPLEMENTED_VECTOR_ACTIVATIONS} vector activation is implemented"
+        if vector_activation == 'shared-gated':
+            gates_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * channels)
+        elif vector_activation == 'gated':
+            gates_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_vector_type.size)
+
+        vector_gate_type = gates_type + out_vector_type 
+        all_types = out_scalar_type + vector_gate_type
+        labels, labeled_all_types = _label_field_types(all_types)
+
+        # Prepare convolutional layer
+        self.conv = escnn.nn.R2Conv(in_type,
+                                    all_types,
+                                    kernel_size=kernel_size,
+                                    padding=padding,
+                                    sigma=conv_sigma)
+        # Normalizations 
+        assert hasattr(escnn.nn, scalar_norm), f"Batch norm {scalar_norm} not found in escnn.nn"
+        scalar_norm = getattr(escnn.nn, scalar_norm)
+        assert hasattr(escnn.nn, vector_norm), f"Batch norm {vector_norm} not found in escnn.nn"
+        vector_norm = getattr(escnn.nn, vector_norm)
+
+        self.norm = escnn.nn.MultipleModule(intype=all_types,
+                                            labels=labels,
+                                            modules={[scalar_norm(labeled_all_types[_TRIVIAL]), _TRIVIAL],
+                                                     [vector_norm(labeled_all_types[_VECTORS]), _VECTORS]})
+        
+        # Gating activations
+        assert hasattr(escnn.nn, scalar_activation), f"Activation {scalar_activation} not found in torch.nn"
+        scalar_activation = getattr(escnn.nn, scalar_activation)
+        if vector_activation == 'shared-gated' or vector_activation == 'gated':
+            vector_activation = escnn.nn.GatedNonLinearity1
+
+        labels_with_gate = [_TRIVIAL] * out_scalar_type.size + ["gate"] * gates_type.size + ["gate"] * out_vector_type.size
+        self.act = escnn.nn.MultipleModule(in_type=all_types,
+                                           labels=labels_with_gate,
+                                            modules=([scalar_activation(), _TRIVIAL],
+                                                     [vector_activation(), "gate"]))
+    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
+        x = self.conv(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+    
+    def evaluate_output_shape(self, input_shape):
+        return super().evaluate_output_shape(input_shape)
+    

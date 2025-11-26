@@ -1,4 +1,5 @@
 
+from typing import Optional
 import torch 
 import escnn
 from hippy2d.learnable import complex_power_moivre, flusser_basis_orders
@@ -40,7 +41,6 @@ def _complex_mul(x, y, complex_dim=3):
     imag = xr * yi + xi * yr
     return torch.stack((real, imag), dim=complex_dim)
 
-
 def _rotate_moments(moments: torch.Tensor,
                     exponents: torch.Tensor,
                     eps=1e-8,
@@ -72,14 +72,15 @@ class MomentLayer(torch.nn.Module):
                  max_order: int,
                  orders: list[int],
                  in_channels: int, 
+                 groups: Optional[int]=1,
                  padding: str='same',
                  kernel_size: int=15):
         super().__init__()
         # Parameters
         self.orders = orders
         self.max_order = max_order
-        self.in_size = 1
-        self.groups = in_channels
+        self.groups = groups if groups is not None else in_channels
+        self.in_size = in_channels // self.groups
         self.padding = compute_padding(padding, kernel_size)
         self.in_channels = in_channels
         self.kernel_size = kernel_size
@@ -145,24 +146,39 @@ class MomentLayer(torch.nn.Module):
 class InvariantsLayer(torch.nn.Module):
     def __init__(self,
                  orders: list[int],
-                 in_channels: int, 
-                 padding: str='same'):
+                 in_channels: int,
+                 groups: int,
+                 magnitude_func: str='copy'):
         super().__init__()
         # Parameters
         self.orders = orders
-        self.trivial_idx = np.sum(np.array(self.orders) ==0)
+        self.in_channels = in_channels
+        self.groups = groups
+        self.in_size = in_channels // groups
+        self.magnitude_func = magnitude_func
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        self.diagonal_idx = np.sum(np.array(self.orders) == 1) - 1
         self.register_buffer("exponents", torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None]) 
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
         non_trivial = moments[:, :, self.trivial_idx:, :, :]
         # Non-trivial to complex 
-        non_trivial = rearrange(non_trivial, 'b ch (o c) h w -> b ch o c h w', o=non_trivial.shape[2]//2, c=2)
+        non_trivial = rearrange(non_trivial, 
+                                'b ch (o c) h w -> b ch o c h w',
+                                 o=non_trivial.shape[2]//2,
+                                 c=2)
+        # Norm
         norm = non_trivial[:, :, 0:1] 
         norm[..., 1, :, :] *= -1  # Conjugate 
-        norm = _rotate_moments(norm, self.exponents, magnitude_func='copy')
-        non_trivial = rearrange(_complex_mul(non_trivial[:, :, 1:], norm), 'b ch o c h w -> b ch (o c) h w')
-        invariants = rearrange(torch.cat([trivial, non_trivial], dim=2), 'b ch o h w -> b (ch o) h w') 
+        norm_of_norm = torch.norm(norm, dim=-3)
+        norm = _rotate_moments(norm, self.exponents, magnitude_func=self.magnitude_func)
+        non_trivial = _complex_mul(non_trivial[:, :, 1:], norm) 
+        diagonal = non_trivial[:, :, :self.diagonal_idx, 0]
+        non_trivial = rearrange(non_trivial[:, :, self.diagonal_idx:], 'b ch o c h w -> b ch (o c) h w')
+        # All symmetric 
+        
+        invariants = rearrange(torch.cat([trivial, diagonal, norm_of_norm, non_trivial], dim=2), 'b ch o h w -> b (ch o) h w') 
         return invariants
 
 class LearnableCesa(torch.nn.Module): 
@@ -173,8 +189,9 @@ class LearnableCesa(torch.nn.Module):
                   input_size: int,
                   padding: str='same',
                   max_order: int=4, 
+                  groups: int = 1, 
                   kernel_size: int=15,
-                  ):
+                  magnitude_func: str='copy'):
         super().__init__()
         self.orders = flusser_basis_orders(max_order) 
         self.out_channels = out_channels
@@ -185,11 +202,14 @@ class LearnableCesa(torch.nn.Module):
                                         max_order=max_order,
                                         in_channels=in_channels,
                                         padding=padding,
-                                        kernel_size=kernel_size)
+                                        kernel_size=kernel_size, 
+                                        groups=groups)
         # Construct invariants
         self.moment_types = self.moment_layer.out_type
         self.invariants_layer = InvariantsLayer(orders=self.orders,
-                                            in_channels=in_channels)
+                                                groups=groups,
+                                                magnitude_func=magnitude_func,
+                                                in_channels=in_channels)
 
 
         # TODO: Here should be some kind of normalization of either moments and invariants

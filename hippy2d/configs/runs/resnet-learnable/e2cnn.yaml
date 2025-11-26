@@ -1,0 +1,23 @@
+d_hparams:
+  test_batch_size: 64
+  batch_size: 64
+  normalize: False
+  aug_gray_scale: False
+dataset_name: ColorectalHistology
+early_stopping: 15 
+epochs: 100
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 20
+  - 40
+  - 60
+lr_name: MultiStepLR
+model_name: E2Cnn 
+optimizer_hparams:
+  lr: 0.001
+optimizer_name: AdamW
+label_smoothing: 0.1
+seed: 390
+run_name: resnet-e2cnn
+debug: True

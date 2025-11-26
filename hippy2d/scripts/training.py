@@ -18,6 +18,7 @@ from lightning.pytorch.utilities.combined_loader import CombinedLoader
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from hippy2d.learnable import LearnableFlusser
 from hippy2d.trainer import get_trainer, EpochTimeLogger
 from hippy2d.models import InvNet
 from hippy2d.utils import ClickDictionaryType
@@ -113,12 +114,9 @@ def plot_activation_distributions(activations, layer_names, orders, in_channels,
     """
     # Create figure with subplots for each layer
     n_layers = len(layer_names)
-    columns = 1 if len(orders) == 0 else len(np.unique(orders[layer_names[0]]))
+    columns = 1 if len(orders) == 0 or len(in_channels) == 0 else len(np.unique(orders[layer_names[0]]))
 
     fig, axes = plt.subplots(n_layers, columns, figsize=(10*columns, 3 * n_layers))
-    
-    if n_layers == 1:
-        axes = [axes]
     
     for idx, layer_name in enumerate(layer_names):
         acts = activations[layer_name]
@@ -148,7 +146,7 @@ def plot_activation_distributions(activations, layer_names, orders, in_channels,
                 axes[idx][col_idx+1].set_ylabel("Imaginary part")
         else: 
             # Plot histogram/density
-            axes[idx].hist(acts, bins=50, density=True, alpha=0.7, color='C0', edgecolor='black')
+            axes[idx].hist(acts.reshape(-1), bins=50, density=True, alpha=0.7, color='C0', edgecolor='black')
             axes[idx].set_title(f"{layer_name}\n(mean={np.mean(acts):.3f}, var={np.var(acts):.3f})")
             axes[idx].set_xlabel("Activation values")
             axes[idx].set_ylabel("Density")
@@ -157,7 +155,7 @@ def plot_activation_distributions(activations, layer_names, orders, in_channels,
     plt.tight_layout()
     
     # Log to wandb
-    wandb.log({f"{prefix}_activations/distribution": wandb.Image(fig)})
+    wandb.log({f"{prefix}_activations": wandb.Image(fig)})
     plt.close(fig)
 
 @click.command()
@@ -167,8 +165,8 @@ def plot_activation_distributions(activations, layer_names, orders, in_channels,
 @click.option('--debug', is_flag=True, default=False, help='Run in debug mode with small datasets.')
 @click.option('--dataset_name', default='ColorectalHistology', type=str, help='Name of the dataset.')
 @click.option('--d_hparams', default=dict(batch_size=32), type=ClickDictionaryType(), help='Dataset hyperparameters.')
-@click.option('--model_name', default="PrototypeOptimalInvCNN", type=str, help='Name of the model to use.')
-@click.option('--m_param', default=dict(in_channels=3, num_classes=8, input_size=150, norm='batch', init_channels=7, n_blocks=4, m_layers=3, kernel_size=11), type=ClickDictionaryType(), help='Model hyperparameters.')
+@click.option('--model_name', default="Resnet", type=str, help='Name of the model to use.')
+@click.option('--m_param', default=dict(), type=ClickDictionaryType(), help='Model hyperparameters.')
 @click.option('--optimizer_name', default='AdamW', type=str, help='Optimizer name.')
 @click.option('--optimizer_hparams', default=dict(lr=1e-2), type=ClickDictionaryType(), help='Optimizer hyperparameters.')
 @click.option('--lr_name', default='MultiStepLR', type=str, help='Learning rate scheduler name.')
@@ -330,20 +328,22 @@ def training_loop(run_name: str,
                 if type(test_loader) is CombinedLoader:
                     test_loader = test_loader.iterables['test']
 
-                # Collect activations
-                activations, layer_names, orders, in_channels = collect_activations(
-                    model=best_model.model,
-                    dataloader=test_loader,
-                    device=trainer.strategy.root_device,
-                    max_batches=10,
-                    layer_type=MomentLayer
-                )
-                
-                if len(layer_names) > 0:
-                    plot_activation_distributions(activations, layer_names, orders, in_channels, prefix="test")
-                    logger.info(f"Successfully logged activations for {len(layer_names)} {MomentLayer.__name__} layers")
-                else:
-                    logger.warning(f"No {MomentLayer.__name__} layers found in the model")
+                tracked_layers = [MomentLayer, LearnableCesa, LearnableFlusser]
+                for layer_type in tracked_layers:
+                    logger.info(f"Collecting activations from {layer_type.__name__} layers...")
+                    activations, layer_names, orders, in_channels = collect_activations(
+                        model=best_model.model,
+                        dataloader=test_loader,
+                        device=trainer.strategy.root_device,
+                        max_batches=10,
+                        layer_type=layer_type
+                    )
+                    
+                    if len(layer_names) > 0:
+                        plot_activation_distributions(activations, layer_names, orders, in_channels, prefix=f"{layer_type.__name__}")
+                        logger.info(f"Successfully logged activations for {len(layer_names)} {layer_type.__name__} layers")
+                    else:
+                        logger.warning(f"No {layer_type.__name__} layers found in the model")
             except Exception as e:
                 logger.error(f"Error collecting activations: {e}")
                 import traceback

@@ -24,7 +24,7 @@ class TestLearnable:
     @pytest.fixture
     def test_images(self):
         test_img = get_testing_img(rgb=True)
-        test_img = transforms.ToTensor()(test_img).to(dtype=torch.float64)
+        test_img = transforms.ToTensor()(test_img).to(dtype=torch.get_default_dtype())
         rotated_img = torch.rot90(test_img, 1, [1, 2])
         x = repeat(test_img, f'c h w -> 1 c h w').to(dtype=torch.get_default_dtype())
         rot_input = repeat(rotated_img, f'c h w -> 1 c h w').to(dtype=torch.get_default_dtype())
