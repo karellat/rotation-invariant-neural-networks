@@ -55,7 +55,7 @@ def get_trainer(seed: int,
     logger.debug(f"Using model: {model_name} with parameters: {m_param}")
 
     # Lighting model
-    model = InvNet(input_shape=datamodule.output_shape,
+    model = InvNet(input_shape=m_param['input_size'],
                    model=model,
                    optimizer_name=optimizer_name,
                    optimizer_hparams=optimizer_hparams,

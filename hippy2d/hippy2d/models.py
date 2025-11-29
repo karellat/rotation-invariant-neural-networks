@@ -4,17 +4,15 @@ import lightning as L
 from loguru import logger
 from einops import rearrange
 from torch.nn import functional as F
+from torch import optim
 from typing import List, Any, Dict, Optional
 
 from hippy2d import blocks
 from hippy2d.RnNet import R2Net
 from hippy2d import conv_factory
 from hippy2d.blocks import ResnetBlock, choose_groups
-from hippy2d.e2sfcnn import ExpE2SFCNN
-from hippy2d.learnable import LearnableFlusser
 from hippy2d.utils import get_default_complex   
 from hippy2d.datasets import ROTATED_TEST_SET_KEY
-from hippy2d.optimal_invariant_cnn import ComplexInvariantConv2D
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
 
 # ESCNN 
@@ -42,20 +40,20 @@ class InvNet(L.LightningModule):
         self.input_shape = input_shape
 
     def configure_optimizers(self):
-        # NOTE: Please see https://lightning.ai/docs/pytorch/stable/common/lightning_module.html#configure-optimizers
-        if hasattr(torch.optim, self.hparams.optimizer_name):
-            optimizer = getattr(torch.optim, self.hparams.optimizer_name)(self.parameters(),
-                                                                          **self.hparams.optimizer_hparams)
-        else:
-            raise RuntimeError(f'Unknown optimizer: "{self.hparams.optimizer_name}"')
+        optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=0.001)
+        scheduler = optim.lr_scheduler.SequentialLR(
+                    optimizer,
+                    schedulers=[
+                        optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=20),
+                        optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
+                    ],
+                    milestones=[20]
+                )
 
-        if self.hparams.lr_name == "None":
-            return optimizer
-        elif hasattr(torch.optim.lr_scheduler, self.hparams.lr_name):
-            scheduler = getattr(torch.optim.lr_scheduler, self.hparams.lr_name)(optimizer, **self.hparams.lr_hparams)
-            return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "train_loss"}
-        else:
-            raise RuntimeError(f'Unknown optimizer: "{self.hparams.optimizer_name}"')
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"}
+        }
 
     def shared_step(self, x, y):
         y_hat = self.model(x)
@@ -776,8 +774,11 @@ class E2Cnn(torch.nn.Module):
     def _get_field_types(self, channels: int): 
         scalar_field = escnn.nn.FieldType(self.r2_act, 
                                      channels * [self.trivial])
+        # For SO(2): Use regular representation or specific frequencies
+        # Instead of [irrep1, irrep1, ..., irrep2, irrep2, ..., irrep3, irrep3, ...]
+        # Use [irrep1, irrep2, irrep3, irrep1, irrep2, irrep3, ...] per channel
         vector_fields = escnn.nn.FieldType(self.r2_act,
-                                           [irrep for irrep in self.irreps for _ in range(channels)])
+                                           channels * list(self.irreps))
         return scalar_field, vector_fields
 
 
@@ -815,47 +816,40 @@ class E2Cnn(torch.nn.Module):
 
         self.in_type = escnn.nn.FieldType(self.r2_act,
                                      self.in_channels * [self.trivial])
-        out_trivial, out_irreps =  self._get_field_types(stem_channels)
-
         self.mask = escnn.nn.MaskModule(self.in_type, S=input_size)
         self.stem = GatedBlock(r2_act=self.r2_act,
                                in_type=self.in_type,
-                               out_scalar_type=out_trivial,
-                               out_vector_type=out_irreps,
+                               padding=0,
                                channels=stem_channels,
-                               kernel_size=stem_kernel_size,
-                               vector_norm=vector_norm)
+                               kernel_size=stem_kernel_size)
         out_type = self.stem.out_type
 
         # Feature Extractor 
-        blocks = []
+        _blocks = []
         for block_idx, num_layers in enumerate(blocks):
             layers = []
             for layer_idx in range(num_layers):
-                out_trivial, out_irreps = self._get_field_types(channels[block_idx])
                 layer = GatedBlock(r2_act=self.r2_act,
-                                         in_type=out_type,
-                                         out_scalar_type=out_trivial,
-                                         out_vector_type=out_irreps,
-                                         channels=channels[block_idx],
-                                         kernel_size=kernel_size[block_idx],
-                                         vector_norm=vector_norm)
+                                   in_type=out_type,
+                                   padding=2 if (block_idx < len(blocks) -1) and (layer_idx < num_layers -1) else 0,
+                                   channels=channels[block_idx],
+                                   kernel_size=kernel_size[block_idx])
                 layers.append(layer)
                 out_type = layer.out_type
             # Pooling 
             if block_idx < len(blocks) - 1:
                 labels, labeled_out_type =  _label_field_types(out_type)
                 pool = escnn.nn.MultipleModule(
-                    modules=[(escnn.nn.PointwiseMaxPool2D(labels= labeled_out_type[_TRIVIAL], kernel_size=self.pool_size), _TRIVIAL),
+                    modules=[(escnn.nn.PointwiseMaxPool2D(labeled_out_type[_TRIVIAL], kernel_size=self.pool_size), _TRIVIAL),
                              (escnn.nn.NormMaxPool(labeled_out_type[_VECTORS], kernel_size=self.pool_size), _VECTORS)],
                     in_type=out_type,
                     labels=labels)
                 layers.append(pool)
                 out_type = pool.out_type
 
-            blocks.append(escnn.nn.SequentialModule(*layers))
+            _blocks.append(escnn.nn.SequentialModule(*layers))
 
-        self.blocks = escnn.nn.SequentialModule(*blocks)
+        self.blocks = escnn.nn.SequentialModule(*_blocks)
 
         # Pooling & Invariant Map
         labels, labeled_out_type =  _label_field_types(out_type)
@@ -871,7 +865,7 @@ class E2Cnn(torch.nn.Module):
 
         # Classifier
         self.classifier = torch.nn.Sequential(
-            torch.nn.Linear(self.invariant_map.out_type.size, classifier_size),
+            torch.nn.Linear(self.pool.out_type.size, classifier_size),
             torch.nn.BatchNorm1d(classifier_size),
             torch.nn.ELU(inplace=True),
             torch.nn.Linear(classifier_size, num_classes),
@@ -889,60 +883,53 @@ class E2Cnn(torch.nn.Module):
         return x
         
 class GatedBlock(escnn.nn.modules.EquivariantModule): 
-    _IMPLEMENTED_VECTOR_ACTIVATIONS = ['shared-gated', 'gated']
     def __init__(self, 
                  r2_act: escnn.gspaces.GSpace,
                  in_type: escnn.nn.FieldType, 
-                 out_scalar_type: escnn.nn.FieldType,
-                 out_vector_type: escnn.nn.FieldType,
                  channels: int, 
                  kernel_size: int,
                  padding: int = 0,
-                 conv_sigma: float = 0.0,
-                 scalar_norm: str = 'InnerBatchNorm',
-                 vector_norm: str = 'IIDBatchNorm2d',
-                 scalar_activation: str = "ELU",
-                 vector_activation: str = "shared-gated"):
-        out_type = out_scalar_type + out_vector_type
-        super(GatedBlock, self).__init__(in_type, out_type)
-        assert vector_activation in self._IMPLEMENTED_VECTOR_ACTIVATIONS, f"Only {self._IMPLEMENTED_VECTOR_ACTIVATIONS} vector activation is implemented"
-        if vector_activation == 'shared-gated':
-            gates_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * channels)
-        elif vector_activation == 'gated':
-            gates_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_vector_type.size)
+                 conv_sigma: float = 0.6):
+        super(GatedBlock, self).__init__()
+        self.in_type = in_type
+        irreps = []
+        for n, irr in enumerate(r2_act.fibergroup.irreps()):
+            if not irr.is_trivial():
+                irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
+        irreps = list(irreps)
 
-        vector_gate_type = gates_type + out_vector_type 
-        all_types = out_scalar_type + vector_gate_type
-        labels, labeled_all_types = _label_field_types(all_types)
+        irreps_field = escnn.group.directsum(list(irreps), name="irreps")
+
+        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * channels)
+        gates = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * channels)
+        gated = escnn.nn.FieldType(r2_act, [irreps_field] * channels).sorted()
+        gate = gates + gated
 
         # Prepare convolutional layer
         self.conv = escnn.nn.R2Conv(in_type,
-                                    all_types,
+                                    (trivials + gate),
                                     kernel_size=kernel_size,
                                     padding=padding,
-                                    sigma=conv_sigma)
-        # Normalizations 
-        assert hasattr(escnn.nn, scalar_norm), f"Batch norm {scalar_norm} not found in escnn.nn"
-        scalar_norm = getattr(escnn.nn, scalar_norm)
-        assert hasattr(escnn.nn, vector_norm), f"Batch norm {vector_norm} not found in escnn.nn"
-        vector_norm = getattr(escnn.nn, vector_norm)
-
-        self.norm = escnn.nn.MultipleModule(intype=all_types,
-                                            labels=labels,
-                                            modules={[scalar_norm(labeled_all_types[_TRIVIAL]), _TRIVIAL],
-                                                     [vector_norm(labeled_all_types[_VECTORS]), _VECTORS]})
+                                    sigma=conv_sigma,
+                                    initialize=True)
         
-        # Gating activations
-        assert hasattr(escnn.nn, scalar_activation), f"Activation {scalar_activation} not found in torch.nn"
-        scalar_activation = getattr(escnn.nn, scalar_activation)
-        if vector_activation == 'shared-gated' or vector_activation == 'gated':
-            vector_activation = escnn.nn.GatedNonLinearity1
-
-        labels_with_gate = [_TRIVIAL] * out_scalar_type.size + ["gate"] * gates_type.size + ["gate"] * out_vector_type.size
-        self.act = escnn.nn.MultipleModule(in_type=all_types,
-                                           labels=labels_with_gate,
-                                            modules=([scalar_activation(), _TRIVIAL],
-                                                     [vector_activation(), "gate"]))
+        # Normalization
+        labels = ["trivial"] * (len(trivials) + len(gates)) + ["gated"] * len(gated)
+    
+        modules = [
+            (escnn.nn.InnerBatchNorm(trivials + gates), "trivial"),
+            (escnn.nn.NormBatchNorm(gated), "gated")
+        ]
+        self.norm = escnn.nn.MultipleModule(self.conv.out_type, labels, modules)
+        # Gating Activations
+        labels = ["trivial"] * len(trivials) + ["gate"] * len(gate)
+        modules = [
+            (escnn.nn.ELU(trivials), "trivial"),
+            (escnn.nn.GatedNonLinearity1(gate), "gate")
+        ]
+        self.act = escnn.nn.MultipleModule(self.norm.out_type, labels, modules)
+        self.out_type = self.act.out_type
+    
     def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
         x = self.conv(x)
         x = self.norm(x)

@@ -1,7 +1,7 @@
-from e2cnn.gspaces import *
-from e2cnn.nn import *
-from e2cnn.group import *
-from e2cnn.nn import init
+from escnn.gspaces import *
+from escnn.nn import *
+from escnn.group import *
+from escnn.nn import init
 
 import torch
 import torch.nn as nn

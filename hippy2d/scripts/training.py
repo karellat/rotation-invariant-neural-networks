@@ -253,6 +253,7 @@ def training_loop(run_name: str,
             detect_anomaly=True,
             deterministic="warn",
             devices=1,
+
         )
     else:
         trainer_params = dict(
@@ -261,8 +262,8 @@ def training_loop(run_name: str,
         )
 
     # Lightning callbacks
-    checkpoint_callback = callbacks.ModelCheckpoint(monitor="val_acc",
-                                                    mode="max",
+    checkpoint_callback = callbacks.ModelCheckpoint(monitor="val_loss",
+                                                    mode="min",
                                                     save_weights_only=True)
     trainer_callbacks = [checkpoint_callback,
                          callbacks.ModelSummary(max_depth=-1),
