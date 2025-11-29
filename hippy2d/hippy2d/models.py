@@ -6,8 +6,9 @@ from einops import rearrange
 from torch.nn import functional as F
 from typing import List, Any, Dict, Optional
 
-from hippy2d import conv_factory
 from hippy2d import blocks
+from hippy2d.RnNet import R2Net
+from hippy2d import conv_factory
 from hippy2d.blocks import ResnetBlock, choose_groups
 from hippy2d.e2sfcnn import ExpE2SFCNN
 from hippy2d.learnable import LearnableFlusser
@@ -887,9 +888,6 @@ class E2Cnn(torch.nn.Module):
         x = self.classifier(x)
         return x
         
-
-
-
 class GatedBlock(escnn.nn.modules.EquivariantModule): 
     _IMPLEMENTED_VECTOR_ACTIVATIONS = ['shared-gated', 'gated']
     def __init__(self, 
@@ -954,3 +952,18 @@ class GatedBlock(escnn.nn.modules.EquivariantModule):
     def evaluate_output_shape(self, input_shape):
         return super().evaluate_output_shape(input_shape)
     
+class RnNetBridge(R2Net):
+    def __init__(self, 
+                 input_size: int,
+                 num_classes: int,
+                 in_channels: int=3):
+        super(RnNetBridge, self).__init__(n_classes=num_classes,
+                                          max_rot_order=3,
+                                          flip=False,
+                                          channels_per_block=(16, 52, 69, 69, 103, 103),
+                                          kernels_per_block=(7, 5, 5, 5, 5, 5),
+                                          paddings_per_block=(1, 2, 2, 2, 2, 0),
+                                          conv_sigma=0.6,
+                                          pool_size=2,
+                                          pool_sigma=0.6, 
+                                          img_size=input_size)
