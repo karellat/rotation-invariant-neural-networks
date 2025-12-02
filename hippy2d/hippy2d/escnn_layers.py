@@ -5,6 +5,7 @@ from collections import defaultdict
 
 from hippy2d.utils import SafeAtan2
 
+# Pure invariant layer
 class InvariantLayer(escnn.nn.EquivariantModule): 
     def __init__(self, 
                  r2_act: escnn.gspaces.rot2dOnR2,
@@ -21,15 +22,13 @@ class InvariantLayer(escnn.nn.EquivariantModule):
         assert "norm_factor" in [r.name for r in in_type.representations], "Input type must contain norm_factor representation"
 
         self.in_type = in_type
+        
         # To be init function 
         nfields = defaultdict(int)
-
         # indices of the channels corresponding to fields belonging to each group
         _indices = defaultdict(lambda: [])
-
         # whether each group of fields is contiguous or not
         _contiguous = {}
-        # Assert that the input representation contains norm_factor of size channels 
 
 
         position = 0
@@ -65,6 +64,7 @@ class InvariantLayer(escnn.nn.EquivariantModule):
         assert "trivial" in _indices or "non_trivial" in _indices, "Input type must contain at least trivial or non-trivial representations"
         assert "norm_factor" in _indices, "Input type must contain norm_factor representation"
         
+        # Prepare exponents for rotation of norm_factors
         exponents = []
         for name, count in nfields.items():
             if name == "norm_factor" or name == "irrep_0":
@@ -79,7 +79,6 @@ class InvariantLayer(escnn.nn.EquivariantModule):
         
         assert len(exponents) > 0, "Input type must contain at least one non-trivial representation"
         exponents = torch.stack(exponents, dim=0) # Orders x Channels x Complex x H x W
-
 
         self.register_buffer("trivial_indices", torch.tensor(_indices["trivial"]))
         self.register_buffer("non_trivial_indices", torch.tensor(_indices["non_trivial"]))
@@ -144,5 +143,56 @@ class InvariantLayer(escnn.nn.EquivariantModule):
     def check_equivariance(self, atol: float = 1e-6) -> None:
         pass
 
+    def evaluate_output_shape(self, input_shape):
+        return super().evaluate_output_shape(input_shape)
+
+
+class InvGatedBlock(escnn.nn.modules.EquivariantModule): 
+    def __init__(self, 
+                 r2_act: escnn.gspaces.GSpace,
+                 in_type: escnn.nn.FieldType, 
+                 out_channels: int, 
+                 kernel_size: int,
+                 padding: int = 0,
+                 conv_sigma: float = 0.6):
+        super(InvGatedBlock, self).__init__()
+
+        self.in_type = in_type
+        if irreps is None: 
+            irreps = []
+            for n, irr in enumerate(r2_act.fibergroup.irreps()):
+                if not irr.is_trivial():
+                    irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
+            irreps = list(irreps)
+
+
+        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
+        norm_factor = escnn.group.directsum([r2_act.irrep(1)]  * out_channels, name="norm_factor")
+        norm_factor = escnn.nn.FieldType(r2_act, [norm_factor])
+        non_trivials = escnn.nn.FieldType(r2_act, sorted(irreps * out_channels, key=lambda r: r.id))
+        conv_type = trivials + norm_factor + non_trivials
+
+        # Prepare convolutional layer
+        self.conv = escnn.nn.R2Conv(in_type,
+                                    conv_type,
+                                    kernel_size=kernel_size,
+                                    padding=padding,
+                                    sigma=conv_sigma,
+                                    initialize=True)
+        
+        # Prepare invariant layer
+        self.invariant = InvariantLayer(r2_act, conv_type, out_channels)
+        # TODO: Mixing here?? 
+        self.norm = escnn.nn.InnerBatchNorm(self.invariant.out_type)
+        # Trivial activations
+        self.act = escnn.nn.ELU(self.norm.out_type)
+        self.out_type = self.act.out_type
+    
+    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
+        x = self.conv(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+    
     def evaluate_output_shape(self, input_shape):
         return super().evaluate_output_shape(input_shape)
