@@ -1,6 +1,7 @@
 from modulefinder import test
 import os
 import json
+import torch
 import click
 from einops import rearrange
 import torch
@@ -28,6 +29,8 @@ from hippy2d.escnn_prototype import LearnableCesa, MomentLayer
 from lightning.pytorch.plugins.environments import SLURMEnvironment
 SLURMEnvironment.detect = lambda: False
 WANDB_PATH = os.path.join(Path.home(), ".wandb_key.json")
+# Set high precision for matmul operations
+torch.set_float32_matmul_precision('high')
 
 def collect_activations(model, dataloader,device, max_batches=10, layer_type=LearnableCesa):
     """
@@ -163,6 +166,7 @@ def plot_activation_distributions(activations, layer_names, orders, in_channels,
 @click.option('--early_stopping', default=15, type=int, help='Early stopping patience.')
 @click.option('--epochs', default=30, type=int, help='Number of training epochs.')
 @click.option('--debug', is_flag=True, default=False, help='Run in debug mode with small datasets.')
+@click.option('--single_batch', is_flag=True, default=False, help='Train on a single batch (overfit debug mode).')
 @click.option('--dataset_name', default='ColorectalHistology', type=str, help='Name of the dataset.')
 @click.option('--d_hparams', default=dict(batch_size=32), type=ClickDictionaryType(), help='Dataset hyperparameters.')
 @click.option('--model_name', default="Resnet", type=str, help='Name of the model to use.')
@@ -179,6 +183,7 @@ def training_loop(run_name: str,
                   early_stopping: int,
                   epochs: int,
                   debug: bool,
+                  single_batch: bool,
                   dataset_name: str,
                   d_hparams: dict,
                   model_name: str,
@@ -207,6 +212,9 @@ def training_loop(run_name: str,
         'optimizer_hparams': optimizer_hparams,
         'lr_name': lr_name,
         'lr_hparams': lr_hparams,
+        'single_batch': single_batch,
+        'label_smoothing': label_smoothing,
+        'n_'
         'seed': seed,
         'sha' : sha
     }
@@ -248,18 +256,28 @@ def training_loop(run_name: str,
         d_hparams['num_workers'] = 1
         trainer_params = dict(
             limit_train_batches=0.25,
-            limit_val_batches=1,
-            limit_test_batches=1,
+            limit_val_batches=0.5,
+            limit_test_batches=0.5,
             detect_anomaly=True,
             deterministic="warn",
-            devices=1,
-
         )
     else:
         trainer_params = dict(
             detect_anomaly=False,
             deterministic=False,
         )
+
+    # Single-batch overfit mode (takes precedence over debug limits)
+    if single_batch:
+        logger.warning("Single-batch mode: training on exactly one batch per epoch (overfit_batches=10).")
+        trainer_params.update(dict(
+            overfit_batches=10,
+            limit_train_batches=10,
+            limit_val_batches=10,
+            limit_test_batches=10,
+            num_sanity_val_steps=0,
+            deterministic="warn",
+        ))
 
     # Lightning callbacks
     checkpoint_callback = callbacks.ModelCheckpoint(monitor="val_loss",
@@ -291,7 +309,7 @@ def training_loop(run_name: str,
     # Lightning trainer
     wandb_logger.watch(model,
                        log="all",
-                       log_graph=True, 
+                       log_graph=False, 
                        log_freq=1000)
     # Force datamodule to prepare data
     datamodule.prepare_data()

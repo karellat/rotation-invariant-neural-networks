@@ -1,10 +1,12 @@
 from typing import Optional, Type
+import escnn
 import torch
 from torch import nn
 
 from hippy2d import conv_factory
 from hippy2d.utils import tukey_2d
 from hippy2d.conv_factory import get_conv_layer
+from hippy2d.escnn_layers import InvariantLayer
 
 
 class ResnetBlock(torch.nn.Module):
@@ -247,7 +249,7 @@ class TimmBasicBlock(torch.nn.Module):
         
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        shortcut = self.identity(self.downsample(x))
+        #shortcut = self.identity(self.downsample(x))
 
         # First conv layer
         if self.mask1 is not None:
@@ -266,8 +268,118 @@ class TimmBasicBlock(torch.nn.Module):
 
         # TODO: Here is also squeze-and-excitation can be added
         # x = drop_path(x)
-        x += shortcut
+        #x += shortcut
         x = self.act2(x)
 
         return x
 
+class GatedBlock(escnn.nn.modules.EquivariantModule): 
+
+    def __init__(self, 
+                 r2_act: escnn.gspaces.GSpace,
+                 in_type: escnn.nn.FieldType, 
+                 out_channels: int, 
+                 kernel_size: int,
+                 padding: int = 0,
+                 conv_sigma: float = 0.6):
+        super(GatedBlock, self).__init__()
+        self.in_type = in_type
+        irreps = []
+        for n, irr in enumerate(r2_act.fibergroup.irreps()):
+            if not irr.is_trivial():
+                irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
+        irreps = list(irreps)
+
+        irreps_field = escnn.group.directsum(list(irreps), name="irreps")
+
+        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
+        gates = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
+        gated = escnn.nn.FieldType(r2_act, [irreps_field] * out_channels).sorted()
+        gate = gates + gated
+
+        # Prepare convolutional layer
+        self.conv = escnn.nn.R2Conv(in_type,
+                                    (trivials + gate),
+                                    kernel_size=kernel_size,
+                                    padding=padding,
+                                    sigma=conv_sigma,
+                                    initialize=True)
+        
+        # Normalization
+        labels = ["trivial"] * (len(trivials) + len(gates)) + ["gated"] * len(gated)
+    
+        modules = [
+            (escnn.nn.InnerBatchNorm(trivials + gates), "trivial"),
+            (escnn.nn.NormBatchNorm(gated), "gated")
+        ]
+        self.norm = escnn.nn.MultipleModule(self.conv.out_type, labels, modules)
+        # Gating Activations
+        labels = ["trivial"] * len(trivials) + ["gate"] * len(gate)
+        modules = [
+            (escnn.nn.ELU(trivials), "trivial"),
+            (escnn.nn.GatedNonLinearity1(gate), "gate")
+        ]
+        self.act = escnn.nn.MultipleModule(self.norm.out_type, labels, modules)
+        self.out_type = self.act.out_type
+    
+    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
+        x = self.conv(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+    
+    def evaluate_output_shape(self, input_shape):
+        return super().evaluate_output_shape(input_shape)
+
+class InvGatedBlock(escnn.nn.modules.EquivariantModule): 
+    def __init__(self, 
+                 r2_act: escnn.gspaces.GSpace,
+                 in_type: escnn.nn.FieldType, 
+                 out_channels: int, 
+                 kernel_size: int,
+                 padding: int = 0,
+                 conv_sigma: float = 0.6,
+                 irreps=None):
+        super(InvGatedBlock, self).__init__()
+
+        self.in_type = in_type
+        if irreps is None: 
+            irreps = []
+            for n, irr in enumerate(r2_act.fibergroup.irreps()):
+                if not irr.is_trivial():
+                    irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
+            irreps = list(irreps)
+
+
+        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
+        norm_factor = escnn.nn.FieldType(r2_act, [r2_act.irrep(1)]  * out_channels)
+        non_trivials = escnn.nn.FieldType(r2_act, sorted(irreps * out_channels, key=lambda r: r.id))
+        conv_type = trivials + norm_factor + non_trivials
+
+        # Prepare convolutional layer
+        self.conv = escnn.nn.R2Conv(in_type,
+                                    conv_type,
+                                    kernel_size=kernel_size,
+                                    padding=padding,
+                                    sigma=conv_sigma,
+                                    initialize=True)
+        
+        norm_factor = escnn.group.directsum([r2_act.irrep(1)] * out_channels, name="norm_factor")
+        norm_factor = escnn.nn.FieldType(r2_act, [norm_factor])
+        # Prepare invariant layer
+        self.inv = InvariantLayer(r2_act,(trivials + norm_factor + non_trivials), out_channels)
+        # TODO: Mixing here?? 
+        self.norm = escnn.nn.InnerBatchNorm(self.inv.out_type)
+        # Trivial activations
+        self.act = escnn.nn.ELU(self.norm.out_type)
+        self.out_type = self.act.out_type
+    
+    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
+        x = self.conv(x)
+        x = self.inv(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+    
+    def evaluate_output_shape(self, input_shape):
+        return super().evaluate_output_shape(input_shape)

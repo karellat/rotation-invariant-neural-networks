@@ -116,9 +116,10 @@ class InvariantLayer(escnn.nn.EquivariantModule):
 
 
     def _rotate_norm_factor(self, 
-                              norm_factor: torch.Tensor) -> torch.Tensor:
+                            norm_factor: torch.Tensor) -> torch.Tensor:
 
-        magnitude = torch.norm(norm_factor, dim=3, keepdim=True)
+        # Normed by magnitude
+        magnitude = torch.linalg.vector_norm(norm_factor, dim=3, keepdim=True)
         moment_real = norm_factor[:, :, :, 0:1, :, :]
         moment_imag = norm_factor[:, :, :, 1:2, :, :]
         angle = SafeAtan2.apply(moment_imag, moment_real)
@@ -130,6 +131,21 @@ class InvariantLayer(escnn.nn.EquivariantModule):
         # Prepare a copy version
         return torch.cat([result_real, result_imag], dim=3)
     
+        # This does not seem to improve anything 
+        # TODO: but check the activations
+        # Just rotate 
+        #normed_factor = norm_factor / torch.clamp(torch.norm(norm_factor, dim=3, keepdim=True), min=1e-4)
+        ## Calculate to keep zeros
+        #magnitude = torch.norm(normed_factor, dim=3, keepdim=True)
+        #moment_real = normed_factor[:, :, :, 0:1, :, :]
+        #moment_imag = normed_factor[:, :, :, 1:2, :, :]:w
+        #angle = SafeAtan2.apply(moment_imag, moment_real)
+        #new_angle = angle * self.exponents
+        #new_angle.shape, magnitude.shape
+        #result_real = magnitude * torch.cos(new_angle)
+        #result_imag = magnitude * torch.sin(new_angle)
+        #return torch.cat([result_real, result_imag], dim=3)
+
     def _complex_mul(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         xr = x[..., 0:1, :, :]
         xi = x[..., 1:2, :, :]
@@ -143,56 +159,5 @@ class InvariantLayer(escnn.nn.EquivariantModule):
     def check_equivariance(self, atol: float = 1e-6) -> None:
         pass
 
-    def evaluate_output_shape(self, input_shape):
-        return super().evaluate_output_shape(input_shape)
-
-
-class InvGatedBlock(escnn.nn.modules.EquivariantModule): 
-    def __init__(self, 
-                 r2_act: escnn.gspaces.GSpace,
-                 in_type: escnn.nn.FieldType, 
-                 out_channels: int, 
-                 kernel_size: int,
-                 padding: int = 0,
-                 conv_sigma: float = 0.6):
-        super(InvGatedBlock, self).__init__()
-
-        self.in_type = in_type
-        if irreps is None: 
-            irreps = []
-            for n, irr in enumerate(r2_act.fibergroup.irreps()):
-                if not irr.is_trivial():
-                    irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
-            irreps = list(irreps)
-
-
-        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
-        norm_factor = escnn.group.directsum([r2_act.irrep(1)]  * out_channels, name="norm_factor")
-        norm_factor = escnn.nn.FieldType(r2_act, [norm_factor])
-        non_trivials = escnn.nn.FieldType(r2_act, sorted(irreps * out_channels, key=lambda r: r.id))
-        conv_type = trivials + norm_factor + non_trivials
-
-        # Prepare convolutional layer
-        self.conv = escnn.nn.R2Conv(in_type,
-                                    conv_type,
-                                    kernel_size=kernel_size,
-                                    padding=padding,
-                                    sigma=conv_sigma,
-                                    initialize=True)
-        
-        # Prepare invariant layer
-        self.invariant = InvariantLayer(r2_act, conv_type, out_channels)
-        # TODO: Mixing here?? 
-        self.norm = escnn.nn.InnerBatchNorm(self.invariant.out_type)
-        # Trivial activations
-        self.act = escnn.nn.ELU(self.norm.out_type)
-        self.out_type = self.act.out_type
-    
-    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
-        x = self.conv(x)
-        x = self.norm(x)
-        x = self.act(x)
-        return x
-    
     def evaluate_output_shape(self, input_shape):
         return super().evaluate_output_shape(input_shape)

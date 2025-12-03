@@ -1,28 +1,30 @@
 d_hparams:
+  test_batch_size: 64
   batch_size: 64
-  data_dir: data
-  pad: 0
-  to_complex: false
-  normalize: true
-dataset_name: MnistRotTest
+  normalize: False
+  use_tukey_mask: False
+dataset_name: ColorectalHistology
 early_stopping: 10
 epochs: 50
 lr_hparams:
   gamma: 0.1
   milestones:
-  - 10
-  - 15
-  - 25
+  - 20
+  - 30
 lr_name: MultiStepLR
 model_name: Resnet 
 m_param:
-  in_channels: 1
-  input_size: 64
+  in_channels: 3
+  input_size: 150
   norm: batch
-  kernels_size: [15, 11, 11, 11]
+  kernels_size: [11, 11, 11]
+  layers: [1, 2, 2]
+  channels: [16, 22, 28]
+  block_types: ["TimmBasicBlock", "TimmBasicBlock", "TimmBasicBlock"]
   layer: "LearnableCesa"
 optimizer_hparams:
   lr: 0.001525
 optimizer_name: AdamW
-run_name: resnet-test
-seed: 24
+run_name: learnable-cesa
+seed: 42
+debug: True

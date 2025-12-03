@@ -47,15 +47,13 @@ def get_trainer(seed: int,
         m_param["in_channels"] = datamodule.output_shape[1]
     if "num_classes" not in m_param:
         m_param["num_classes"] = datamodule.num_classes
-    if "input_size" not in m_param:
-        m_param["input_size"] = datamodule.output_shape[-1]
 
     logger.debug(f"Using dataset: {dataset_name} with parameters: {d_hparams}")
     model = get_model(model_name, m_param)
     logger.debug(f"Using model: {model_name} with parameters: {m_param}")
 
     # Lighting model
-    model = InvNet(input_shape=m_param['input_size'],
+    model = InvNet(input_shape=datamodule.output_shape[-1],
                    model=model,
                    optimizer_name=optimizer_name,
                    optimizer_hparams=optimizer_hparams,

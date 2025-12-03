@@ -7,10 +7,10 @@ from torch.nn import functional as F
 from torch import optim
 from typing import List, Any, Dict, Optional
 
+import hippy2d
 from hippy2d import blocks
-from hippy2d.RnNet import R2Net
 from hippy2d import conv_factory
-from hippy2d.blocks import ResnetBlock, choose_groups
+from hippy2d.blocks import ResnetBlock, choose_groups, GatedBlock
 from hippy2d.utils import get_default_complex   
 from hippy2d.datasets import ROTATED_TEST_SET_KEY
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
@@ -40,20 +40,19 @@ class InvNet(L.LightningModule):
         self.input_shape = input_shape
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=0.001, weight_decay=0.001)
-        scheduler = optim.lr_scheduler.SequentialLR(
-                    optimizer,
-                    schedulers=[
-                        optim.lr_scheduler.ConstantLR(optimizer, factor=1.0, total_iters=20),
-                        optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
-                    ],
-                    milestones=[20]
-                )
-
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {"scheduler": scheduler, "monitor": "val_loss"}
-        }
+        # NOTE: Please see https://lightning.ai/docs/pytorch/stable/common/lightning_module.html#configure-optimizers
+        if hasattr(torch.optim, self.hparams.optimizer_name):
+            optimizer = getattr(torch.optim, self.hparams.optimizer_name)(self.parameters(),
+                                                                          **self.hparams.optimizer_hparams)
+        else:
+            raise RuntimeError(f'Unknown optimizer: "{self.hparams.optimizer_name}"')
+        if self.hparams.lr_name == "None":
+            return optimizer
+        elif hasattr(torch.optim.lr_scheduler, self.hparams.lr_name):
+            scheduler = getattr(torch.optim.lr_scheduler, self.hparams.lr_name)(optimizer, **self.hparams.lr_hparams)
+            return {"optimizer": optimizer, "lr_scheduler": scheduler, "monitor": "train_loss"}
+        else:
+            raise RuntimeError(f'Unknown optimizer: "{self.hparams.optimizer_name}"')
 
     def shared_step(self, x, y):
         y_hat = self.model(x)
@@ -769,18 +768,8 @@ def _label_field_types(field_type: escnn.nn.FieldType):
     labels = [_TRIVIAL if repr.is_trivial() else _VECTORS for repr in field_type]
     return  labels, field_type.group_by_labels(labels=labels)
 
+
 class E2Cnn(torch.nn.Module): 
-
-    def _get_field_types(self, channels: int): 
-        scalar_field = escnn.nn.FieldType(self.r2_act, 
-                                     channels * [self.trivial])
-        # For SO(2): Use regular representation or specific frequencies
-        # Instead of [irrep1, irrep1, ..., irrep2, irrep2, ..., irrep3, irrep3, ...]
-        # Use [irrep1, irrep2, irrep3, irrep1, irrep2, irrep3, ...] per channel
-        vector_fields = escnn.nn.FieldType(self.r2_act,
-                                           channels * list(self.irreps))
-        return scalar_field, vector_fields
-
 
     def __init__(self, 
                  input_size:int,
@@ -792,9 +781,10 @@ class E2Cnn(torch.nn.Module):
                  stem_kernel_size: int = 7,
                  stem_pool: bool = False,
                  blocks : list = [1, 2, 2], 
-                 channels: list = [52, 69, 103],
+                 channels: list = [16, 32, 40],
                  kernel_size: List[int] = [5, 5, 5],
                  block_type: str = "GatedBlock",
+                 trivial_pooling_type: str = "PointwiseMaxPool",
                  drop_rate: float = 0.0,
                  classifier_size: int = 64,
                  pool_size: int = 2, 
@@ -803,8 +793,13 @@ class E2Cnn(torch.nn.Module):
         assert len(blocks) == len(channels), "blocks and channels must have the same length"
         assert len(blocks) == len(kernel_size), "blocks and kernel_size must have the same length"
         assert len(blocks) > 0, "At least one block must be specified"
-        assert block_type == "GatedBlock", "Only GatedBlock is implemented"
         assert stem_pool == False, "Stem pooling is not implemented"
+
+        # Get block
+        assert hasattr(hippy2d.blocks, block_type), f"Unknown block type: {block_type}"
+        _block = getattr(hippy2d.blocks, block_type)
+        assert hasattr(escnn.nn, trivial_pooling_type), f"Unknown trivial pooling type: {trivial_pooling_type}"
+        _trivial_pooling = getattr(escnn.nn, trivial_pooling_type)
 
         self.r2_act = gspaces.rot2dOnR2(N=-1, maximum_frequency=max_order)
         self.in_channels = in_channels
@@ -817,11 +812,11 @@ class E2Cnn(torch.nn.Module):
         self.in_type = escnn.nn.FieldType(self.r2_act,
                                      self.in_channels * [self.trivial])
         self.mask = escnn.nn.MaskModule(self.in_type, S=input_size)
-        self.stem = GatedBlock(r2_act=self.r2_act,
-                               in_type=self.in_type,
-                               padding=0,
-                               channels=stem_channels,
-                               kernel_size=stem_kernel_size)
+        self.stem = _block(r2_act=self.r2_act,
+                           in_type=self.in_type,
+                           padding=0,
+                           out_channels=stem_channels,
+                           kernel_size=stem_kernel_size)
         out_type = self.stem.out_type
 
         # Feature Extractor 
@@ -829,21 +824,27 @@ class E2Cnn(torch.nn.Module):
         for block_idx, num_layers in enumerate(blocks):
             layers = []
             for layer_idx in range(num_layers):
-                layer = GatedBlock(r2_act=self.r2_act,
-                                   in_type=out_type,
-                                   padding=2 if (block_idx < len(blocks) -1) and (layer_idx < num_layers -1) else 0,
-                                   channels=channels[block_idx],
-                                   kernel_size=kernel_size[block_idx])
+                layer = _block(r2_act=self.r2_act,
+                               in_type=out_type,
+                               padding=2 if (block_idx < len(blocks) -1) and (layer_idx < num_layers -1) else 0,
+                               out_channels=channels[block_idx],
+                               kernel_size=kernel_size[block_idx])
                 layers.append(layer)
                 out_type = layer.out_type
             # Pooling 
             if block_idx < len(blocks) - 1:
                 labels, labeled_out_type =  _label_field_types(out_type)
-                pool = escnn.nn.MultipleModule(
-                    modules=[(escnn.nn.PointwiseMaxPool2D(labeled_out_type[_TRIVIAL], kernel_size=self.pool_size), _TRIVIAL),
-                             (escnn.nn.NormMaxPool(labeled_out_type[_VECTORS], kernel_size=self.pool_size), _VECTORS)],
-                    in_type=out_type,
-                    labels=labels)
+                if len(labeled_out_type.keys()) == 1:
+                    if labels[0] == _TRIVIAL:
+                        pool = _trivial_pooling(labeled_out_type[_TRIVIAL], kernel_size=self.pool_size)
+                    else:
+                        pool = escnn.nn.NormMaxPool(labeled_out_type[_VECTORS], kernel_size=self.pool_size)
+                else: 
+                    pool = escnn.nn.MultipleModule(
+                        modules=[(_trivial_pooling(labeled_out_type[_TRIVIAL], kernel_size=self.pool_size), _TRIVIAL),
+                                (escnn.nn.NormMaxPool(labeled_out_type[_VECTORS], kernel_size=self.pool_size), _VECTORS)],
+                        in_type=out_type,
+                        labels=labels)
                 layers.append(pool)
                 out_type = pool.out_type
 
@@ -853,14 +854,20 @@ class E2Cnn(torch.nn.Module):
 
         # Pooling & Invariant Map
         labels, labeled_out_type =  _label_field_types(out_type)
-        self.invariant_map = escnn.nn.MultipleModule(
-            modules=[
-                (escnn.nn.IdentityModule(labeled_out_type[_TRIVIAL]), _TRIVIAL), 
-                (escnn.nn.NormPool(labeled_out_type[_VECTORS]), _VECTORS)],
-            in_type=out_type,
-            labels=labels,
-            reshuffle=0, 
-        ) 
+        if len(labeled_out_type.keys()) == 1:
+            if labels[0] == _TRIVIAL:
+                self.invariant_map = escnn.nn.IdentityModule(labeled_out_type[_TRIVIAL])
+            else:
+                self.invariant_map = escnn.nn.NormPool(labeled_out_type[_VECTORS])
+        else:
+            self.invariant_map = escnn.nn.MultipleModule(
+                modules=[
+                    (escnn.nn.IdentityModule(labeled_out_type[_TRIVIAL]), _TRIVIAL), 
+                    (escnn.nn.NormPool(labeled_out_type[_VECTORS]), _VECTORS)],
+                in_type=out_type,
+                labels=labels,
+                reshuffle=0, 
+            ) 
         self.pool = escnn.nn.PointwiseAdaptiveMaxPool(self.invariant_map.out_type, output_size=1)
 
         # Classifier
@@ -881,76 +888,3 @@ class E2Cnn(torch.nn.Module):
         x = F.dropout(x, p=self.drop_rate, training=self.training)
         x = self.classifier(x)
         return x
-        
-class GatedBlock(escnn.nn.modules.EquivariantModule): 
-    def __init__(self, 
-                 r2_act: escnn.gspaces.GSpace,
-                 in_type: escnn.nn.FieldType, 
-                 channels: int, 
-                 kernel_size: int,
-                 padding: int = 0,
-                 conv_sigma: float = 0.6):
-        super(GatedBlock, self).__init__()
-        self.in_type = in_type
-        irreps = []
-        for n, irr in enumerate(r2_act.fibergroup.irreps()):
-            if not irr.is_trivial():
-                irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
-        irreps = list(irreps)
-
-        irreps_field = escnn.group.directsum(list(irreps), name="irreps")
-
-        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * channels)
-        gates = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * channels)
-        gated = escnn.nn.FieldType(r2_act, [irreps_field] * channels).sorted()
-        gate = gates + gated
-
-        # Prepare convolutional layer
-        self.conv = escnn.nn.R2Conv(in_type,
-                                    (trivials + gate),
-                                    kernel_size=kernel_size,
-                                    padding=padding,
-                                    sigma=conv_sigma,
-                                    initialize=True)
-        
-        # Normalization
-        labels = ["trivial"] * (len(trivials) + len(gates)) + ["gated"] * len(gated)
-    
-        modules = [
-            (escnn.nn.InnerBatchNorm(trivials + gates), "trivial"),
-            (escnn.nn.NormBatchNorm(gated), "gated")
-        ]
-        self.norm = escnn.nn.MultipleModule(self.conv.out_type, labels, modules)
-        # Gating Activations
-        labels = ["trivial"] * len(trivials) + ["gate"] * len(gate)
-        modules = [
-            (escnn.nn.ELU(trivials), "trivial"),
-            (escnn.nn.GatedNonLinearity1(gate), "gate")
-        ]
-        self.act = escnn.nn.MultipleModule(self.norm.out_type, labels, modules)
-        self.out_type = self.act.out_type
-    
-    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
-        x = self.conv(x)
-        x = self.norm(x)
-        x = self.act(x)
-        return x
-    
-    def evaluate_output_shape(self, input_shape):
-        return super().evaluate_output_shape(input_shape)
-    
-class RnNetBridge(R2Net):
-    def __init__(self, 
-                 input_size: int,
-                 num_classes: int,
-                 in_channels: int=3):
-        super(RnNetBridge, self).__init__(n_classes=num_classes,
-                                          max_rot_order=3,
-                                          flip=False,
-                                          channels_per_block=(16, 52, 69, 69, 103, 103),
-                                          kernels_per_block=(7, 5, 5, 5, 5, 5),
-                                          paddings_per_block=(1, 2, 2, 2, 2, 0),
-                                          conv_sigma=0.6,
-                                          pool_size=2,
-                                          pool_sigma=0.6, 
-                                          img_size=input_size)

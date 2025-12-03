@@ -6,7 +6,7 @@ d_hparams:
   use_tukey_mask: False 
 dataset_name: ColorectalHistology
 early_stopping: 15 
-epochs: 100
+epochs: 30
 lr_hparams:
   gamma: 0.1
   milestones:
@@ -14,10 +14,12 @@ lr_hparams:
   - 40
   - 60
 lr_name: MultiStepLR
-model_name: RnNetBridge 
+model_name: E2Cnn 
+m_param: 
+  input_size: 150
 optimizer_hparams:
   lr: 0.001
 optimizer_name: AdamW
 label_smoothing: 0.1
 seed: 390
-run_name: resnet-e2cnn-no-tukey
+run_name: e2cnn-inv-squared

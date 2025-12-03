@@ -74,6 +74,7 @@ class MomentLayer(torch.nn.Module):
                  in_channels: int, 
                  groups: Optional[int]=1,
                  padding: str='same',
+                 preserve_energy: bool=False,
                  kernel_size: int=15):
         super().__init__()
         # Parameters
