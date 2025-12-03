@@ -1,29 +1,29 @@
 
 program: scripts/training.py
-name: resnet-hist-tukey
+name: resnet18-mnist-rot-test
 method: grid
 metric:
   name: val_loss
   goal: minimize
 parameters:
   dataset_name:
-    value: ColorectalHistology
+    value: MnistRotTest
   d_hparams:
     parameters:
       batch_size:
-        value: 64
+        value: 32
       test_batch_size:
-        value: 64
+        value: 128
       data_dir:
         value: data
-      normalize:
+      pad:
+        value: 0
+      to_complex:
         value: false
-      use_circ_mask: 
-        value: true
   early_stopping:
     value: 15
   epochs:
-    value: 150
+    value: 100
   lr_name:
     value: MultiStepLR
   lr_hparams:
@@ -31,13 +31,15 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [20, 40, 60]
+        value: [10, 50, 90]
   m_param:
     parameters:
-      pretrained:
-        value: false
+      in_channels:
+        value: 1
+      num_classes:
+        value: 10 
   model_name:
-    value: timm:test_resnet.r160_in1k
+    value: Resnet18
   optimizer_hparams:
     parameters:
       lr:
@@ -47,6 +49,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: resnet-hist-circ-mask
+    value: resnet18-mnist-rot-test
   seed:
     values: [42, 7, 123, 24, 74]
