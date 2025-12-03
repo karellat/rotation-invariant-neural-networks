@@ -811,7 +811,6 @@ class E2Cnn(torch.nn.Module):
 
         self.in_type = escnn.nn.FieldType(self.r2_act,
                                      self.in_channels * [self.trivial])
-        self.mask = escnn.nn.MaskModule(self.in_type, S=input_size)
         self.stem = _block(r2_act=self.r2_act,
                            in_type=self.in_type,
                            padding=0,
@@ -879,7 +878,6 @@ class E2Cnn(torch.nn.Module):
         )
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = escnn.nn.GeometricTensor(x, self.in_type)
-        x = self.mask(x)
         x = self.stem(x)
         x = self.blocks(x)
         x = self.invariant_map(x)

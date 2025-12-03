@@ -2,7 +2,7 @@ d_hparams:
   test_batch_size: 64
   batch_size: 64
   normalize: False
-  use_tukey_mask: False
+  use_tukey_mask: True
 dataset_name: ColorectalHistology
 early_stopping: 10
 epochs: 50

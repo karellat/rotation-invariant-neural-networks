@@ -12,6 +12,7 @@ from PIL import Image
 from PIL.Image import Resampling
 from typing import Optional, Callable, OrderedDict, Tuple, Any, Dict
 from einops import rearrange
+from escnn.nn.modules.masking_module import build_mask
 
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, default_collate
 from torchvision.datasets import VisionDataset
@@ -107,8 +108,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
         test_batch_size: int = 256,
         to_complex: bool = False,
         normalize: bool = False,
-        use_tukey_mask: bool = True,
-        tukey_alpha: float = 0.3,
+        use_circ_mask: bool = True,
         target_size: Optional[int] = None,
         num_workers: Optional[int] = None,
         n_angles: int = N_ANGLES,
@@ -124,8 +124,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
         self.data_dir = data_dir
         self.batch_size = batch_size
         self.test_batch_size = test_batch_size
-        self.use_tukey_mask = use_tukey_mask
-        self.tukey_alpha = tukey_alpha
+        self.use_tukey_mask = use_circ_mask
         self.target_size = target_size or self.DEFAULT_IMAGE_SIZE
         self.num_workers = num_workers
         self.n_angles = n_angles
@@ -172,7 +171,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
         
         # Add Tukey mask if enabled
         if self.use_tukey_mask:
-            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+            transform_list.append(CircMask())
         
         # Add dtype conversion
         if self.to_complex:
@@ -193,7 +192,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
         
         # Add Tukey mask if enabled
         if self.use_tukey_mask:
-            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+            transform_list.append(CircMask())
         
         # Add dtype conversion
         if self.to_complex:
@@ -418,7 +417,7 @@ class ColorectalHistology(HuggingFaceDataModule):
             transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
         
         if self.use_tukey_mask:
-            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+            transform_list.append(CircMask())
 
         if self.to_complex:
             transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
@@ -443,7 +442,7 @@ class ColorectalHistology(HuggingFaceDataModule):
             transform_list.append(transforms.Normalize(mean=self.MEAN, std=self.STD))
 
         if self.use_tukey_mask:
-            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+            transform_list.append(CircMask())
         
         if self.to_complex:
             transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
@@ -520,7 +519,7 @@ class RESISC45(HuggingFaceDataModule):
         
         # Tukey mask (before dtype conversion)
         if self.use_tukey_mask:
-            transform_list.append(TukeyMask(alpha=self.tukey_alpha))
+            transform_list.append(CircMask())
         
         # Dtype conversion
         if self.to_complex:
@@ -972,12 +971,14 @@ class CircularPad:
         assert x.shape[2] == self.circle_size
         return x * self.circular_mask[None, :, :]
 
-class TukeyMask(torch.nn.Module):
-    """Tukey window masking transform for 2D images"""
+class CircMask(torch.nn.Module):
+    """Circular masking transform for 2D images inspired by ESCNN masking module."""
     
-    def __init__(self, alpha: float = 0.3):
+    def __init__(self, margin: float = 0.0, sigma: float = 2.0):
         super().__init__()
-        self.alpha = alpha
+        assert 0.0 <= margin, "Margin must be non-negative"
+        self.margin = margin
+        self.sigma = sigma
         self._cached_mask = None
         self._cached_size = None
 
@@ -986,21 +987,17 @@ class TukeyMask(torch.nn.Module):
             img = x['image'][0]
             img_size = img.shape[-1]    
             if self._cached_mask is None or self._cached_size != img_size:
-                self._cached_mask = torch.from_numpy(
-                    fixed_tukey(img_size, self.alpha)
-                    ).to(torch.get_default_dtype())
+                self._cached_mask = build_mask(img_size, dim=2, margin=self.margin, sigma=self.sigma, dtype=torch.get_default_dtype())[0, 0, ...] # Remove batch dim and channel dim
                 self._cached_size = img_size
-            assert self._cached_mask.shape == img.shape[-2:], "Tukey mask size does not match image size." 
+            assert self._cached_mask.shape == img.shape[-2:], "Circular mask size does not match image size." 
             x['image'] = [img * self._cached_mask for img in x['image']]
             return x
         elif isinstance(x, torch.Tensor):
             img_size = x.shape[-1]
             if self._cached_mask is None or self._cached_size != img_size:
-                self._cached_mask = torch.from_numpy(
-                    fixed_tukey(img_size, self.alpha)
-                    ).to(torch.get_default_dtype())
+                self._cached_mask = build_mask(img_size, dim=2, margin=self.margin, sigma=self.sigma, dtype=torch.get_default_dtype())[0, 0, ...] # Remove batch dim and channel dim
                 self._cached_size = img_size
-            assert self._cached_mask.shape == x.shape[-2:], "Tukey mask size does not match image size." 
+            assert self._cached_mask.shape == x.shape[-2:], "Circular mask size does not match image size." 
             return x * self._cached_mask
         else: 
-            raise NotImplementedError("TukeyMask only supports dict inputs with 'image' key.")
+            raise NotImplementedError("CircMask only supports dict inputs with 'image' key.")

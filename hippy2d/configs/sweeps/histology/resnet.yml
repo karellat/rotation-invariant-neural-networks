@@ -1,0 +1,52 @@
+
+program: scripts/training.py
+name: resnet-hist-tukey
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: ColorectalHistology
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      test_batch_size:
+        value: 64
+      data_dir:
+        value: data
+      normalize:
+        value: false
+      use_circ_mask: 
+        value: true
+  early_stopping:
+    value: 15
+  epochs:
+    value: 150
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [20, 40, 60]
+  m_param:
+    parameters:
+      pretrained:
+        value: false
+  model_name:
+    value: timm:test_resnet.r160_in1k
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: resnet-hist-tukey
+  seed:
+    values: [42, 7, 123, 24, 74]
