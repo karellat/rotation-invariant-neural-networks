@@ -5,7 +5,7 @@ metric:
   goal: minimize
 parameters:
   dataset_name:
-    value: ColorectalHistology
+    value: RESISC45
   d_hparams:
     parameters:
       batch_size:

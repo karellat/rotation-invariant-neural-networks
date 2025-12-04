@@ -118,8 +118,10 @@ class InvariantLayer(escnn.nn.EquivariantModule):
     def _rotate_norm_factor(self, 
                             norm_factor: torch.Tensor) -> torch.Tensor:
 
-        # Normed by magnitude
+        ## Normed by magnitude
         magnitude = torch.linalg.vector_norm(norm_factor, dim=3, keepdim=True)
+        # Scale that by sigmoid to prevent exploding
+        magnitude = torch.sigmoid(magnitude)
         moment_real = norm_factor[:, :, :, 0:1, :, :]
         moment_imag = norm_factor[:, :, :, 1:2, :, :]
         angle = SafeAtan2.apply(moment_imag, moment_real)
@@ -138,7 +140,7 @@ class InvariantLayer(escnn.nn.EquivariantModule):
         ## Calculate to keep zeros
         #magnitude = torch.norm(normed_factor, dim=3, keepdim=True)
         #moment_real = normed_factor[:, :, :, 0:1, :, :]
-        #moment_imag = normed_factor[:, :, :, 1:2, :, :]:w
+        #moment_imag = normed_factor[:, :, :, 1:2, :, :]
         #angle = SafeAtan2.apply(moment_imag, moment_real)
         #new_angle = angle * self.exponents
         #new_angle.shape, magnitude.shape
