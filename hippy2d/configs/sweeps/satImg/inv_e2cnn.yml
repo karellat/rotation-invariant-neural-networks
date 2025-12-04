@@ -1,0 +1,60 @@
+program: scripts/training.py
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: ColorectalHistology
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      test_batch_size:
+        value: 64
+      data_dir:
+        value: data
+      normalize:
+        value: false
+      use_circ_mask: 
+        value: true
+  early_stopping:
+    value: 15
+  epochs:
+    value: 150
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [20, 40, 60]
+  model_name:
+    value: E2Cnn
+  m_param:
+    parameters:
+      input_size:
+        value: 150
+      max_order: 
+        value: 3
+      stem_channels:
+        value: 15
+      channels:
+        value: [15, 25, 34]
+      trivial_pooling_type:
+        values: [PointwiseMaxPoolAntialiased2D, PointwiseMaxPool]
+      block_type:
+        value: InvGatedBlock
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: inv-e2cnn-hist
+  seed:
+    values: [42, 7, 123, 24, 74]
