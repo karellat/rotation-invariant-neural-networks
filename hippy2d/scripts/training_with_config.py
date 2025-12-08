@@ -28,12 +28,11 @@ def run_with_config(yaml_path):
 
 if __name__ == '__main__':
     # parse the yaml file path from command line arguments
-    #print("sys.argv:", sys.argv)
-    #if len(sys.argv) != 2:
-    #    print("Usage: python training_with_config.py <path_to_yaml_config>")
-    #    sys.exit(1)
-    #yaml_path = sys.argv[1]
-    yaml_path = "/home/karella/Projects/rotation-invariant-neural-networks/hippy2d/configs/runs/resnet-learnable/e2cnn.yaml"
+    print("sys.argv:", sys.argv)
+    if len(sys.argv) != 2:
+        print("Usage: python training_with_config.py <path_to_yaml_config>")
+        sys.exit(1)
+    yaml_path = sys.argv[1]
     if not yaml_path.endswith('.yaml') and not yaml_path.endswith('.yml'):
         print("Error: The provided file is not a YAML file.")
         sys.exit(1)

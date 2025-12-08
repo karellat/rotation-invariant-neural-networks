@@ -5,6 +5,7 @@ import escnn
 from hippy2d.learnable import complex_power_moivre, flusser_basis_orders
 from hippy2d.utils import SafeAtan2
 from einops import rearrange
+from collections import defaultdict
 
 from escnn import gspaces
 import numpy as np
@@ -148,18 +149,20 @@ class InvariantsLayer(torch.nn.Module):
     def __init__(self,
                  orders: list[int],
                  in_channels: int,
-                 groups: int,
-                 magnitude_func: str='copy'):
+                 groups: int):
         super().__init__()
+        for i in range(len(orders)-1):
+            assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
         # Parameters
         self.orders = orders
         self.in_channels = in_channels
         self.groups = groups
         self.in_size = in_channels // groups
-        self.magnitude_func = magnitude_func
         self.trivial_idx = np.sum(np.array(self.orders) == 0)
         self.diagonal_idx = np.sum(np.array(self.orders) == 1) - 1
-        self.register_buffer("exponents", torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None]) 
+        self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None]) 
+        # TODO: We test group norm over different invariants
+        
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
@@ -171,15 +174,22 @@ class InvariantsLayer(torch.nn.Module):
                                  c=2)
         # Norm
         norm = non_trivial[:, :, 0:1] 
-        norm[..., 1, :, :] *= -1  # Conjugate 
-        norm_of_norm = torch.norm(norm, dim=-3)
-        norm = _rotate_moments(norm, self.exponents, magnitude_func=self.magnitude_func)
+        # Rotate the norm with a sigmoid on norm magnitude  
+        # TODO: Add the norm guy magnitude 
+        norm_magnitude = torch.linalg.vector_norm(norm, dim=-3)
+        magnitude = torch.sigmoid(norm_magnitude) 
+        angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
+        new_magnitude = magnitude * torch.ones_like(self.exponents)
+        new_angle = angle * self.exponents 
+
+        result_real = new_magnitude * torch.cos(new_angle)
+        result_imag = new_magnitude * torch.sin(new_angle)
+        norm = torch.stack([result_real, result_imag], dim=-3)
+
         non_trivial = _complex_mul(non_trivial[:, :, 1:], norm) 
         diagonal = non_trivial[:, :, :self.diagonal_idx, 0]
         non_trivial = rearrange(non_trivial[:, :, self.diagonal_idx:], 'b ch o c h w -> b ch (o c) h w')
-        # All symmetric 
-        
-        invariants = rearrange(torch.cat([trivial, diagonal, norm_of_norm, non_trivial], dim=2), 'b ch o h w -> b (ch o) h w') 
+        invariants = rearrange(torch.cat([trivial, diagonal, non_trivial], dim=2), 'b ch o h w -> b (ch o) h w') 
         return invariants
 
 class LearnableCesa(torch.nn.Module): 
@@ -192,7 +202,7 @@ class LearnableCesa(torch.nn.Module):
                   max_order: int=4, 
                   groups: int = 1, 
                   kernel_size: int=15,
-                  magnitude_func: str='copy'):
+                  magnitude_func: str='sigmoid'):
         super().__init__()
         self.orders = flusser_basis_orders(max_order) 
         self.out_channels = out_channels
@@ -209,12 +219,11 @@ class LearnableCesa(torch.nn.Module):
         self.moment_types = self.moment_layer.out_type
         self.invariants_layer = InvariantsLayer(orders=self.orders,
                                                 groups=groups,
-                                                magnitude_func=magnitude_func,
                                                 in_channels=in_channels)
-
+        
 
         # TODO: Here should be some kind of normalization of either moments and invariants
-        number_of_invariants = self.moment_types.size - 2*self.input_channels # Remove the norm part 
+        number_of_invariants = self.moment_types.size - 3*self.input_channels # Remove the norm part 
         self.conv1x1 = torch.nn.Conv2d(in_channels=number_of_invariants,
                                        out_channels=out_channels,
                                       kernel_size=1,
