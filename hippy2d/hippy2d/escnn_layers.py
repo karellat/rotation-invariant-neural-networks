@@ -6,6 +6,24 @@ from collections import defaultdict
 from hippy2d.utils import SafeAtan2
 
 # Pure invariant layer
+class Conv1x1EquivariantLayer(escnn.nn.EquivariantModule):
+    def __init__(self, 
+                 r2_act: escnn.gspaces.rot2dOnR2,
+                 in_type: escnn.nn.FieldType,
+                 out_type: escnn.nn.FieldType):
+        super(Conv1x1EquivariantLayer, self).__init__()
+        # Assert the gspaces
+        assert isinstance(r2_act, escnn.gspaces.GSpace2D), "Must be 2D group"
+        assert isinstance(r2_act.fibergroup, escnn.group.SO2), "Must be continous."
+        assert in_type.gspace == r2_act, "in_type must have the same gspace as r2_act"
+        assert out_type.gspace == r2_act, "out_type must have the same gspace as r2_act"
+
+        self.in_type = in_type
+        self.out_type = out_type
+        
+        self.conv = torch.nn.Conv2d()
+
+
 class InvariantLayer(escnn.nn.EquivariantModule): 
     def __init__(self, 
                  r2_act: escnn.gspaces.rot2dOnR2,
@@ -118,8 +136,11 @@ class InvariantLayer(escnn.nn.EquivariantModule):
     def _rotate_norm_factor(self, 
                             norm_factor: torch.Tensor) -> torch.Tensor:
 
-        # Normed by magnitude
+        ## Normed by magnitude
         magnitude = torch.linalg.vector_norm(norm_factor, dim=3, keepdim=True)
+        # Note: Scale by sigmoid to prevent exploding
+        # TODO: Try different functions
+        magnitude = torch.sigmoid(magnitude)
         moment_real = norm_factor[:, :, :, 0:1, :, :]
         moment_imag = norm_factor[:, :, :, 1:2, :, :]
         angle = SafeAtan2.apply(moment_imag, moment_real)
@@ -127,18 +148,17 @@ class InvariantLayer(escnn.nn.EquivariantModule):
         new_angle.shape, magnitude.shape
         result_real = magnitude * torch.cos(new_angle)
         result_imag = magnitude * torch.sin(new_angle)
-        # TODO: Normalize this by sqrt or smth else? 
         # Prepare a copy version
         return torch.cat([result_real, result_imag], dim=3)
     
-        # This does not seem to improve anything 
+        # This does not improve accuracy but it stops growing of activations
         # TODO: but check the activations
         # Just rotate 
         #normed_factor = norm_factor / torch.clamp(torch.norm(norm_factor, dim=3, keepdim=True), min=1e-4)
         ## Calculate to keep zeros
         #magnitude = torch.norm(normed_factor, dim=3, keepdim=True)
         #moment_real = normed_factor[:, :, :, 0:1, :, :]
-        #moment_imag = normed_factor[:, :, :, 1:2, :, :]:w
+        #moment_imag = normed_factor[:, :, :, 1:2, :, :]
         #angle = SafeAtan2.apply(moment_imag, moment_real)
         #new_angle = angle * self.exponents
         #new_angle.shape, magnitude.shape

@@ -1,11 +1,12 @@
 program: scripts/training.py
+name: e2cnn-sat
 method: grid
 metric:
   name: val_loss
   goal: minimize
 parameters:
   dataset_name:
-    value: ColorectalHistology
+    value: RESISC45
   d_hparams:
     parameters:
       batch_size:
@@ -55,6 +56,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: e2cnn-hist-tukey
+    value: e2cnn-sat
   seed:
     values: [42, 7, 123, 24, 74]

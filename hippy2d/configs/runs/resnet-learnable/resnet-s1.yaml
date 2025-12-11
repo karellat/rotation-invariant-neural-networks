@@ -1,16 +1,17 @@
 d_hparams:
   test_batch_size: 64
   batch_size: 64
-  normalize: False
-  use_tukey_mask: True
+  normalize: True
+  use_circ_mask: True
 dataset_name: ColorectalHistology
-early_stopping: 10
-epochs: 50
+early_stopping: 30
+epochs: 100
 lr_hparams:
   gamma: 0.1
   milestones:
-  - 20
   - 30
+  - 50
+  - 70
 lr_name: MultiStepLR
 model_name: Resnet 
 m_param:
@@ -19,12 +20,15 @@ m_param:
   norm: batch
   kernels_size: [11, 11, 11]
   layers: [1, 2, 2]
-  channels: [16, 22, 28]
+  channels: [16, 20, 26]
   block_types: ["TimmBasicBlock", "TimmBasicBlock", "TimmBasicBlock"]
   layer: "LearnableCesa"
+  drop_rate: 0.1
+  channels_masking: True
 optimizer_hparams:
   lr: 0.001525
+  weight_decay: 0.05
 optimizer_name: AdamW
-run_name: learnable-cesa
+run_name: learnable-cesa-norm-magnitude
 seed: 42
-debug: True
+label_smoothing: 0.1

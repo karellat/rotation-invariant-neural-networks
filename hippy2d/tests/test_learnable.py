@@ -87,6 +87,10 @@ class TestLearnable:
         prev_dtype = torch.get_default_dtype()
         torch.set_default_dtype(torch.float32)
         test_images = (test_images[0].to(torch.float32), test_images[1].to(torch.float32))
+        # standardize images 
+        mean = test_images[0].mean(dim=[0, 2, 3], keepdim=True)
+        std = test_images[0].std(dim=[0, 2, 3], keepdim=True)
+        test_images = ((test_images[0] - mean) / std, (test_images[1] - mean) / std)
         inv_conv = LearnableCesa(out_channels=12, 
                                  in_channels=3,
                                  input_size=None).to(test_device)

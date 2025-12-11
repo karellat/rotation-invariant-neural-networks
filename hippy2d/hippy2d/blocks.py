@@ -383,7 +383,7 @@ class TimmBasicBlock(torch.nn.Module):
         
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        #shortcut = self.identity(self.downsample(x))
+        shortcut = self.identity(self.downsample(x))
 
         # First conv layer
         if self.mask1 is not None:
@@ -401,8 +401,8 @@ class TimmBasicBlock(torch.nn.Module):
         x = self.norm2(x) # TODO: Mask should be here too
 
         # TODO: Here is also squeze-and-excitation can be added
-        # x = drop_path(x)
-        #x += shortcut
+        #x = drop_path(x)
+        x = (x + shortcut) * (1.0 / torch.sqrt(torch.tensor(2.0)))
         x = self.act2(x)
 
         return x
@@ -444,7 +444,7 @@ class GatedBlock(escnn.nn.modules.EquivariantModule):
     
         modules = [
             (escnn.nn.InnerBatchNorm(trivials + gates), "trivial"),
-            (escnn.nn.NormBatchNorm(gated), "gated")
+            (escnn.nn.IIDBatchNorm2d(gated), "gated")
         ]
         self.norm = escnn.nn.MultipleModule(self.conv.out_type, labels, modules)
         # Gating Activations
