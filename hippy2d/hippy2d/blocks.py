@@ -143,6 +143,140 @@ def choose_groups(C, target_groups=32, min_cpg=2, max_cpg=16):
     # Pick the candidate closest to the target
     return min(candidates, key=lambda g: abs(g - target_groups))
 
+class MBConvBlock(torch.nn.Module):
+    @classmethod
+    def _get_norm_layer(cls, norm_layer: str, channels: int, spatial_size: int) -> nn.Module:
+        """Create normalization layer based on type and parameters."""
+        if norm_layer == "batch":
+            return nn.BatchNorm2d(channels, affine=False)
+        elif norm_layer == "layer":
+            return nn.LayerNorm((channels, spatial_size, spatial_size), elementwise_affine=False)
+        elif norm_layer == "group":
+            num_groups = choose_groups(channels) if channels < 32 else choose_groups(channels)
+            return nn.GroupNorm(num_groups=num_groups, num_channels=channels, affine=False)
+        else: 
+            raise ValueError(f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer' or 'group'.")
+
+    def __init__(self, 
+                 # Conv Settings 
+                 input_size: int, 
+                 in_channels: int, 
+                 out_channels: int,
+                 expansion_factor: int = 4,
+                 tukey_masking: bool = True,
+                 conv_layer: Optional[torch.nn.Module] = "Conv2d",  
+                 conv_kwargs: dict=dict(stride=1,
+                                        padding=1,
+                                        bias=False),
+                 kernel_size:int=3,
+                 # Layers Settings
+                 act_layer: Type[nn.Module] = nn.ReLU, 
+                 norm_layer: str = "batch", 
+                 aa_layer: Optional[Type[nn.Module]] = nn.AvgPool2d,
+                 drop_path: Optional[torch.nn.Module] = None,
+                 drop_block:Optional[torch.nn.Module] = None, 
+                 padding: str = "same"):
+        super().__init__() 
+
+        assert drop_path is None, "drop_path is not implemented yet"
+        assert drop_block is None, "drop_block is not implemented yet"
+        # Normalization layer
+        assert norm_layer in ["batch", "layer", "group"], f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer' or 'group'."
+        
+        # Prepare convolutional Layers
+        assert 'in_channels' not in conv_kwargs, "in_channels already in conv_kwargs"
+        assert 'out_channels' not in conv_kwargs, "out_channels already in conv_kwargs"
+        assert 'kernel_size' not in conv_kwargs, "kernel_size already in conv_kwargs"
+        assert 'padding' not in conv_kwargs, "padding already in conv_kwargs"
+        
+        # Conv1x1E -> BN -> Act -> DConvkxk -> BN -> Act -> Conv1x1P -> BN -> Skip/DropPath -> Act
+        # Calculate padding for the DConvkxk
+        if padding == "same":
+            dconv_output_shape = input_size
+        else:
+            dconv_output_shape = input_size + (2 * padding) - kernel_size + 1
+        assert (input_size - dconv_output_shape) % 2 == 0, "Input size must be even for valid padding"
+
+        # Expansion 
+        hid_channels = in_channels * expansion_factor
+
+
+        self.mask = None if not tukey_masking else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
+
+        # 1. Conv1x1E
+        self.conv1= torch.nn.Conv2d(in_channels=in_channels,
+                                    out_channels=hid_channels,
+                                    kernel_size=1,
+                                    bias=False)
+            
+        self.norm1 = MBConvBlock._get_norm_layer(norm_layer, hid_channels, input_size)
+        self.act1 = act_layer(inplace=True)
+
+        # 2. DConvkxk
+        conv_kwargs = conv_kwargs.copy()  # To avoid modifying the original dictionary
+        conv_kwargs['in_channels'] = hid_channels
+        conv_kwargs['out_channels'] = out_channels
+        conv_kwargs['input_size'] = input_size
+        conv_kwargs['kernel_size'] = kernel_size
+        conv_kwargs['padding'] = padding
+        conv_kwargs['groups'] = hid_channels  # Depthwise convolution
+
+        self.conv2 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
+        self.norm2 = MBConvBlock._get_norm_layer(norm_layer, hid_channels, dconv_output_shape)
+        self.act2 = act_layer(inplace=True)
+
+        # 3. Conv1x1S
+        self.conv3 = torch.nn.Conv2d(in_channels=hid_channels,
+                                     out_channels=out_channels,
+                                     kernel_size=1,
+                                     bias=False)
+        self.norm3 = MBConvBlock._get_norm_layer(norm_layer, out_channels, dconv_output_shape)
+        self.drop_block = torch.nn.Identity() # TODO: implement drop_block
+        # Residual Part 
+        self.register_buffer("residual_scale",
+                             torch.tensor(1.0) / torch.sqrt(torch.tensor(2.0)),
+                             persistent=False)
+
+        if in_channels != out_channels:
+            self.identity= torch.nn.Conv2d(in_channels=in_channels,
+                                           out_channels=out_channels,
+                                           kernel_size=1)
+        else: 
+            self.identity = torch.nn.Identity()
+
+        self.act3 = act_layer(inplace=True)
+        
+        self.downsample = aa_layer(kernel_size=2, stride=2) if aa_layer is not None else torch.nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        shortcut = self.identity(self.downsample(x))
+
+
+        x = self.conv1(x) 
+        x = self.norm1(x) 
+        x = self.act1(x)
+
+        # Depthwise conv layer 
+        if self.mask is not None:
+            x = x * self.mask
+        x = self.conv2(x)
+        x = self.norm2(x)
+        x = self.act2(x)
+
+        # Projection conv layer 
+        x = self.conv3(x)
+        x = self.norm3(x)
+        x = self.drop_block(x)
+    
+        x = self.downsample(x)
+        x += shortcut 
+        x = x * self.residual_scale
+        x = self.act3(x)
+
+        return x
+        
+
+
 class TimmBasicBlock(torch.nn.Module): 
     def __init__(self, 
                  # Conv Settings 
