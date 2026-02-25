@@ -131,6 +131,7 @@ class MomentLayer(torch.nn.Module):
                                           groups=self.groups, 
                                           padding=self.padding) 
         moments = rearrange(moments, 'b (ch o) h w -> b ch o h w', ch=self.in_channels)
+        # TODO: 
         return moments
 
     def train(self, mode=True):
@@ -167,6 +168,7 @@ class InvariantsLayer(torch.nn.Module):
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
         non_trivial = moments[:, :, self.trivial_idx:, :, :]
+        
         # Non-trivial to complex 
         non_trivial = rearrange(non_trivial, 
                                 'b ch (o c) h w -> b ch o c h w',
@@ -175,8 +177,19 @@ class InvariantsLayer(torch.nn.Module):
         # Norm
         norm = non_trivial[:, :, 0:1] 
         # Rotate the norm with a sigmoid on norm magnitude  
-        # TODO: Add the norm guy magnitude 
         norm_magnitude = torch.linalg.vector_norm(norm, dim=-3)
+        # TODO: Add the norm guy magnitude 
+        if not self.training:
+            all_moments_magnitude = torch.linalg.vector_norm(non_trivial, dim=-3) < 1e-7
+            vanished_moments = torch.sum(
+            all_moments_magnitude[:, :, 0:1] 
+                &
+            ~(all_moments_magnitude[:, :, 1:]),
+            dim=[0,1,3,4]) 
+            print(f"Vanished moments (in ch:{self.in_channels})")
+            print(np.array([np.arange(1, vanished_moments.size(0)+1),
+                  vanished_moments.cpu().numpy()]))
+        # Log the vanished moments 
         magnitude = torch.sigmoid(norm_magnitude) 
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
         new_magnitude = magnitude * torch.ones_like(self.exponents)
@@ -188,8 +201,10 @@ class InvariantsLayer(torch.nn.Module):
 
         non_trivial = _complex_mul(non_trivial[:, :, 1:], norm) 
         diagonal = non_trivial[:, :, :self.diagonal_idx, 0]
-        non_trivial = rearrange(non_trivial[:, :, self.diagonal_idx:], 'b ch o c h w -> b ch (o c) h w')
-        invariants = rearrange(torch.cat([trivial, diagonal, non_trivial], dim=2), 'b ch o h w -> b (ch o) h w') 
+        non_trivial = rearrange(non_trivial[:, :, self.diagonal_idx:],
+                                'b ch o c h w -> b ch (o c) h w')
+        invariants = rearrange(torch.cat([trivial, diagonal, non_trivial], dim=2),
+                               'b ch o h w -> b (ch o) h w') 
         return invariants
 
 class LearnableCesa(torch.nn.Module): 
@@ -238,7 +253,6 @@ class LearnableCesa(torch.nn.Module):
         out = self.conv1x1(invariants)
         return out
             
-
 class LearnableCesaInvLayer(torch.nn.Module): 
     # Flusser basis but basis learnable as in Cesa Escnn
     def __init__(self,
