@@ -1,0 +1,31 @@
+d_hparams:
+  batch_size: 64
+  data_dir: data
+  upscale_size: 64
+dataset_name: RotMnist
+early_stopping: 30
+epochs: 60
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 30
+  - 50
+  - 70
+lr_name: MultiStepLR
+model_name: MBPrototype 
+m_param:
+  in_channels: 3
+  input_size: 64
+  norm: layer
+  kernels_size: [11, 11, 11]
+  layers: [1, 2, 2]
+  channels: [16, 20, 26]
+  block_types: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
+  layer: "LearnableCesaInvLayer"
+  drop_rate: 0.2
+  channels_masking: true 
+optimizer_hparams:
+  lr: 0.001525
+optimizer_name: AdamW
+run_name: learnable-cese-mbconv-rotmnist
+seed: 42
