@@ -239,4 +239,39 @@ class LearnableCesa(torch.nn.Module):
         return out
             
 
-    
+class LearnableCesaInvLayer(torch.nn.Module): 
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4, 
+                  groups: int = 1, 
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid'):
+        super().__init__()
+        self.orders = flusser_basis_orders(max_order) 
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = MomentLayer(orders=self.orders,
+                                        max_order=max_order,
+                                        in_channels=in_channels,
+                                        padding=padding,
+                                        kernel_size=kernel_size, 
+                                        groups=groups)
+        # Construct invariants
+        self.moment_types = self.moment_layer.out_type
+        self.invariants_layer = InvariantsLayer(orders=self.orders,
+                                                groups=groups,
+                                                in_channels=in_channels)
+        
+        self.out_channels = self.moment_types.size - 3*self.input_channels # Remove the norm part 
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants

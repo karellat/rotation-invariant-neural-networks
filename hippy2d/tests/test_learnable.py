@@ -118,7 +118,7 @@ class TestLearnable:
                                 out_channels=12,
                                 kernel_size=15, 
                                 norm_layer="batch", 
-                                conv_layer="LearnableCesa",
+                                conv_layer="LearnableCesaInvLayer",
                                 conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)

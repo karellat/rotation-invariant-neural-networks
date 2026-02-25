@@ -47,7 +47,7 @@ parameters:
       channels:
         value: [16, 20, 26]
       block_types:
-        value: ["TimmBasicBlock", "TimmBasicBlock", "TimmBasicBlock"]
+        value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
         value: LearnableCesa
       drop_rate:

@@ -162,7 +162,7 @@ class MBConvBlock(torch.nn.Module):
                  input_size: int, 
                  in_channels: int, 
                  out_channels: int,
-                 expansion_factor: int = 4,
+                 expansion_factor: int = 2,
                  tukey_masking: bool = True,
                  conv_layer: Optional[torch.nn.Module] = "Conv2d",  
                  conv_kwargs: dict=dict(stride=1,
@@ -197,40 +197,31 @@ class MBConvBlock(torch.nn.Module):
             dconv_output_shape = input_size + (2 * padding) - kernel_size + 1
         assert (input_size - dconv_output_shape) % 2 == 0, "Input size must be even for valid padding"
 
-        # Expansion 
         hid_channels = in_channels * expansion_factor
 
 
         self.mask = None if not tukey_masking else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
 
-        # 1. Conv1x1E
-        self.conv1= torch.nn.Conv2d(in_channels=in_channels,
-                                    out_channels=hid_channels,
-                                    kernel_size=1,
-                                    bias=False)
-            
-        self.norm1 = MBConvBlock._get_norm_layer(norm_layer, hid_channels, input_size)
-        self.act1 = act_layer(inplace=True)
-
         # 2. DConvkxk
         conv_kwargs = conv_kwargs.copy()  # To avoid modifying the original dictionary
-        conv_kwargs['in_channels'] = hid_channels
-        conv_kwargs['out_channels'] = out_channels
+        conv_kwargs['in_channels'] = in_channels #hid_channels
+        conv_kwargs['out_channels'] = hid_channels
         conv_kwargs['input_size'] = input_size
         conv_kwargs['kernel_size'] = kernel_size
         conv_kwargs['padding'] = padding
-        conv_kwargs['groups'] = hid_channels  # Depthwise convolution
+        conv_kwargs['groups'] = 1 # Using fusion conv here
 
-        self.conv2 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
-        self.norm2 = MBConvBlock._get_norm_layer(norm_layer, hid_channels, dconv_output_shape)
-        self.act2 = act_layer(inplace=True)
+        self.conv1 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
+        num_invariants = self.conv1.out_channels
+        self.norm1 = MBConvBlock._get_norm_layer(norm_layer,num_invariants, dconv_output_shape)
+        self.act1 = act_layer(inplace=True)
 
         # 3. Conv1x1S
-        self.conv3 = torch.nn.Conv2d(in_channels=hid_channels,
+        self.conv2 = torch.nn.Conv2d(in_channels=num_invariants,
                                      out_channels=out_channels,
                                      kernel_size=1,
                                      bias=False)
-        self.norm3 = MBConvBlock._get_norm_layer(norm_layer, out_channels, dconv_output_shape)
+        self.norm2 = MBConvBlock._get_norm_layer(norm_layer, out_channels, dconv_output_shape)
         self.drop_block = torch.nn.Identity() # TODO: implement drop_block
         # Residual Part 
         self.register_buffer("residual_scale",
@@ -244,38 +235,32 @@ class MBConvBlock(torch.nn.Module):
         else: 
             self.identity = torch.nn.Identity()
 
-        self.act3 = act_layer(inplace=True)
+        self.act2 = act_layer(inplace=True)
         
         self.downsample = aa_layer(kernel_size=2, stride=2) if aa_layer is not None else torch.nn.Identity()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         shortcut = self.identity(self.downsample(x))
-
-
-        x = self.conv1(x) 
-        x = self.norm1(x) 
-        x = self.act1(x)
-
+        # Use MBFused-Conv it's faster 
+        # Fusinng Expansion conv + Depthwise conv
         # Depthwise conv layer 
         if self.mask is not None:
             x = x * self.mask
+        x = self.conv1(x)
+        x = self.norm1(x)
+        x = self.act1(x)
+
+        # Projection conv layer
         x = self.conv2(x)
         x = self.norm2(x)
-        x = self.act2(x)
-
-        # Projection conv layer 
-        x = self.conv3(x)
-        x = self.norm3(x)
         x = self.drop_block(x)
     
         x = self.downsample(x)
         x += shortcut 
         x = x * self.residual_scale
-        x = self.act3(x)
+        x = self.act2(x)
 
         return x
-        
-
 
 class TimmBasicBlock(torch.nn.Module): 
     def __init__(self, 

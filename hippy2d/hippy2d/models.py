@@ -10,7 +10,7 @@ from typing import List, Any, Dict, Optional
 import hippy2d
 from hippy2d import blocks
 from hippy2d import conv_factory
-from hippy2d.blocks import ResnetBlock, choose_groups, GatedBlock
+from hippy2d.blocks import ResnetBlock, choose_groups, GatedBlock, MBConvBlock
 from hippy2d.utils import get_default_complex   
 from hippy2d.datasets import ROTATED_TEST_SET_KEY
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
@@ -361,6 +361,7 @@ class ResHNeXtv3(nn.Module):
 def make_blocks(layer, 
                 layer_kwargs, 
                 input_size,
+                in_channels,
                 # Block settings
                 block_types,
                 kernels_size,
@@ -391,7 +392,6 @@ def make_blocks(layer,
     """
     stages = []
     feature_info = []
-    inplanes = channels[0]  # First stage output channels
     current_size = input_size
     
     for stage_idx in range(len(block_types)):
@@ -414,7 +414,7 @@ def make_blocks(layer,
             # Build block kwargs
             block_kwargs = {
                 'input_size': current_size,
-                'in_channels': inplanes,
+                'in_channels': in_channels,
                 'out_channels': out_channels,
                 'kernel_size': kernel_size,
                 'tukey_masking': channels_masking,
@@ -430,7 +430,7 @@ def make_blocks(layer,
             blocks.append(block_fn(**block_kwargs))
             
             # Update state for next block
-            inplanes = out_channels
+            in_channels = out_channels
             if use_downsample:
                 current_size = current_size // 2
         
@@ -516,6 +516,7 @@ class Resnet(torch.nn.Module):
         stage_modules, stage_feature_info = make_blocks(
             layer=layer,
             layer_kwargs=default_layer_kwargs,
+            in_channels=channels[0],
             input_size=input_size // 2,  # After stem pooling
             block_types=block_types,
             kernels_size=kernels_size,
@@ -543,6 +544,96 @@ class Resnet(torch.nn.Module):
             )
     def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        #TODO: Fix this
+        #x = self.layer4(x)
+        return x
+
+    def forward_head(self, x: torch.Tensor) -> torch.Tensor:
+        if self.classification:
+            x = self.global_pool(x)
+            x = self.flat(x)
+            x = F.dropout(x, p=self.drop_rate, training=self.training)
+            x = self.classifier(x)
+        return x
+
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.forward_features(x)
+        x = self.forward_head(x)
+        return x
+
+class MBPrototype(torch.nn.Module):
+    def __init__(self, 
+                 layer : str = "LearnableFlusserInv",
+                 default_layer_kwargs: dict = dict(), 
+                 # Shape informations
+                 in_channels:int = 3,
+                 input_size:int = 64,
+                 kernels_size: int = [15, 11, 11],
+                 block_types: list = ["MBConvBlock", "MBConvBlock", "MBConvBlock"],
+                 layers: list = [1, 1, 1], 
+                 channels: list = [10, 10, 10],
+                 # Block settings
+                 # TODO: Change back to batch
+                 norm:str = "layer", 
+                 activation: str = "ELU",
+                 channels_masking:bool = True,
+                 # Classifier settings
+                 classification:bool = True, 
+                 hidden_classifier_size:int = 64,
+                 num_classes:int = 10,
+                 drop_rate: float = 0.0): 
+        super(MBPrototype, self).__init__()
+        assert len(block_types) == len(layers) == len(channels), "block_types, layers and channels must have the same length"
+        assert len(block_types) == 3
+        _new_block_types = []
+        for block_type in block_types:
+            if not hasattr(blocks, block_type):
+                raise ValueError(f"Unknown block type: {block_type}")
+            else: 
+                _new_block_types.append(getattr(blocks, block_type))
+        block_types = _new_block_types
+
+        # Defaults 
+        act = getattr(nn, activation)
+        self.drop_rate = drop_rate
+        self.num_classes = num_classes
+        self.feature_info = []
+
+        stage_modules, stage_feature_info = make_blocks(
+            layer=layer,
+            layer_kwargs=default_layer_kwargs,
+            in_channels=in_channels,
+            input_size=input_size,  
+            block_types=block_types,
+            kernels_size=kernels_size,
+            channels=channels,
+            layers=layers,
+            norm=norm,
+            act=act,
+            channels_masking=channels_masking,
+        )
+        for stage in stage_modules:
+            self.add_module(*stage)  # layer1, layer2, etc
+        self.feature_info.extend(stage_feature_info)
+
+        # Head (Pooling and Classifier,)
+        self.num_feature = self.head_hidden_size = channels[-1]
+        self.classification = classification
+        if classification:
+            self.global_pool = torch.nn.AdaptiveAvgPool2d((1, 1))
+            self.flat = torch.nn.Flatten()
+            self.classifier = torch.nn.Sequential(
+                torch.nn.Linear(in_features=self.head_hidden_size, out_features=hidden_classifier_size),
+                torch.nn.BatchNorm1d(num_features=hidden_classifier_size),
+                act(inplace=True),
+                torch.nn.Linear(in_features=hidden_classifier_size, out_features=num_classes)
+            )
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
