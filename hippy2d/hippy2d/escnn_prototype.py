@@ -161,9 +161,28 @@ class InvariantsLayer(torch.nn.Module):
         self.in_size = in_channels // groups
         self.trivial_idx = np.sum(np.array(self.orders) == 0)
         self.diagonal_idx = np.sum(np.array(self.orders) == 1) - 1
-        self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None]) 
-        # TODO: We test group norm over different invariants
-        
+        self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None])
+
+        # Accumulators for a whole validation epoch
+        self.register_buffer(
+            "vanished_moments_accum",
+            torch.zeros(self.exponents.shape[0], dtype=torch.long)
+        )
+        self.register_buffer(
+            "total_non_zero_accum",
+            torch.zeros(self.exponents.shape[0] + 1, dtype=torch.long)
+        )
+
+    def reset_vanishing_stats(self):
+        self.vanished_moments_accum.zero_()
+        self.total_non_zero_accum.zero_()
+
+    def get_vanishing_stats(self):
+        return {
+            "orders": (-self.exponents[:, 0, 0]).detach().cpu().numpy(),
+            "vanished": self.vanished_moments_accum.detach().cpu().numpy(),
+            "total_non_zero": self.total_non_zero_accum.detach().cpu().numpy(),
+        }
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
@@ -182,18 +201,16 @@ class InvariantsLayer(torch.nn.Module):
         if not self.training:
             all_moments_magnitude = torch.linalg.vector_norm(non_trivial, dim=-3) < 1e-8
             vanished_moments = torch.sum(
-            all_moments_magnitude[:, :, 0:1] 
+                all_moments_magnitude[:, :, 0:1] 
                 &
-            ~(all_moments_magnitude[:, :, 1:]),
-            dim=[0,1,3,4]) 
+                ~(all_moments_magnitude[:, :, 1:]),
+                dim=[0,1,3,4]
+            )
             total_non_zero = (~all_moments_magnitude).sum(dim=[0,1,3,4])
 
-            print(f"Vanished moments (in ch:{self.in_channels})")
-            print(np.array([-self.exponents[:,0,0].cpu().numpy(),
-                  vanished_moments.cpu().numpy(),]))
-            print("Non-zero moments total:" )
-            print((vanished_moments / total_non_zero[1:]).cpu().numpy())
-            print(total_non_zero.cpu().numpy())
+            with torch.no_grad():
+                self.vanished_moments_accum += vanished_moments.to(self.vanished_moments_accum.dtype)
+                self.total_non_zero_accum += total_non_zero.to(self.total_non_zero_accum.dtype)
         # Log the vanished moments 
         magnitude = torch.sigmoid(norm_magnitude) 
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
