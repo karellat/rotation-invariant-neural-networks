@@ -161,38 +161,6 @@ def plot_activation_distributions(activations, layer_names, orders, in_channels,
     wandb.log({f"{prefix}_activations": wandb.Image(fig)})
     plt.close(fig)
 
-class VanishingMomentsCallback(callbacks.Callback):
-    def on_validation_epoch_start(self, trainer, pl_module):
-        for m in pl_module.modules():
-            if isinstance(m, InvariantsLayer):
-                m.reset_vanishing_stats()
-
-    def on_validation_epoch_end(self, trainer, pl_module):
-        for name, m in pl_module.named_modules():
-            if isinstance(m, InvariantsLayer):
-                stats = m.get_vanishing_stats()
-
-                orders = stats['orders']
-                vanished = stats['vanished']
-                total = stats['total_non_zero']
-                ratio = vanished / total[1:]  # Skip order 0 for ratio
-                
-                logger.info(f"[{name}] Vanishing moments statistics:")
-                logger.info(f"  Orders: {orders}")
-                logger.info(f"  Vanished: {vanished}")
-                logger.info(f"  Total non-zero: {total}")
-                logger.info(f"  Vanishing ratio: {ratio}")
-                
-                # Log to wandb if available
-                if trainer.logger:
-                    for i, order in enumerate(orders):
-                        trainer.logger.log_metrics({
-                            f"{name}/order_{order}_vanished": vanished[i],
-                            f"{name}/order_{order}_total": total[i+1],
-                            f"{name}/order_{order}_ratio": ratio[i],
-                        }, step=trainer.global_step)
-                m.reset_vanishing_stats()
-
 @click.command()
 @click.option('-n', '--run_name', default='default', help='Name of the experiment.')
 @click.option('--early_stopping', default=15, type=int, help='Early stopping patience.')
@@ -318,8 +286,7 @@ def training_loop(run_name: str,
     trainer_callbacks = [checkpoint_callback,
                          callbacks.ModelSummary(max_depth=-1),
                          callbacks.LearningRateMonitor(logging_interval='epoch'),
-                         EpochTimeLogger(),
-                         VanishingMomentsCallback()]
+                         EpochTimeLogger()]
     if early_stopping > 0:
         trainer_callbacks.append(callbacks.EarlyStopping(monitor='val_loss', patience=early_stopping))
 

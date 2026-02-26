@@ -197,20 +197,6 @@ class InvariantsLayer(torch.nn.Module):
         norm = non_trivial[:, :, 0:1] 
         # Rotate the norm with a sigmoid on norm magnitude  
         norm_magnitude = torch.linalg.vector_norm(norm, dim=-3)
-        # TODO: Add the norm guy magnitude 
-        if not self.training:
-            all_moments_magnitude = torch.linalg.vector_norm(non_trivial, dim=-3) < 1e-8
-            vanished_moments = torch.sum(
-                all_moments_magnitude[:, :, 0:1] 
-                &
-                ~(all_moments_magnitude[:, :, 1:]),
-                dim=[0,1,3,4]
-            )
-            total_non_zero = (~all_moments_magnitude).sum(dim=[0,1,3,4])
-
-            with torch.no_grad():
-                self.vanished_moments_accum += vanished_moments.to(self.vanished_moments_accum.dtype)
-                self.total_non_zero_accum += total_non_zero.to(self.total_non_zero_accum.dtype)
         # Log the vanished moments 
         magnitude = torch.sigmoid(norm_magnitude) 
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
