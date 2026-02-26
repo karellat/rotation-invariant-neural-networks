@@ -180,15 +180,20 @@ class InvariantsLayer(torch.nn.Module):
         norm_magnitude = torch.linalg.vector_norm(norm, dim=-3)
         # TODO: Add the norm guy magnitude 
         if not self.training:
-            all_moments_magnitude = torch.linalg.vector_norm(non_trivial, dim=-3) < 1e-7
+            all_moments_magnitude = torch.linalg.vector_norm(non_trivial, dim=-3) < 1e-8
             vanished_moments = torch.sum(
             all_moments_magnitude[:, :, 0:1] 
                 &
             ~(all_moments_magnitude[:, :, 1:]),
             dim=[0,1,3,4]) 
+            total_non_zero = (~all_moments_magnitude).sum(dim=[0,1,3,4])
+
             print(f"Vanished moments (in ch:{self.in_channels})")
-            print(np.array([np.arange(1, vanished_moments.size(0)+1),
-                  vanished_moments.cpu().numpy()]))
+            print(np.array([-self.exponents[:,0,0].cpu().numpy(),
+                  vanished_moments.cpu().numpy(),]))
+            print("Non-zero moments total:" )
+            print((vanished_moments / total_non_zero[1:]).cpu().numpy())
+            print(total_non_zero.cpu().numpy())
         # Log the vanished moments 
         magnitude = torch.sigmoid(norm_magnitude) 
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
