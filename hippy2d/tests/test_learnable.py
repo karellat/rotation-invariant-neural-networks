@@ -123,6 +123,20 @@ class TestLearnable:
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
 
+    def test_90_mbblock_magreal(self, test_images, test_device):
+        """Test the 90-degree rotation block."""
+        torch.set_default_dtype(torch.float32)
+        test_images = (test_images[0].to(torch.float32), test_images[1].to(torch.float32))
+        inv_block = MBConvBlock(input_size=IMAGE_SIZE,
+                                in_channels=IMAGE_CHANNELS,
+                                out_channels=12,
+                                kernel_size=15, 
+                                norm_layer="batch", 
+                                conv_layer="LearnableCesaMagRealLayer",
+                                conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
+        # Forward pass through the complex invariant block
+        self._test_90_module(inv_block, test_images, test_device)
+
     def test_90_timm_block(self, test_images, test_device):
         """Test the 90-degree rotation block."""
         inv_block = TimmBasicBlock(

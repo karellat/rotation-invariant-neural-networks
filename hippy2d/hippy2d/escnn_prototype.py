@@ -163,27 +163,6 @@ class InvariantsLayer(torch.nn.Module):
         self.diagonal_idx = np.sum(np.array(self.orders) == 1) - 1
         self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None])
 
-        # Accumulators for a whole validation epoch
-        self.register_buffer(
-            "vanished_moments_accum",
-            torch.zeros(self.exponents.shape[0], dtype=torch.long)
-        )
-        self.register_buffer(
-            "total_non_zero_accum",
-            torch.zeros(self.exponents.shape[0] + 1, dtype=torch.long)
-        )
-
-    def reset_vanishing_stats(self):
-        self.vanished_moments_accum.zero_()
-        self.total_non_zero_accum.zero_()
-
-    def get_vanishing_stats(self):
-        return {
-            "orders": (-self.exponents[:, 0, 0]).detach().cpu().numpy(),
-            "vanished": self.vanished_moments_accum.detach().cpu().numpy(),
-            "total_non_zero": self.total_non_zero_accum.detach().cpu().numpy(),
-        }
-
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
         non_trivial = moments[:, :, self.trivial_idx:, :, :]
@@ -197,8 +176,8 @@ class InvariantsLayer(torch.nn.Module):
         norm = non_trivial[:, :, 0:1] 
         # Rotate the norm with a sigmoid on norm magnitude  
         norm_magnitude = torch.linalg.vector_norm(norm, dim=-3)
-        # Log the vanished moments 
         magnitude = torch.sigmoid(norm_magnitude) 
+         
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
         new_magnitude = magnitude * torch.ones_like(self.exponents)
         new_angle = angle * self.exponents 
@@ -212,6 +191,62 @@ class InvariantsLayer(torch.nn.Module):
         non_trivial = rearrange(non_trivial[:, :, self.diagonal_idx:],
                                 'b ch o c h w -> b ch (o c) h w')
         invariants = rearrange(torch.cat([trivial, diagonal, non_trivial], dim=2),
+                               'b ch o h w -> b (ch o) h w') 
+        return invariants
+
+class InvariantLayerMagReal(torch.nn.Module):
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int,
+                 groups: int):
+        super().__init__()
+        for i in range(len(orders)-1):
+            assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
+        # Parameters
+        self.orders = orders
+        self.in_channels = in_channels
+        self.groups = groups
+        self.in_size = in_channels // groups
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None])
+        # Calculate output channels for this layer
+        self.out_channels = (self.in_channels 
+                             * 
+                             (self.trivial_idx + 1
+                              + 2*(len(self.orders) - self.trivial_idx - 1)))
+
+
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivial = moments[:, :, :self.trivial_idx, :, :]
+        non_trivial = moments[:, :, self.trivial_idx:, :, :]
+        
+        # Non-trivial to complex 
+        non_trivial = rearrange(non_trivial, 
+                                'b ch (o c) h w -> b ch o c h w',
+                                 o=non_trivial.shape[2]//2,
+                                 c=2)
+        # Calculate the magnitude for all moments
+        all_magnitudes = torch.linalg.vector_norm(non_trivial, dim=-3)
+        # Norm
+        norm = non_trivial[:, :, 0:1] 
+        norm_magnitude = all_magnitudes[:, :, 0:1]
+        
+        magnitude = torch.sigmoid(norm_magnitude) 
+        angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
+        new_magnitude = magnitude * torch.ones_like(self.exponents)
+        new_angle = angle * self.exponents 
+
+        result_real = new_magnitude * torch.cos(new_angle)
+        result_imag = new_magnitude * torch.sin(new_angle)
+        norm = torch.stack([result_real, result_imag], dim=-3)
+
+        # TODO: This can calculate only the real part
+        non_trivial = _complex_mul(non_trivial[:, :, 1:], norm) 
+        # Choose just real part of non-trivial invariants
+        non_trivial = non_trivial[:, :, :, 0]
+        
+        invariants = rearrange(torch.cat([trivial, all_magnitudes, non_trivial], dim=2),
                                'b ch o h w -> b (ch o) h w') 
         return invariants
 
@@ -291,6 +326,43 @@ class LearnableCesaInvLayer(torch.nn.Module):
                                                 in_channels=in_channels)
         
         self.out_channels = self.moment_types.size - 3*self.input_channels # Remove the norm part 
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
+
+class LearnableCesaMagRealLayer(torch.nn.Module): 
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4, 
+                  groups: int = 1, 
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid'):
+        super().__init__()
+        self.orders = flusser_basis_orders(max_order) 
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = MomentLayer(orders=self.orders,
+                                        max_order=max_order,
+                                        in_channels=in_channels,
+                                        padding=padding,
+                                        kernel_size=kernel_size, 
+                                        groups=groups)
+        # Construct invariants
+        self.moment_types = self.moment_layer.out_type
+        self.invariants_layer = InvariantLayerMagReal(orders=self.orders,
+                                                      groups=groups,
+                                                      in_channels=in_channels)
+        
+        self.out_channels = self.invariants_layer.out_channels
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         moments = self.moment_layer(x)  # b, ch*o, h,
