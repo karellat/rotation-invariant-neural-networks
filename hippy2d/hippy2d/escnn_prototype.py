@@ -250,6 +250,71 @@ class InvariantLayerMagReal(torch.nn.Module):
                                'b ch o h w -> b (ch o) h w') 
         return invariants
 
+class FlexibleOnesInvariantLayer(torch.nn.Module):
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int,
+                 groups: int):
+        super().__init__()
+        for i in range(len(orders)-1):
+            assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
+        # Parameters
+        self.orders = orders
+        self.in_channels = in_channels
+        self.groups = groups
+        self.in_size = in_channels // groups
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        # Create a matrix of exponents for all combinations
+        # Go thhrough all combination of exponents 
+        n_non_trivial = len(self.orders) - self.trivial_idx
+        exp_a = torch.zeros(n_non_trivial, n_non_trivial, dtype=torch.int32)
+        exp_b = torch.zeros(n_non_trivial, n_non_trivial, dtype=torch.int32)
+
+        for idx_a, a in enumerate(self.orders[self.trivial_idx:]):
+            for idx_b, b in enumerate(self.orders[self.trivial_idx:]):
+                gcd = np.gcd(a, b)
+                exp_a[idx_a, idx_b] = b // gcd
+                exp_b[idx_a, idx_b] = -a // gcd
+
+        tril_rows, tril_cols = torch.tril_indices(n_non_trivial, n_non_trivial, offset=-1)
+        self.register_buffer("exponents_a", exp_a)        
+        self.register_buffer("exponents_b", exp_b)
+        self.register_buffer("tril_rows", tril_rows)
+        self.register_buffer("tril_cols", tril_cols)
+        self.out_channels = (
+            self.in_channels 
+            * 
+            (self.trivial_idx + n_non_trivial + (n_non_trivial * (n_non_trivial - 1) // 2)))
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivial = moments[:, :, :self.trivial_idx, :, :]
+        non_trivial = moments[:, :, self.trivial_idx:, :, :]
+        
+        # Non-trivial to complex 
+        non_trivial = rearrange(non_trivial, 
+                                'b ch (o c) h w -> b ch o c h w',
+                                 o=non_trivial.shape[2]//2,
+                                 c=2)
+        # Norm
+        magnitudes = torch.linalg.vector_norm(non_trivial, dim=-3)
+        angles = SafeAtan2.apply(non_trivial[..., 1, :, :], non_trivial[..., 0, :, :], 1e-8)
+        angles_a = angles[:, :, :, None] * self.exponents_a[:, :, None, None]
+        angles_b = angles[:, :, None] * self.exponents_b[:, :, None, None]
+
+        real_a = magnitudes[:, :, :, None] * torch.cos(angles_a)
+        imag_a = magnitudes[:, :, :, None] * torch.sin(angles_a)
+        real_b = magnitudes[:, :, None] * torch.cos(angles_b)
+        imag_b = magnitudes[:, :, None] * torch.sin(angles_b)
+        a = torch.stack([real_a, imag_a], dim=-3)
+        b = torch.stack([real_b, imag_b], dim=-3)
+
+        all_combinations = _complex_mul(a, b, complex_dim=-3)
+        lower_triangle = all_combinations[:, :, self.tril_rows, self.tril_cols]
+        real_lower_triangle = lower_triangle[:, :, :, 0]
+        invariants = rearrange(torch.cat([trivial, magnitudes, real_lower_triangle], dim=2),
+                               'b ch o h w -> b (ch o) h w') 
+        return invariants
+
 class LearnableCesa(torch.nn.Module): 
     # Flusser basis but basis learnable as in Cesa Escnn
     def __init__(self,
@@ -284,8 +349,8 @@ class LearnableCesa(torch.nn.Module):
         number_of_invariants = self.moment_types.size - 3*self.input_channels # Remove the norm part 
         self.conv1x1 = torch.nn.Conv2d(in_channels=number_of_invariants,
                                        out_channels=out_channels,
-                                      kernel_size=1,
-                                      bias=False)
+                                       kernel_size=1,
+                                       bias=False)
 
 
 
@@ -361,6 +426,43 @@ class LearnableCesaMagRealLayer(torch.nn.Module):
         self.invariants_layer = InvariantLayerMagReal(orders=self.orders,
                                                       groups=groups,
                                                       in_channels=in_channels)
+        
+        self.out_channels = self.invariants_layer.out_channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
+
+class LearnableFlexibleLayer(torch.nn.Module):
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4, 
+                  groups: int = 1, 
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid'):
+        super().__init__()
+        self.orders = flusser_basis_orders(max_order) 
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = MomentLayer(orders=self.orders,
+                                        max_order=max_order,
+                                        in_channels=in_channels,
+                                        padding=padding,
+                                        kernel_size=kernel_size, 
+                                        groups=groups)
+        # Construct invariants
+        self.moment_types = self.moment_layer.out_type
+        self.invariants_layer = FlexibleOnesInvariantLayer(orders=self.orders,
+                                                           groups=groups,
+                                                           in_channels=in_channels)
         
         self.out_channels = self.invariants_layer.out_channels
 
