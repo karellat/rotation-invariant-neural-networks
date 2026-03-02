@@ -5,7 +5,7 @@ from warnings import warn
 import torchvision.transforms.v2 as transforms
 
 from hippy2d.utils import get_testing_img
-from hippy2d.escnn_layers import InvariantLayer
+from hippy2d.escnn_layers import InvariantLayer, EscnnInvariantLayer
 import escnn
 
 torch.set_default_dtype(torch.float32)
@@ -213,3 +213,120 @@ class TestInvariantLayer:
 
 if __name__ == "__main__":
     pytest.main([__file__])
+
+
+class TestEscnnInvariantLayer:
+    def test_initialization_so2(self):
+        r2_act = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3)
+        in_type = escnn.nn.FieldType(
+            r2_act,
+            [
+                r2_act.trivial_repr,
+                r2_act.irrep(1),
+                r2_act.irrep(2),
+                r2_act.irrep(3),
+            ],
+        )
+        layer = EscnnInvariantLayer(in_type)
+
+        # trivials + magnitudes(all non-trivial) + compensated real(all non-trivial except normalizer)
+        assert layer.out_type.size == 1 + 3 + 2
+        for rep in layer.out_type.representations:
+            assert rep.is_trivial()
+
+    def test_initialization_o2(self):
+        r2_act = escnn.gspaces.flipRot2dOnR2(N=-1, maximum_frequency=3)
+        in_type = escnn.nn.FieldType(
+            r2_act,
+            [
+                r2_act.trivial_repr,
+                r2_act.irrep(1),
+                r2_act.irrep(2),
+            ],
+        )
+        layer = EscnnInvariantLayer(in_type)
+        assert layer.out_type.gspace == r2_act
+        for rep in layer.out_type.representations:
+            assert rep.is_trivial()
+
+    @pytest.mark.parametrize(
+        "r2_act",
+        [
+            escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3),
+        ],
+    )
+
+    def test_90_rotation_equivariance(self, r2_act):
+        in_img_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * 3)
+        mixed_type = escnn.nn.FieldType(
+            r2_act,
+            [
+                r2_act.trivial_repr,
+                r2_act.irrep(1),
+                r2_act.irrep(2),
+                r2_act.irrep(3),
+            ],
+        )
+
+        conv = escnn.nn.R2Conv(
+            in_img_type,
+            mixed_type,
+            kernel_size=5,
+            padding=2,
+            sigma=0.6,
+            initialize=True,
+        )
+        layer = EscnnInvariantLayer(mixed_type)
+
+        x = torch.randn(1, 3, 64, 64, dtype=torch.get_default_dtype())
+        x_rot = torch.rot90(x, k=1, dims=[-2, -1])
+
+        y = layer(conv(escnn.nn.GeometricTensor(x, in_img_type)))
+        y_rot = layer(conv(escnn.nn.GeometricTensor(x_rot, in_img_type)))
+
+        torch.testing.assert_close(
+            y.tensor,
+            torch.rot90(y_rot.tensor, k=-1, dims=[-2, -1]),
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+    @pytest.mark.parametrize(
+        "r2_act",
+        [
+            escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3),
+        ],
+    )
+    def test_90_rotation_equivariance_with_type123_conv_output(self, r2_act):
+        in_img_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * 3)
+        type123_only = escnn.nn.FieldType(
+            r2_act,
+            [
+                r2_act.irrep(1),
+                r2_act.irrep(2),
+                r2_act.irrep(3),
+            ],
+        )
+
+        conv = escnn.nn.R2Conv(
+            in_img_type,
+            type123_only,
+            kernel_size=5,
+            padding=2,
+            sigma=0.6,
+            initialize=True,
+        )
+        layer = EscnnInvariantLayer(type123_only)
+
+        x = torch.randn(1, 3, 64, 64, dtype=torch.get_default_dtype())
+        x_rot = torch.rot90(x, k=1, dims=[-2, -1])
+
+        y = layer(conv(escnn.nn.GeometricTensor(x, in_img_type)))
+        y_rot = layer(conv(escnn.nn.GeometricTensor(x_rot, in_img_type)))
+
+        torch.testing.assert_close(
+            y.tensor,
+            torch.rot90(y_rot.tensor, k=-1, dims=[-2, -1]),
+            rtol=1e-4,
+            atol=1e-4,
+        )

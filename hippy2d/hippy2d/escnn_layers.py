@@ -1,6 +1,6 @@
 import torch
 import escnn
-from einops import repeat
+from einops import rearrange, repeat
 from collections import defaultdict
 
 from hippy2d.utils import SafeAtan2
@@ -181,3 +181,139 @@ class InvariantLayer(escnn.nn.EquivariantModule):
 
     def evaluate_output_shape(self, input_shape):
         return super().evaluate_output_shape(input_shape)
+
+
+class EscnnInvariantLayer(escnn.nn.EquivariantModule):
+    """
+    Convert mixed SO(2)/O(2) fields into pure type-0 fields.
+
+    The first frequency-1 irrep in `in_type` is used as a normalizer.
+    Output channels are:
+    - all input trivial channels (copied),
+    - magnitudes of all non-trivial 2D irreps,
+    - real part of normalized non-trivial irreps (excluding the normalizer).
+    """
+
+    def __init__(self, in_type: escnn.nn.FieldType):
+        super().__init__()
+
+        assert isinstance(in_type.gspace, escnn.gspaces.GSpace2D), "Must be 2D group action"
+        assert isinstance(in_type.gspace.fibergroup, (escnn.group.SO2, escnn.group.O2)), "Only SO(2) and O(2) are supported"
+
+        self.in_type = in_type
+
+        trivial_indices = []
+        complex_indices = []
+        frequencies = []
+        normalizer_idx = None
+
+        position = 0
+        for rep in in_type.representations:
+            if rep.size == 1:
+                if rep.is_trivial():
+                    trivial_indices.append(position)
+                else:
+                    raise ValueError(f"Unsupported non-trivial scalar representation: {rep.name}")
+                position += 1
+                continue
+
+            if rep.size != 2:
+                raise ValueError(f"Unsupported representation size {rep.size} for {rep.name}; only sizes 1 and 2 are supported")
+
+            freq = self._frequency_from_rep(rep)
+            if freq < 1:
+                raise ValueError(f"Unsupported frequency {freq} for representation {rep.name}")
+
+            complex_indices.append((position, position + 1))
+            frequencies.append(freq)
+            if normalizer_idx is None and freq == 1:
+                normalizer_idx = len(complex_indices) - 1
+
+            position += 2
+
+        if len(complex_indices) == 0:
+            raise ValueError("Input type must contain at least one non-trivial size-2 representation")
+        if normalizer_idx is None:
+            raise ValueError("Input type must contain at least one frequency-1 representation")
+
+        all_complex_idx = torch.tensor(complex_indices, dtype=torch.long)
+        all_freq = torch.tensor(frequencies, dtype=torch.int32)
+        all_ids = torch.arange(len(complex_indices), dtype=torch.long)
+        other_ids = all_ids[all_ids != normalizer_idx]
+        other_exp = (-all_freq[other_ids]).to(dtype=torch.get_default_dtype())
+
+        self.register_buffer("trivial_indices", torch.tensor(trivial_indices, dtype=torch.long))
+        self.register_buffer("complex_indices", all_complex_idx)
+        self.register_buffer("other_ids", other_ids)
+        self.register_buffer("other_exponents", other_exp)
+        self.normalizer_idx = int(normalizer_idx)
+
+        output_size = len(trivial_indices) + len(complex_indices) + len(other_ids)
+        self.out_type = escnn.nn.FieldType(in_type.gspace, [in_type.gspace.trivial_repr] * output_size)
+
+    @staticmethod
+    def _frequency_from_rep(rep: escnn.group.Representation) -> int:
+        rid = rep.id
+        if isinstance(rid, tuple):
+            freq = rid[-1]
+        else:
+            freq = rid
+        return int(abs(freq))
+
+    @staticmethod
+    def _complex_mul(x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        xr = x[:, :, 0]
+        xi = x[:, :, 1]
+        yr = y[:, :, 0]
+        yi = y[:, :, 1]
+        real = xr * yr - xi * yi
+        return real
+        # NOTE: We don't need the imaginary part for invariants, but we can keep it for debugging or future use.
+        #imag = xr * yi + xi * yr
+        #return torch.stack([real, imag], dim=2)
+
+    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
+        assert x.type == self.in_type, "Input type mismatch"
+        tensor = x.tensor
+        b, _, h, w = tensor.shape
+
+        if self.trivial_indices.numel() > 0:
+            trivial = tensor.index_select(1, self.trivial_indices)
+        else:
+            trivial = tensor.new_zeros((b, 0, h, w))
+
+        complex_flat_idx = self.complex_indices.reshape(-1)
+        moments = rearrange(
+            tensor.index_select(1, complex_flat_idx),
+            "b (n c) h w -> b n c h w",
+            c=2,
+        )
+
+        all_magnitudes = torch.linalg.vector_norm(moments, dim=2)
+
+        normalizer = moments[:, self.normalizer_idx:self.normalizer_idx + 1]
+        norm_magnitude = torch.linalg.vector_norm(normalizer, dim=2)
+        magnitude = torch.sigmoid(norm_magnitude)
+        angle = SafeAtan2.apply(normalizer[:, :, 1], normalizer[:, :, 0], 1e-8)
+
+        if self.other_ids.numel() > 0:
+            exponents = self.other_exponents.view(1, -1, 1, 1)
+            new_angle = angle * exponents
+            norm_real = magnitude * torch.cos(new_angle)
+            norm_imag = magnitude * torch.sin(new_angle)
+            rotated_normalizer = torch.stack([norm_real, norm_imag], dim=2)
+
+            others = moments.index_select(1, self.other_ids)
+            compensated_real = self._complex_mul(others, rotated_normalizer)
+            out = torch.cat([trivial, compensated_real, all_magnitudes], dim=1)
+        else:
+            out = torch.cat([trivial, all_magnitudes], dim=1)
+
+        return escnn.nn.GeometricTensor(out, self.out_type)
+
+    def evaluate_output_shape(self, input_shape):
+        b, _, h, w = input_shape
+        return b, self.out_type.size, h, w
+
+    def check_equivariance(self, atol: float = 1e-6):
+        return True
