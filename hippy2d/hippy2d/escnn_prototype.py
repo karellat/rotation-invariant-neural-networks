@@ -250,11 +250,12 @@ class InvariantLayerMagReal(torch.nn.Module):
                                'b ch o h w -> b (ch o) h w') 
         return invariants
 
-class FlexibleOnesInvariantLayer(torch.nn.Module):
+class FlexibleInvariantLayer(torch.nn.Module):
     def __init__(self,
                  orders: list[int],
                  in_channels: int,
-                 groups: int):
+                 groups: int, 
+                 magnitude_func: str='sigmoid'):
         super().__init__()
         for i in range(len(orders)-1):
             assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
@@ -285,6 +286,13 @@ class FlexibleOnesInvariantLayer(torch.nn.Module):
             self.in_channels 
             * 
             (self.trivial_idx + n_non_trivial + (n_non_trivial * (n_non_trivial - 1) // 2)))
+        # Magnitude func 
+        if magnitude_func.lower() == "none":
+            self.magnitude_func = torch.nn.Identity()
+        elif magnitude_func.lower() == "sigmoid":
+            self.magnitude_func = torch.sigmoid
+        else:
+            raise ValueError(f"magnitude_func '{magnitude_func}' not recognized")
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
@@ -301,10 +309,10 @@ class FlexibleOnesInvariantLayer(torch.nn.Module):
         angles_a = angles[:, :, :, None] * self.exponents_a[:, :, None, None]
         angles_b = angles[:, :, None] * self.exponents_b[:, :, None, None]
 
-        real_a = magnitudes[:, :, :, None] * torch.cos(angles_a)
-        imag_a = magnitudes[:, :, :, None] * torch.sin(angles_a)
-        real_b = magnitudes[:, :, None] * torch.cos(angles_b)
-        imag_b = magnitudes[:, :, None] * torch.sin(angles_b)
+        real_a = self.magnitude_func(magnitudes[:, :, :, None]) * torch.cos(angles_a)
+        imag_a = self.magnitude_func(magnitudes[:, :, :, None]) * torch.sin(angles_a)
+        real_b = self.magnitude_func(magnitudes[:, :, None]) * torch.cos(angles_b)
+        imag_b = self.magnitude_func(magnitudes[:, :, None]) * torch.sin(angles_b)
         a = torch.stack([real_a, imag_a], dim=-3)
         b = torch.stack([real_b, imag_b], dim=-3)
 
@@ -313,6 +321,7 @@ class FlexibleOnesInvariantLayer(torch.nn.Module):
         real_lower_triangle = lower_triangle[:, :, :, 0]
         invariants = rearrange(torch.cat([trivial, magnitudes, real_lower_triangle], dim=2),
                                'b ch o h w -> b (ch o) h w') 
+
         return invariants
 
 class LearnableCesa(torch.nn.Module): 
@@ -445,7 +454,7 @@ class LearnableFlexibleLayer(torch.nn.Module):
                   max_order: int=4, 
                   groups: int = 1, 
                   kernel_size: int=15,
-                  magnitude_func: str='sigmoid'):
+                  magnitude_func: str='none'):
         super().__init__()
         self.orders = flusser_basis_orders(max_order) 
         self.out_channels = out_channels
@@ -460,9 +469,10 @@ class LearnableFlexibleLayer(torch.nn.Module):
                                         groups=groups)
         # Construct invariants
         self.moment_types = self.moment_layer.out_type
-        self.invariants_layer = FlexibleOnesInvariantLayer(orders=self.orders,
-                                                           groups=groups,
-                                                           in_channels=in_channels)
+        self.invariants_layer = FlexibleInvariantLayer(orders=self.orders,
+                                                       groups=groups,
+                                                       in_channels=in_channels, 
+                                                       magnitude_func=magnitude_func)
         
         self.out_channels = self.invariants_layer.out_channels
 

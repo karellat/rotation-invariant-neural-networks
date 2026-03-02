@@ -404,7 +404,6 @@ class VarLearnableFlusser(torch.nn.Module):
         # Return the output
         return x
 
-
 class ComplexLearnableFlusser(torch.nn.Module):
     """ 
     Complex Flusser layer as described in the notebook.
