@@ -357,12 +357,6 @@ def training_loop(run_name: str,
                         max_batches=10,
                         layer_type=layer_type
                     )
-                    
-                    if len(layer_names) > 0:
-                        plot_activation_distributions(activations, layer_names, orders, in_channels, prefix=f"{layer_type.__name__}")
-                        logger.info(f"Successfully logged activations for {len(layer_names)} {layer_type.__name__} layers")
-                    else:
-                        logger.warning(f"No {layer_type.__name__} layers found in the model")
             except Exception as e:
                 logger.error(f"Error collecting activations: {e}")
                 import traceback
