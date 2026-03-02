@@ -255,6 +255,89 @@ class FlexibleInvariantLayer(torch.nn.Module):
                  orders: list[int],
                  in_channels: int,
                  groups: int, 
+                 magnitude_func: str='sigmoid',
+                 max_b_exponent: Optional[int]=2):
+        super().__init__()
+        for i in range(len(orders)-1):
+            assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
+        # Parameters
+        self.orders = orders
+        self.in_channels = in_channels
+        self.groups = groups
+        self.max_b_exponent = max_b_exponent
+        self.in_size = in_channels // groups
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        # Create a matrix of exponents for all combinations
+        # Go thhrough all combination of exponents 
+        n_non_trivial = len(self.orders) - self.trivial_idx
+        exp_a = torch.zeros(n_non_trivial, n_non_trivial, dtype=torch.int32)
+        exp_b = torch.zeros(n_non_trivial, n_non_trivial, dtype=torch.int32)
+
+        non_trivial_orders = torch.tensor(self.orders[self.trivial_idx:], dtype=torch.int32)
+        for idx_a, a in enumerate(self.orders[self.trivial_idx:]):
+            for idx_b, b in enumerate(self.orders[self.trivial_idx:]):
+                gcd = np.gcd(a, b)
+                exp_a[idx_a, idx_b] = b // gcd
+                exp_b[idx_a, idx_b] = -a // gcd
+
+        tril_rows, tril_cols = torch.tril_indices(n_non_trivial, n_non_trivial, offset=-1)
+        if self.max_b_exponent is not None:
+            # Filter by original order on row-indexed `a` (before gcd reduction).
+            keep = non_trivial_orders[tril_cols] <= self.max_b_exponent
+            tril_rows = tril_rows[keep]
+            tril_cols = tril_cols[keep]
+        self.num_pairs = int(tril_rows.numel())
+        self.register_buffer("exponents_a", exp_a)        
+        self.register_buffer("exponents_b", exp_b)
+        self.register_buffer("tril_rows", tril_rows)
+        self.register_buffer("tril_cols", tril_cols)
+        self.out_channels = (
+            self.in_channels 
+            * 
+            (self.trivial_idx + n_non_trivial + self.num_pairs))
+        # Magnitude func 
+        if magnitude_func.lower() == "none":
+            self.magnitude_func = torch.nn.Identity()
+        elif magnitude_func.lower() == "sigmoid":
+            self.magnitude_func = torch.sigmoid
+        else:
+            raise ValueError(f"magnitude_func '{magnitude_func}' not recognized")
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivial = moments[:, :, :self.trivial_idx, :, :]
+        non_trivial = moments[:, :, self.trivial_idx:, :, :]
+        
+        # Non-trivial to complex 
+        non_trivial = rearrange(non_trivial, 
+                                'b ch (o c) h w -> b ch o c h w',
+                                 o=non_trivial.shape[2]//2,
+                                 c=2)
+        # Norm
+        magnitudes = torch.linalg.vector_norm(non_trivial, dim=-3)
+        angles = SafeAtan2.apply(non_trivial[..., 1, :, :], non_trivial[..., 0, :, :], 1e-8)
+        angles_a = angles[:, :, :, None] * self.exponents_a[:, :, None, None]
+        angles_b = angles[:, :, None] * self.exponents_b[:, :, None, None]
+
+        real_a = self.magnitude_func(magnitudes[:, :, :, None]) * torch.cos(angles_a)
+        imag_a = self.magnitude_func(magnitudes[:, :, :, None]) * torch.sin(angles_a)
+        real_b = self.magnitude_func(magnitudes[:, :, None]) * torch.cos(angles_b)
+        imag_b = self.magnitude_func(magnitudes[:, :, None]) * torch.sin(angles_b)
+        a = torch.stack([real_a, imag_a], dim=-3)
+        b = torch.stack([real_b, imag_b], dim=-3)
+
+        all_combinations = _complex_mul(a, b, complex_dim=-3)
+        lower_triangle = all_combinations[:, :, self.tril_rows, self.tril_cols]
+        real_lower_triangle = lower_triangle[:, :, :, 0]
+        invariants = rearrange(torch.cat([trivial, magnitudes, real_lower_triangle], dim=2),
+                               'b ch o h w -> b (ch o) h w') 
+
+        return invariants
+
+class SecondOrderInvariantLayer(torch.nn.Module):
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int,
+                 groups: int, 
                  magnitude_func: str='sigmoid'):
         super().__init__()
         for i in range(len(orders)-1):
@@ -454,7 +537,8 @@ class LearnableFlexibleLayer(torch.nn.Module):
                   max_order: int=4, 
                   groups: int = 1, 
                   kernel_size: int=15,
-                  magnitude_func: str='none'):
+                  magnitude_func: str='none',
+                  max_b_exponent: Optional[int]=None):
         super().__init__()
         self.orders = flusser_basis_orders(max_order) 
         self.out_channels = out_channels
@@ -472,7 +556,8 @@ class LearnableFlexibleLayer(torch.nn.Module):
         self.invariants_layer = FlexibleInvariantLayer(orders=self.orders,
                                                        groups=groups,
                                                        in_channels=in_channels, 
-                                                       magnitude_func=magnitude_func)
+                                                       magnitude_func=magnitude_func,
+                                                       max_b_exponent=max_b_exponent)
         
         self.out_channels = self.invariants_layer.out_channels
 

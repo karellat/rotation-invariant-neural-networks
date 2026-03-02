@@ -147,7 +147,9 @@ class TestLearnable:
                                 kernel_size=15, 
                                 norm_layer="batch", 
                                 conv_layer="LearnableFlexibleLayer",
-                                conv_kwargs=dict(input_size=IMAGE_SIZE, magnitude_func="none")).to(test_device)
+                                conv_kwargs=dict(input_size=IMAGE_SIZE,
+                                                 magnitude_func="none",
+                                                 max_b_exponent=2)).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
     

@@ -1,0 +1,76 @@
+
+program: scripts/training.py
+name: flexibility-sweep-rotmnist
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: RotMnist
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 32
+      test_batch_size:
+        value: 128
+      data_dir:
+        value: data
+      upscale_size:
+        value: 64
+  early_stopping:
+    value: 10
+  epochs:
+    value: 100
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [30, 50, 70]
+  m_param:
+    parameters:
+      in_channels:
+        value: 1
+      num_classes:
+        value: 10 
+      norm:
+        value: batch
+      kernels_size:
+        value: [11, 11, 11]
+      layers:
+        value: [1, 2, 2]
+      channels:
+        value: [16, 20, 26]
+      block_types:
+        value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
+      layer:
+        value: LearnableFlexibleLayer
+      default_layer_kwargs:
+        parameters: 
+          magnitude_func:
+            values: ["none", "sigmoid"]
+          max_b_exponent:
+            values: [1, 2, 3]
+      drop_rate:
+        value: 0.1
+      channels_masking:
+        value: true 
+  model_name:
+    value: MBPrototype
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: learnablecesa-flexibility
+  seed:
+    values: [42, 7, 123]
