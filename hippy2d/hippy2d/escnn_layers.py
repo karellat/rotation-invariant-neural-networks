@@ -197,7 +197,8 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
     def __init__(self,
                  in_type: escnn.nn.FieldType,
                  return_normalizer_type1: bool = False,
-                 equivariant_output: bool = None):
+                 equivariant_output: bool = None, 
+                 ):
         super().__init__()
 
         assert isinstance(in_type.gspace, escnn.gspaces.GSpace2D), "Must be 2D group action"
@@ -259,7 +260,8 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
         self.normalizer_idx = int(normalizer_idx)
         self.normalizer_rep = complex_reps[self.normalizer_idx]
 
-        out_reprs = [in_type.gspace.trivial_repr] * (len(trivial_indices) + len(complex_indices) + len(other_ids))
+        n_type0_channels = len(trivial_indices) + len(complex_indices) + len(other_ids)
+        out_reprs = [in_type.gspace.trivial_repr] * n_type0_channels
         if self.return_normalizer_type1:
             out_reprs.append(self.normalizer_rep)
         self.out_type = escnn.nn.FieldType(in_type.gspace, out_reprs)

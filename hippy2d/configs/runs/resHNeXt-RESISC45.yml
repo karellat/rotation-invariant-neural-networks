@@ -2,7 +2,7 @@ d_hparams:
   batch_size: 32
   data_dir: data
   to_complex: true
-dataset_name: RESISC45
+dataset_name: resisc45
 early_stopping: 15
 epochs: 200
 lr_hparams:

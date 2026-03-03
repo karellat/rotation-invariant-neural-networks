@@ -35,7 +35,6 @@ def escnn_style_rings_sigmas(kernel_size: int, n_rings: int):
         sigma = [0.6] * (n_rings - 1) + [0.4]
     return rings, sigma
 
-
 class RadialGaussianConv2d(torch.nn.Module):
     """
     2D convolution with a radially symmetric kernel parameterized as a

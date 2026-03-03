@@ -273,18 +273,18 @@ class TestEscnnInvariantLayer:
         y = layer(x)
         assert y.tensor.shape[1] == layer.out_type.size
 
+
     def test_90_rotation_phase_shift_for_type1_normalizer(self):
         r2_act = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3)
         in_img_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * 3)
         mixed_type = escnn.nn.FieldType(
             r2_act,
-            [
-                r2_act.trivial_repr,
-                r2_act.irrep(1),
-                r2_act.irrep(2),
-                r2_act.irrep(3),
-            ],
+            [r2_act.trivial_repr]
+            + [r2_act.irrep(1)] * 3
+            + [r2_act.irrep(2)] * 3
+            + [r2_act.irrep(3)] * 3,
         )
+
 
         conv = escnn.nn.R2Conv(
             in_img_type,
@@ -367,6 +367,7 @@ class TestEscnnInvariantLayer:
 
 
 class TestEscnnInvGatedBlock:
+
     @pytest.mark.parametrize("equivariant_output", [False, True])
     def test_forward(self, equivariant_output):
         r2_act = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3)
@@ -386,6 +387,27 @@ class TestEscnnInvGatedBlock:
         assert isinstance(y, escnn.nn.GeometricTensor)
         assert y.type == block.out_type
         assert y.tensor.shape[1] == block.out_type.size
+        if equivariant_output:
+            assert any(rep.is_trivial() for rep in y.type.representations)
+            assert any(not rep.is_trivial() for rep in y.type.representations)
+        else:
+            assert all(rep.is_trivial() for rep in y.type.representations)
+
+
+    def test_requires_frequency1_irrep(self):
+        r2_act = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3)
+        in_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * 3)
+        irreps_without_one = [r2_act.irrep(2), r2_act.irrep(3)]
+
+        with pytest.raises(ValueError, match="frequency-1 irrep"):
+            EscnnInvGatedBlock(
+                r2_act=r2_act,
+                in_type=in_type,
+                out_channels=4,
+                kernel_size=5,
+                padding=2,
+                irreps=irreps_without_one,
+            )
 
     @pytest.mark.parametrize(
         "r2_act",
