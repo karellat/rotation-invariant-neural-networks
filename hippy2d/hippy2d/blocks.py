@@ -466,7 +466,6 @@ class EscnnInvGatedBlock(escnn.nn.modules.EquivariantModule):
                  out_channels_factor: int = 4,
                  padding: int = 0,
                  conv_sigma: float = 0.6,
-                 irreps=None,
                  equivariant_output: bool = False):
         super().__init__()
 
@@ -484,61 +483,99 @@ class EscnnInvGatedBlock(escnn.nn.modules.EquivariantModule):
                 "EscnnInvGatedBlock requires at least one frequency-1 irrep for normalizer construction."
             )
 
-        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
-        non_trivials = escnn.nn.FieldType(r2_act, sorted(irreps * out_channels, key=lambda r: r.id))
-        conv_type = trivials + non_trivials
-
-        self.conv = escnn.nn.R2Conv(
-            in_type,
-            conv_type,
-            kernel_size=kernel_size,
-            padding=padding,
-            sigma=conv_sigma,
-            initialize=True,
-        )
-
-        self.inv = EscnnInvariantLayer(
-            conv_type,
-            equivariant_output=equivariant_output,
-        )
-
         self.equivariant_output = equivariant_output
-        if equivariant_output:
-            trivial_reprs = [rep for rep in self.inv.out_type.representations if rep.is_trivial()]
-            non_trivial_reprs = [rep for rep in self.inv.out_type.representations if not rep.is_trivial()]
-            trivial_type = escnn.nn.FieldType(r2_act, trivial_reprs)
-            non_trivial_type = escnn.nn.FieldType(r2_act, non_trivial_reprs)
 
-            labels = ["trivial"] * len(trivial_type) + ["non_trivial"] * len(non_trivial_type)
-            self.norm = escnn.nn.MultipleModule(
-                self.inv.out_type,
-                labels,
-                [
-                    (escnn.nn.InnerBatchNorm(trivial_type), "trivial"),
-                    (escnn.nn.IIDBatchNorm2d(non_trivial_type), "non_trivial"),
-                ],
+        if not equivariant_output: 
+            trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
+            non_trivials = escnn.nn.FieldType(r2_act, sorted(irreps * out_channels, key=lambda r: r.id))
+            conv_type = trivials + non_trivials
+
+            self.conv = escnn.nn.R2Conv(
+                in_type,
+                conv_type,
+                kernel_size=kernel_size,
+                padding=padding,
+                sigma=conv_sigma,
+                initialize=True,
             )
-            self.act = escnn.nn.MultipleModule(
-                self.norm.out_type,
-                labels,
-                [
-                    (escnn.nn.ELU(trivial_type), "trivial"),
-                    (escnn.nn.IdentityModule(non_trivial_type), "non_trivial"),
-                ],
+
+            self.inv = EscnnInvariantLayer(
+                conv_type,
+                equivariant_output=equivariant_output,
             )
-        else:
-            self.conv1x1_outtype = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels_factor * out_channels)
+            self.conv1x1_outtype = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * int(out_channels_factor * out_channels))
             self.conv1x1 = torch.nn.Conv2d(
                 in_channels=self.inv.out_type.size,
-                out_channels=out_channels_factor * out_channels,
+                out_channels=int(out_channels_factor * out_channels),
                 kernel_size=1,
                 bias=False)
 
             self.norm = escnn.nn.InnerBatchNorm(self.conv1x1_outtype)
             self.act = escnn.nn.ELU(self.norm.out_type)
+            self.out_type = self.act.out_type
 
+        else:
+            if out_channels_factor < 2:
+                raise ValueError("equivariant_output=True requires out_channels_factor >= 2 to allocate gate channels.")
 
-        self.out_type = self.act.out_type
+            conv_trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
+            conv_non_trivials = escnn.nn.FieldType(r2_act, sorted(irreps * out_channels, key=lambda r: r.id))
+            conv_type = conv_trivials + conv_non_trivials
+
+            self.conv = escnn.nn.R2Conv(
+                in_type,
+                conv_type,
+                kernel_size=kernel_size,
+                padding=padding,
+                sigma=conv_sigma,
+                initialize=True,
+            )
+            self.inv = EscnnInvariantLayer(
+                conv_type,
+                equivariant_output=equivariant_output,
+            )
+
+            # Split invariant output into scalar channels and the final equivariant normalizer field.
+            self.inv_trivial_size = self.inv.out_type.size - self.inv.normalizer_rep.size
+            self.mix_out_channels = int(out_channels_factor * out_channels)
+            self.gate_channels = out_channels
+            self.trivial_out_channels = self.mix_out_channels - self.gate_channels
+
+            self.conv1x1 = torch.nn.Conv2d(
+                in_channels=self.inv_trivial_size,
+                out_channels=self.mix_out_channels,
+                kernel_size=1,
+                bias=False,
+            )
+
+            self.trivial_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * self.trivial_out_channels)
+            self.gates_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * self.gate_channels)
+            self.normalizer_type = escnn.nn.FieldType(r2_act, [self.inv.normalizer_rep])
+            self.gated_type = escnn.nn.FieldType(r2_act, [self.inv.normalizer_rep] * self.gate_channels)
+
+            gate = self.gates_type + self.gated_type
+            self.pre_gated_type = self.trivial_type + gate
+
+            norm_labels = ["trivial"] * (len(self.trivial_type) + len(self.gates_type)) + ["gated"] * len(self.gated_type)
+            self.norm = escnn.nn.MultipleModule(
+                self.pre_gated_type,
+                norm_labels,
+                [
+                    (escnn.nn.InnerBatchNorm(self.trivial_type + self.gates_type), "trivial"),
+                    (escnn.nn.IIDBatchNorm2d(self.gated_type), "gated"),
+                ],
+            )
+
+            act_labels = ["trivial"] * len(self.trivial_type) + ["gate"] * len(gate)
+            self.act = escnn.nn.MultipleModule(
+                self.norm.out_type,
+                act_labels,
+                [
+                    (escnn.nn.ELU(self.trivial_type), "trivial"),
+                    (escnn.nn.GatedNonLinearity1(gate), "gate"),
+                ],
+            )
+            self.out_type = self.act.out_type
 
     def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
         x = self.conv(x)
@@ -546,6 +583,18 @@ class EscnnInvGatedBlock(escnn.nn.modules.EquivariantModule):
         if not self.equivariant_output:
             x = self.conv1x1(x.tensor)
             x = escnn.nn.GeometricTensor(x, self.norm.in_type)
+        else:
+            trivial_invariants = x.tensor[:, :self.inv_trivial_size]
+            normalizer = x.tensor[:, self.inv_trivial_size:]
+
+            mixed = self.conv1x1(trivial_invariants)
+            gates = mixed[:, :self.gate_channels]
+            trivial_mixed = mixed[:, self.gate_channels:]
+
+            # Replicate the normalizer field to match the number of gate scalars (no learnable expansion).
+            gated = normalizer.repeat(1, self.gate_channels, 1, 1)
+            merged = torch.cat([trivial_mixed, gates, gated], dim=1)
+            x = escnn.nn.GeometricTensor(merged, self.pre_gated_type)
         x = self.norm(x)
         x = self.act(x)
         return x

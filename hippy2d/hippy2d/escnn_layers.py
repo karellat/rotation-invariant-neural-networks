@@ -196,7 +196,6 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
 
     def __init__(self,
                  in_type: escnn.nn.FieldType,
-                 return_normalizer_type1: bool = False,
                  equivariant_output: bool = None, 
                  ):
         super().__init__()
@@ -205,11 +204,7 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
         assert isinstance(in_type.gspace.fibergroup, (escnn.group.SO2, escnn.group.O2)), "Only SO(2) and O(2) are supported"
 
         self.in_type = in_type
-        # Backward-compatible alias: `equivariant_output=True` means returning the type-1 normalizer too.
-        if equivariant_output is not None:
-            self.return_normalizer_type1 = bool(equivariant_output)
-        else:
-            self.return_normalizer_type1 = bool(return_normalizer_type1)
+        self.equivariant_output = equivariant_output
 
         trivial_indices = []
         complex_indices = []
@@ -262,7 +257,7 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
 
         n_type0_channels = len(trivial_indices) + len(complex_indices) + len(other_ids)
         out_reprs = [in_type.gspace.trivial_repr] * n_type0_channels
-        if self.return_normalizer_type1:
+        if self.equivariant_output:
             out_reprs.append(self.normalizer_rep)
         self.out_type = escnn.nn.FieldType(in_type.gspace, out_reprs)
 
@@ -324,7 +319,7 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
         else:
             out = torch.cat([trivial, all_magnitudes], dim=1)
 
-        if self.return_normalizer_type1:
+        if self.equivariant_output:
             out = torch.cat([out, normalizer[:, 0]], dim=1)
 
         return escnn.nn.GeometricTensor(out, self.out_type)

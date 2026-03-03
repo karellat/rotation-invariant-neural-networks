@@ -23,6 +23,7 @@ m_param:
   block_type: EscnnInvGatedBlock
   block_kwargs:
     equivariant_output: true
+    out_channels_factor: 3.3
   trivial_pooling_type: PointwiseMaxPool
 optimizer_hparams:
   lr: 0.001
