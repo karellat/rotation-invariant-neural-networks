@@ -6,7 +6,7 @@ from torch import nn
 from hippy2d import conv_factory
 from hippy2d.utils import tukey_2d
 from hippy2d.conv_factory import get_conv_layer
-from hippy2d.escnn_layers import InvariantLayer
+from hippy2d.escnn_layers import InvariantLayer, EscnnInvariantLayer
 
 
 class ResnetBlock(torch.nn.Module):
@@ -500,5 +500,91 @@ class InvGatedBlock(escnn.nn.modules.EquivariantModule):
         x = self.act(x)
         return x
     
+    def evaluate_output_shape(self, input_shape):
+        return super().evaluate_output_shape(input_shape)
+
+
+class EscnnInvGatedBlock(escnn.nn.modules.EquivariantModule):
+    """
+    Gated-style block with an invariant projection step based on EscnnInvariantLayer.
+
+    Pipeline:
+    R2Conv -> EscnnInvariantLayer -> normalization -> activation
+    """
+
+    def __init__(self,
+                 r2_act: escnn.gspaces.GSpace,
+                 in_type: escnn.nn.FieldType,
+                 out_channels: int,
+                 kernel_size: int,
+                 padding: int = 0,
+                 conv_sigma: float = 0.6,
+                 irreps=None,
+                 equivariant_output: bool = False):
+        super().__init__()
+
+        self.in_type = in_type
+        if irreps is None:
+            irreps = []
+            for irr in r2_act.fibergroup.irreps():
+                if not irr.is_trivial():
+                    irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
+            irreps = list(irreps)
+
+        trivials = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * out_channels)
+        norm_factor = escnn.nn.FieldType(r2_act, [r2_act.irrep(1)] * out_channels)
+        non_trivials = escnn.nn.FieldType(r2_act, sorted(irreps * out_channels, key=lambda r: r.id))
+        conv_type = trivials + norm_factor + non_trivials
+
+        self.conv = escnn.nn.R2Conv(
+            in_type,
+            conv_type,
+            kernel_size=kernel_size,
+            padding=padding,
+            sigma=conv_sigma,
+            initialize=True,
+        )
+
+        self.inv = EscnnInvariantLayer(
+            conv_type,
+            equivariant_output=equivariant_output,
+        )
+
+        if equivariant_output:
+            trivial_reprs = [rep for rep in self.inv.out_type.representations if rep.is_trivial()]
+            non_trivial_reprs = [rep for rep in self.inv.out_type.representations if not rep.is_trivial()]
+            trivial_type = escnn.nn.FieldType(r2_act, trivial_reprs)
+            non_trivial_type = escnn.nn.FieldType(r2_act, non_trivial_reprs)
+
+            labels = ["trivial"] * len(trivial_type) + ["non_trivial"] * len(non_trivial_type)
+            self.norm = escnn.nn.MultipleModule(
+                self.inv.out_type,
+                labels,
+                [
+                    (escnn.nn.InnerBatchNorm(trivial_type), "trivial"),
+                    (escnn.nn.IIDBatchNorm2d(non_trivial_type), "non_trivial"),
+                ],
+            )
+            self.act = escnn.nn.MultipleModule(
+                self.norm.out_type,
+                labels,
+                [
+                    (escnn.nn.ELU(trivial_type), "trivial"),
+                    (escnn.nn.IdentityModule(non_trivial_type), "non_trivial"),
+                ],
+            )
+        else:
+            self.norm = escnn.nn.InnerBatchNorm(self.inv.out_type)
+            self.act = escnn.nn.ELU(self.norm.out_type)
+
+        self.out_type = self.act.out_type
+
+    def forward(self, x: escnn.nn.GeometricTensor) -> escnn.nn.GeometricTensor:
+        x = self.conv(x)
+        x = self.inv(x)
+        x = self.norm(x)
+        x = self.act(x)
+        return x
+
     def evaluate_output_shape(self, input_shape):
         return super().evaluate_output_shape(input_shape)

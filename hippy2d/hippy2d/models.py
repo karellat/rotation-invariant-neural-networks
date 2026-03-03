@@ -879,12 +879,15 @@ class E2Cnn(torch.nn.Module):
                  drop_rate: float = 0.0,
                  classifier_size: int = 64,
                  pool_size: int = 2, 
+                 block_kwargs: Optional[dict] = None,
                  ):
         super(E2Cnn, self).__init__()
         assert len(blocks) == len(channels), "blocks and channels must have the same length"
         assert len(blocks) == len(kernel_size), "blocks and kernel_size must have the same length"
         assert len(blocks) > 0, "At least one block must be specified"
         assert stem_pool == False, "Stem pooling is not implemented"
+
+        block_kwargs = {} if block_kwargs is None else block_kwargs.copy()
 
         # Get block
         assert hasattr(hippy2d.blocks, block_type), f"Unknown block type: {block_type}"
@@ -906,7 +909,8 @@ class E2Cnn(torch.nn.Module):
                            in_type=self.in_type,
                            padding=0,
                            out_channels=stem_channels,
-                           kernel_size=stem_kernel_size)
+                           kernel_size=stem_kernel_size,
+                           **block_kwargs)
         out_type = self.stem.out_type
 
         # Feature Extractor 
@@ -918,7 +922,8 @@ class E2Cnn(torch.nn.Module):
                                in_type=out_type,
                                padding=2 if (block_idx < len(blocks) -1) and (layer_idx < num_layers -1) else 0,
                                out_channels=channels[block_idx],
-                               kernel_size=kernel_size[block_idx])
+                               kernel_size=kernel_size[block_idx],
+                               **block_kwargs)
                 layers.append(layer)
                 out_type = layer.out_type
             # Pooling 

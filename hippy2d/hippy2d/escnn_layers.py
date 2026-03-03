@@ -194,16 +194,25 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
     - real part of normalized non-trivial irreps (excluding the normalizer).
     """
 
-    def __init__(self, in_type: escnn.nn.FieldType):
+    def __init__(self,
+                 in_type: escnn.nn.FieldType,
+                 return_normalizer_type1: bool = False,
+                 equivariant_output: bool = None):
         super().__init__()
 
         assert isinstance(in_type.gspace, escnn.gspaces.GSpace2D), "Must be 2D group action"
         assert isinstance(in_type.gspace.fibergroup, (escnn.group.SO2, escnn.group.O2)), "Only SO(2) and O(2) are supported"
 
         self.in_type = in_type
+        # Backward-compatible alias: `equivariant_output=True` means returning the type-1 normalizer too.
+        if equivariant_output is not None:
+            self.return_normalizer_type1 = bool(equivariant_output)
+        else:
+            self.return_normalizer_type1 = bool(return_normalizer_type1)
 
         trivial_indices = []
         complex_indices = []
+        complex_reps = []
         frequencies = []
         normalizer_idx = None
 
@@ -225,6 +234,7 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
                 raise ValueError(f"Unsupported frequency {freq} for representation {rep.name}")
 
             complex_indices.append((position, position + 1))
+            complex_reps.append(rep)
             frequencies.append(freq)
             if normalizer_idx is None and freq == 1:
                 normalizer_idx = len(complex_indices) - 1
@@ -247,9 +257,12 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
         self.register_buffer("other_ids", other_ids)
         self.register_buffer("other_exponents", other_exp)
         self.normalizer_idx = int(normalizer_idx)
+        self.normalizer_rep = complex_reps[self.normalizer_idx]
 
-        output_size = len(trivial_indices) + len(complex_indices) + len(other_ids)
-        self.out_type = escnn.nn.FieldType(in_type.gspace, [in_type.gspace.trivial_repr] * output_size)
+        out_reprs = [in_type.gspace.trivial_repr] * (len(trivial_indices) + len(complex_indices) + len(other_ids))
+        if self.return_normalizer_type1:
+            out_reprs.append(self.normalizer_rep)
+        self.out_type = escnn.nn.FieldType(in_type.gspace, out_reprs)
 
     @staticmethod
     def _frequency_from_rep(rep: escnn.group.Representation) -> int:
@@ -308,6 +321,9 @@ class EscnnInvariantLayer(escnn.nn.EquivariantModule):
             out = torch.cat([trivial, compensated_real, all_magnitudes], dim=1)
         else:
             out = torch.cat([trivial, all_magnitudes], dim=1)
+
+        if self.return_normalizer_type1:
+            out = torch.cat([out, normalizer[:, 0]], dim=1)
 
         return escnn.nn.GeometricTensor(out, self.out_type)
 

@@ -6,6 +6,7 @@ import torchvision.transforms.v2 as transforms
 
 from hippy2d.utils import get_testing_img
 from hippy2d.escnn_layers import InvariantLayer, EscnnInvariantLayer
+from hippy2d.blocks import EscnnInvGatedBlock
 import escnn
 
 torch.set_default_dtype(torch.float32)
@@ -249,6 +250,79 @@ class TestEscnnInvariantLayer:
         for rep in layer.out_type.representations:
             assert rep.is_trivial()
 
+    def test_return_normalizer_type1(self):
+        r2_act = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3)
+        in_type = escnn.nn.FieldType(
+            r2_act,
+            [
+                r2_act.trivial_repr,
+                r2_act.irrep(1),
+                r2_act.irrep(2),
+                r2_act.irrep(3),
+            ],
+        )
+        layer = EscnnInvariantLayer(in_type, return_normalizer_type1=True)
+
+        # Base output: trivials + compensated reals + magnitudes = 1 + 2 + 3
+        # Plus type-1 normalizer (2 channels)
+        assert layer.out_type.size == (1 + 2 + 3 + 2)
+        assert layer.out_type.representations[-1].size == 2
+        assert not layer.out_type.representations[-1].is_trivial()
+
+        x = escnn.nn.GeometricTensor(torch.randn(2, in_type.size, 32, 32), in_type)
+        y = layer(x)
+        assert y.tensor.shape[1] == layer.out_type.size
+
+    def test_90_rotation_phase_shift_for_type1_normalizer(self):
+        r2_act = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3)
+        in_img_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * 3)
+        mixed_type = escnn.nn.FieldType(
+            r2_act,
+            [
+                r2_act.trivial_repr,
+                r2_act.irrep(1),
+                r2_act.irrep(2),
+                r2_act.irrep(3),
+            ],
+        )
+
+        conv = escnn.nn.R2Conv(
+            in_img_type,
+            mixed_type,
+            kernel_size=5,
+            padding=2,
+            sigma=0.6,
+            initialize=True,
+        )
+        layer = EscnnInvariantLayer(mixed_type, return_normalizer_type1=True)
+
+        x = torch.randn(1, 3, 64, 64, dtype=torch.get_default_dtype())
+        x_rot = torch.rot90(x, k=1, dims=[-2, -1])
+
+        y = layer(conv(escnn.nn.GeometricTensor(x, in_img_type))).tensor
+        y_rot = layer(conv(escnn.nn.GeometricTensor(x_rot, in_img_type))).tensor
+        y_rot_back = torch.rot90(y_rot, k=-1, dims=[-2, -1])
+
+        # Invariant/trivial part should stay invariant under 90-degree rotation.
+        invariant_channels = y.shape[1] - 2
+        torch.testing.assert_close(
+            y[:, :invariant_channels],
+            y_rot_back[:, :invariant_channels],
+            rtol=1e-4,
+            atol=1e-4,
+        )
+
+        # Last two channels are the appended type-1 normalizer (real, imag).
+        # 90-degree rotation corresponds to a +pi/2 phase shift after undoing spatial rotation:
+        # (re, im) -> (-im, re)
+        normalizer = y[:, invariant_channels:]
+        normalizer_rot_back = y_rot_back[:, invariant_channels:]
+
+        expected_real = -normalizer[:, 1]
+        expected_imag = normalizer[:, 0]
+        torch.testing.assert_close(normalizer_rot_back[:, 0], expected_real, rtol=1e-4, atol=1e-4)
+        torch.testing.assert_close(normalizer_rot_back[:, 1], expected_imag, rtol=1e-4, atol=1e-4)
+
     @pytest.mark.parametrize(
         "r2_act",
         [
@@ -290,6 +364,28 @@ class TestEscnnInvariantLayer:
             rtol=1e-4,
             atol=1e-4,
         )
+
+
+class TestEscnnInvGatedBlock:
+    @pytest.mark.parametrize("equivariant_output", [False, True])
+    def test_forward(self, equivariant_output):
+        r2_act = escnn.gspaces.rot2dOnR2(N=-1, maximum_frequency=3)
+        in_type = escnn.nn.FieldType(r2_act, [r2_act.trivial_repr] * 3)
+        block = EscnnInvGatedBlock(
+            r2_act=r2_act,
+            in_type=in_type,
+            out_channels=4,
+            kernel_size=5,
+            padding=2,
+            equivariant_output=equivariant_output,
+        )
+
+        x = escnn.nn.GeometricTensor(torch.randn(2, in_type.size, 64, 64), in_type)
+        y = block(x)
+
+        assert isinstance(y, escnn.nn.GeometricTensor)
+        assert y.type == block.out_type
+        assert y.tensor.shape[1] == block.out_type.size
 
     @pytest.mark.parametrize(
         "r2_act",
