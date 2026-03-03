@@ -1,0 +1,32 @@
+d_hparams:
+  batch_size: 32
+  data_dir: data
+  test_batch_size: 128
+  upscale_size: 64
+dataset_name: RotMnist
+early_stopping: 15
+epochs: 100
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 10
+  - 50
+  - 90
+lr_name: MultiStepLR
+model_name: E2Cnn
+m_param:
+  in_channels: 1
+  input_size: 64
+  max_order: 3
+  stem_channels: 16
+  channels: [16, 32, 40]
+  block_type: EscnnInvGatedBlock
+  block_kwargs:
+    equivariant_output: true
+  trivial_pooling_type: PointwiseMaxPool
+optimizer_hparams:
+  lr: 0.001
+optimizer_name: AdamW
+label_smoothing: 0.1
+run_name: e2cnn-rotmnist-invariant-equivariant-output
+seed: 42
