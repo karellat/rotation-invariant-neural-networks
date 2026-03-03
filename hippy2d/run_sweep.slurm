@@ -3,7 +3,7 @@
 #SBATCH --output=./logs/%A_%a_hippy2d_train.out
 #SBATCH --time=10:00:00            # Job duration
 #SBATCH --partition=volta-x86      # GPU partition name
-#SBATCH --gres=gpu:1               # Number of GPUs
+#SBATCH --constraint=gpu1_model:Tesla_V100-PCIE-32GB
 #SBATCH --cpus-per-task=16         # CPUs per task
 #SBATCH --mem=64G                  # RAM
 #SBATCH --array=0-3                # Run jobs oversplit 
