@@ -47,9 +47,10 @@ def _complex_mul(x, y, complex_dim=3):
 def _complex_mul_real(x, y, complex_dim=3):
     xr = x.select(complex_dim, 0)
     xi = x.select(complex_dim, 1)
-    yr = y.select(complex_dim, 0)
-    yi = y.select(complex_dim, 1)
-    return xr * yr - xi * yi
+    out = xr * y.select(complex_dim, 0)                 
+    out.addcmul_(xi, y.select(complex_dim, 1), value=-1)
+    return out
+
 
 def _rotate_moments(moments: torch.Tensor,
                     exponents: torch.Tensor,
