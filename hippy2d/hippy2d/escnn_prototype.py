@@ -330,9 +330,8 @@ class FlexibleInvariantLayer(torch.nn.Module):
         a = torch.stack([real_a, imag_a], dim=-3)
         b = torch.stack([real_b, imag_b], dim=-3)
 
-        all_combinations = _complex_mul(a, b, complex_dim=-3)
-        lower_triangle = all_combinations[:, :, self.tril_rows, self.tril_cols]
-        real_lower_triangle = lower_triangle[:, :, :, 0]
+        all_combinations = _complex_mul_real(a, b, complex_dim=-3)
+        real_lower_triangle = all_combinations[:, :, self.tril_rows, self.tril_cols]
         invariants = rearrange(torch.cat([trivial, magnitudes, real_lower_triangle], dim=2),
                                'b ch o h w -> b (ch o) h w') 
 
