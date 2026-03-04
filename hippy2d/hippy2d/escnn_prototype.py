@@ -256,6 +256,97 @@ class InvariantLayerMagReal(torch.nn.Module):
                                'b ch o h w -> b (ch o) h w') 
         return invariants
 
+class InvariantLayerMixedMagReal(torch.nn.Module):
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int,
+                 groups: int,
+                 magnitude_func: str='sigmoid'):
+        super().__init__()
+        for i in range(len(orders)-1):
+            assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
+        # Parameters
+        self.orders = orders
+        self.in_channels = in_channels
+        self.groups = groups
+        self.in_size = in_channels // groups
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        non_trivial_orders = torch.tensor(self.orders[self.trivial_idx:], dtype=torch.get_default_dtype())
+        self.register_buffer("non_trivial_orders", non_trivial_orders[:, None, None])
+        self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.get_default_dtype())[:, None, None])
+        self.magnitude_func = magnitude_func.lower()
+        if self.magnitude_func not in ["softmax", "sigmoid"]:
+            raise ValueError(f"magnitude_func '{magnitude_func}' not recognized")
+        # Match InvariantLayerMagReal channel layout:
+        # trivials + all magnitudes + real(normalized non-trivials excluding the reference)
+        self.out_channels = (self.in_channels
+                             *
+                             (self.trivial_idx + 1
+                              + 2*(len(self.orders) - self.trivial_idx - 1)))
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivial = moments[:, :, :self.trivial_idx, :, :]
+        non_trivial = moments[:, :, self.trivial_idx:, :, :]
+
+        # Non-trivial moments as complex tensor.
+        non_trivial = rearrange(non_trivial,
+                                'b ch (o c) h w -> b ch o c h w',
+                                o=non_trivial.shape[2]//2,
+                                c=2)
+        all_magnitudes = torch.linalg.vector_norm(non_trivial, dim=-3)
+        all_angles = SafeAtan2.apply(non_trivial[..., 1, :, :], non_trivial[..., 0, :, :], 1e-8)
+
+        spin1_base = all_angles / self.non_trivial_orders
+        # Resolve branch ambiguity by aligning to a robust anchor.
+        # Prefer type-1 anchor when it has enough energy; otherwise use an all-types
+        # iterative anchor initialized from the strongest available type.
+        type1_mask = (self.non_trivial_orders == 1).to(all_angles.dtype)
+        type1_weights = all_magnitudes * type1_mask
+        type1_wsum = torch.clamp(type1_weights.sum(dim=2, keepdim=True), min=1e-8)
+        ref1_cos = (type1_weights * torch.cos(all_angles)).sum(dim=2, keepdim=True) / type1_wsum
+        ref1_sin = (type1_weights * torch.sin(all_angles)).sum(dim=2, keepdim=True) / type1_wsum
+        ref1_angle = SafeAtan2.apply(ref1_sin, ref1_cos, 1e-8)
+
+        magnitude_weights = torch.sigmoid(all_magnitudes)
+        wsum = torch.clamp(magnitude_weights.sum(dim=2, keepdim=True), min=1e-8)
+        max_idx = torch.argmax(all_magnitudes, dim=2, keepdim=True)
+        ref_init = torch.gather(spin1_base, dim=2, index=max_idx)
+
+        two_pi = 2.0 * torch.pi
+        # Iteration 1: align to strong-type init, then average all aligned types.
+        k0 = torch.round((ref_init - spin1_base) * self.non_trivial_orders / two_pi)
+        spin1_aligned0 = spin1_base + two_pi * k0 / self.non_trivial_orders
+        ref0_cos = (magnitude_weights * torch.cos(spin1_aligned0)).sum(dim=2, keepdim=True) / wsum
+        ref0_sin = (magnitude_weights * torch.sin(spin1_aligned0)).sum(dim=2, keepdim=True) / wsum
+        ref_fallback = SafeAtan2.apply(ref0_sin, ref0_cos, 1e-8)
+
+        type1_energy = type1_weights.sum(dim=2, keepdim=True)
+        all_energy = torch.clamp(all_magnitudes.sum(dim=2, keepdim=True), min=1e-8)
+        use_type1 = type1_energy > (1e-3 * all_energy)
+        ref_angle = torch.where(use_type1, ref1_angle, ref_fallback)
+
+        # Final alignment against chosen robust reference.
+        k = torch.round((ref_angle - spin1_base) * self.non_trivial_orders / two_pi)
+        spin1_angles = spin1_base + two_pi * k / self.non_trivial_orders
+
+        spin1_cos = (magnitude_weights * torch.cos(spin1_angles)).sum(dim=2, keepdim=True) / wsum
+        spin1_sin = (magnitude_weights * torch.sin(spin1_angles)).sum(dim=2, keepdim=True) / wsum
+        spin_angles = SafeAtan2.apply(spin1_sin, spin1_cos, 1e-8)
+        mixed_magnitude = (magnitude_weights * all_magnitudes).sum(dim=2, keepdim=True) / wsum
+
+
+        # Spin the mixed reference angle to each target type exactly as in MagReal.
+        new_angle = spin_angles * self.exponents
+        norm_real = mixed_magnitude * torch.cos(new_angle)
+        norm_imag = mixed_magnitude * torch.sin(new_angle)
+        mixed_normalizer = torch.stack([norm_real, norm_imag], dim=-3)
+
+        # Keep only the real part of mixed invariants (exclude reference slot).
+        mixed_real = _complex_mul_real(non_trivial[:, :, 1:], mixed_normalizer)
+        invariants = rearrange(torch.cat([trivial, all_magnitudes, mixed_real], dim=2),
+                               'b ch o h w -> b (ch o) h w')
+        return invariants
+
 class FlexibleInvariantLayer(torch.nn.Module):
     def __init__(self,
                  orders: list[int],
@@ -456,6 +547,44 @@ class LearnableCesaMagRealLayer(torch.nn.Module):
         moments = self.moment_layer(x)  # b, ch*o, h,
         invariants = self.invariants_layer(moments)
         # Separate trivials 
+        return invariants
+
+class LearnableCesaMixedMagRealLayer(torch.nn.Module):
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int,
+                  out_channels: int,
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4,
+                  groups: int = 1,
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid'):
+        super().__init__()
+        self.orders = flusser_basis_orders(max_order)
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = MomentLayer(orders=self.orders,
+                                        max_order=max_order,
+                                        in_channels=in_channels,
+                                        padding=padding,
+                                        kernel_size=kernel_size,
+                                        groups=groups)
+        # Construct invariants
+        self.moment_types = self.moment_layer.out_type
+        self.invariants_layer = InvariantLayerMixedMagReal(orders=self.orders,
+                                                           groups=groups,
+                                                           in_channels=in_channels,
+                                                           magnitude_func=magnitude_func)
+
+        self.out_channels = self.invariants_layer.out_channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials
         return invariants
 
 class LearnableFlexibleLayer(torch.nn.Module):
