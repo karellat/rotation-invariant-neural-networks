@@ -45,11 +45,12 @@ def _complex_mul(x, y, complex_dim=3):
     return torch.stack((real, imag), dim=complex_dim)
 
 def _complex_mul_real(x, y, complex_dim=3):
-    xr = x.select(complex_dim, 0)
-    xi = x.select(complex_dim, 1)
-    out = xr * y.select(complex_dim, 0)                 
-    out.addcmul_(xi, y.select(complex_dim, 1), value=-1)
-    return out
+    return (x.select(complex_dim, 0) * y.select(complex_dim, 0) 
+            - 
+            x.select(complex_dim, 1) * y.select(complex_dim, 1))
+
+def _complex_mul_real_parts(x_r, x_i, y_r, y_i):
+    return x_r * y_r - x_i * y_i
 
 
 def _rotate_moments(moments: torch.Tensor,
@@ -248,9 +249,13 @@ class InvariantLayerMagReal(torch.nn.Module):
 
         result_real = magnitude * torch.cos(new_angle)
         result_imag = magnitude * torch.sin(new_angle)
-        norm = torch.stack([result_real, result_imag], dim=-3)
 
-        non_trivial = _complex_mul_real(non_trivial[:, :, 1:], norm)
+        non_trivial = _complex_mul_real_parts(
+            non_trivial[:, :, 1:, 0],
+            non_trivial[:, :, 1:, 1],
+            result_real,
+            result_imag,
+        )
         
         invariants = rearrange(torch.cat([trivial, all_magnitudes, non_trivial], dim=2),
                                'b ch o h w -> b (ch o) h w') 
