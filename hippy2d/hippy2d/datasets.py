@@ -18,6 +18,7 @@ from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, defau
 from torchvision.datasets import VisionDataset
 from torchvision.datasets import EuroSAT as EuroSATTorch
 from torchvision.datasets import PCAM as PCAMTorch
+from torchvision.datasets import DTD as DTDTorch
 from torchvision.datasets.utils import check_integrity, download_url
 import torchvision.transforms.v2 as transforms
 from torchvision.transforms.v2.functional import InterpolationMode
@@ -573,7 +574,113 @@ class EuroSAT(HuggingFaceDataModule):
         
         # Store for rotated dataset (required for parent class)
         self.hg_dataset_test = self.hg_dataset.select(self.test_idx)
-    
+
+
+class DTD(LightningDataModule, ABC):
+    DEFAULT_IMAGE_SIZE = 128
+
+    @property
+    def num_classes(self):
+        return len(self.classes)
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+    def __init__(self,
+                 data_dir: str = "./data",
+                 batch_size: int = 32,
+                 test_batch_size: int = 256,
+                 target_size: int = DEFAULT_IMAGE_SIZE,
+                 to_complex: bool = False,
+                 normalize: bool = False,
+                 use_circ_mask: bool = False,
+                 num_workers: Optional[int] = None):
+        assert os.path.exists(data_dir), f"Dataset folder \"{data_dir}\" not found."
+        if num_workers is None:
+            num_workers = get_optimal_workers()
+        super().__init__()
+
+        self.data_dir = data_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        self.target_size = target_size
+        self.to_complex = to_complex
+        self.normalize = normalize
+        self.use_circ_mask = use_circ_mask
+        self.num_workers = num_workers
+        self.classes = None
+
+        train_transforms = [
+            transforms.RandomCrop((self.target_size, self.target_size)),
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True),
+        ]
+        eval_transforms = [
+            transforms.CenterCrop((self.target_size, self.target_size)),
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True),
+        ]
+
+        if self.normalize:
+            # ImageNet normalization commonly used for DTD baselines.
+            train_transforms.append(transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                         std=[0.229, 0.224, 0.225]))
+            eval_transforms.append(transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                                        std=[0.229, 0.224, 0.225]))
+        if self.use_circ_mask:
+            train_transforms.append(CircMask())
+            eval_transforms.append(CircMask())
+        if self.to_complex:
+            train_transforms.append(transforms.ToDtype(dtype=get_default_complex()))
+            eval_transforms.append(transforms.ToDtype(dtype=get_default_complex()))
+
+        self.train_transforms = transforms.Compose(train_transforms)
+        self.eval_transforms = transforms.Compose(eval_transforms)
+        channels = 3
+        self._output_shape = [batch_size, channels, self.target_size, self.target_size]
+
+    def prepare_data(self):
+        DTDTorch(root=self.data_dir, split='train', download=True)
+        DTDTorch(root=self.data_dir, split='val', download=True)
+        DTDTorch(root=self.data_dir, split='test', download=True)
+
+    def setup(self, stage: Optional[str] = None):
+        self.train_ds = DTDTorch(root=self.data_dir,
+                                 split='train',
+                                 transform=self.train_transforms,
+                                 download=False)
+        self.valid_ds = DTDTorch(root=self.data_dir,
+                                 split='val',
+                                 transform=self.eval_transforms,
+                                 download=False)
+        self.test_ds = DTDTorch(root=self.data_dir,
+                                split='test',
+                                transform=self.eval_transforms,
+                                download=False)
+        self.classes = self.train_ds.classes
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds,
+                          batch_size=self.batch_size,
+                          shuffle=True,
+                          num_workers=self.num_workers,
+                          persistent_workers=self.num_workers > 0)
+
+    def val_dataloader(self):
+        return DataLoader(self.valid_ds,
+                          batch_size=self.test_batch_size,
+                          shuffle=False,
+                          num_workers=self.num_workers,
+                          persistent_workers=self.num_workers > 0)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_ds,
+                          batch_size=self.test_batch_size,
+                          shuffle=False,
+                          num_workers=self.num_workers,
+                          persistent_workers=self.num_workers > 0)
+
 # Custom Transforms
 class NormalizeMagnitude(torch.nn.Module):
     def __init__(self, mean, std):
