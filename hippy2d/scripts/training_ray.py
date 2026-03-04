@@ -46,7 +46,7 @@ def load_search_space(search_space_file):
 def train_func(config): 
     # Test the keys 
     _config_test(config)
-    trainer, model, dm = get_trainer(seed=config["seed"],
+    trainer, model, dm, _model_size = get_trainer(seed=config["seed"],
                           epochs=config["epochs"],
                           dataset_name=config["dataset_name"],
                           d_hparams=config["dataset_hparams"],
@@ -125,4 +125,3 @@ def main(name, search_space, num_epochs, num_samples, grace_period):
 
 if __name__ == "__main__":
     main()
-

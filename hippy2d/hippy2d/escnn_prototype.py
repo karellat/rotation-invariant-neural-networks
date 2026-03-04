@@ -36,11 +36,20 @@ def compute_padding(padding, kernel_size):
         raise TypeError("padding must be str or int")
 
 def _complex_mul(x, y, complex_dim=3):
-    xr, xi = torch.unbind(x, dim=complex_dim)  # real, imag
-    yr, yi = torch.unbind(y, dim=complex_dim)
+    xr = x.select(complex_dim, 0)
+    xi = x.select(complex_dim, 1)
+    yr = y.select(complex_dim, 0)
+    yi = y.select(complex_dim, 1)
     real = xr * yr - xi * yi
     imag = xr * yi + xi * yr
     return torch.stack((real, imag), dim=complex_dim)
+
+def _complex_mul_real(x, y, complex_dim=3):
+    xr = x.select(complex_dim, 0)
+    xi = x.select(complex_dim, 1)
+    yr = y.select(complex_dim, 0)
+    yi = y.select(complex_dim, 1)
+    return xr * yr - xi * yi
 
 def _rotate_moments(moments: torch.Tensor,
                     exponents: torch.Tensor,
@@ -234,17 +243,13 @@ class InvariantLayerMagReal(torch.nn.Module):
         
         magnitude = torch.sigmoid(norm_magnitude) 
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
-        new_magnitude = magnitude * torch.ones_like(self.exponents)
         new_angle = angle * self.exponents 
 
-        result_real = new_magnitude * torch.cos(new_angle)
-        result_imag = new_magnitude * torch.sin(new_angle)
+        result_real = magnitude * torch.cos(new_angle)
+        result_imag = magnitude * torch.sin(new_angle)
         norm = torch.stack([result_real, result_imag], dim=-3)
 
-        # TODO: This can calculate only the real part
-        non_trivial = _complex_mul(non_trivial[:, :, 1:], norm) 
-        # Choose just real part of non-trivial invariants
-        non_trivial = non_trivial[:, :, :, 0]
+        non_trivial = _complex_mul_real(non_trivial[:, :, 1:], norm)
         
         invariants = rearrange(torch.cat([trivial, all_magnitudes, non_trivial], dim=2),
                                'b ch o h w -> b (ch o) h w') 

@@ -9,6 +9,24 @@ from hippy2d.models import InvNet
 
 import time
 
+
+def _summarize_model_size(model: torch.nn.Module) -> dict:
+    total_params = sum(parameter.numel() for parameter in model.parameters())
+    trainable_params = sum(parameter.numel() for parameter in model.parameters() if parameter.requires_grad)
+    non_trainable_params = total_params - trainable_params
+    param_bytes = sum(parameter.numel() * parameter.element_size() for parameter in model.parameters())
+    buffer_bytes = sum(buffer.numel() * buffer.element_size() for buffer in model.buffers())
+    total_bytes = param_bytes + buffer_bytes
+    return {
+        "total_params": total_params,
+        "trainable_params": trainable_params,
+        "non_trainable_params": non_trainable_params,
+        "param_bytes": param_bytes,
+        "buffer_bytes": buffer_bytes,
+        "total_bytes": total_bytes,
+    }
+
+
 class EpochTimeLogger(Callback):
     def on_train_epoch_start(self, trainer, pl_module):
         self.epoch_start_time = time.time()
@@ -51,6 +69,18 @@ def get_trainer(seed: int,
     logger.debug(f"Using dataset: {dataset_name} with parameters: {d_hparams}")
     model = get_model(model_name, m_param)
     logger.debug(f"Using model: {model_name} with parameters: {m_param}")
+    model_size = _summarize_model_size(model)
+    logger.info(
+        "Model size: total_params={}, trainable_params={}, non_trainable_params={}, "
+        "params_mb={:.2f}, buffers_mb={:.2f}, total_mb={:.2f}".format(
+            f"{model_size['total_params']:,}",
+            f"{model_size['trainable_params']:,}",
+            f"{model_size['non_trainable_params']:,}",
+            model_size["param_bytes"] / (1024 ** 2),
+            model_size["buffer_bytes"] / (1024 ** 2),
+            model_size["total_bytes"] / (1024 ** 2),
+        )
+    )
 
     # Lighting model
     model = InvNet(input_shape=datamodule.output_shape[-1],
@@ -68,4 +98,4 @@ def get_trainer(seed: int,
                       callbacks=trainer_callbacks,
                       logger=trainer_loggers,
                       )
-    return trainer, model, datamodule
+    return trainer, model, datamodule, model_size

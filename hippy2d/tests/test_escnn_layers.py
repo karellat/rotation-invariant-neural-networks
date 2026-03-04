@@ -406,7 +406,6 @@ class TestEscnnInvGatedBlock:
                 out_channels=4,
                 kernel_size=5,
                 padding=2,
-                irreps=irreps_without_one,
             )
 
     @pytest.mark.parametrize(

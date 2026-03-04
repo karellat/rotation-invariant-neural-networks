@@ -290,7 +290,7 @@ def training_loop(run_name: str,
     if early_stopping > 0:
         trainer_callbacks.append(callbacks.EarlyStopping(monitor='val_loss', patience=early_stopping))
 
-    trainer, model, datamodule = get_trainer(seed=seed,
+    trainer, model, datamodule, model_size = get_trainer(seed=seed,
                           epochs=epochs,
                           dataset_name=dataset_name,
                           d_hparams=d_hparams,
@@ -306,6 +306,17 @@ def training_loop(run_name: str,
                           trainer_loggers=[wandb_logger],
                           trainer_callbacks=trainer_callbacks,
                           float_precision=float_precision)
+    wandb_size_metrics = {
+        "model/params_total": model_size["total_params"],
+        "model/params_trainable": model_size["trainable_params"],
+        "model/params_non_trainable": model_size["non_trainable_params"],
+        "model/params_mb": model_size["param_bytes"] / (1024 ** 2),
+        "model/buffers_mb": model_size["buffer_bytes"] / (1024 ** 2),
+        "model/total_mb": model_size["total_bytes"] / (1024 ** 2),
+    }
+    wandb_logger.log_metrics(wandb_size_metrics, step=0)
+    wandb_logger.experiment.summary.update(wandb_size_metrics)
+
     # Lightning trainer
     wandb_logger.watch(model,
                        log="all",

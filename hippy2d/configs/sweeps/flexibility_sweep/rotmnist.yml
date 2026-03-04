@@ -1,6 +1,6 @@
 
 program: scripts/training.py
-name: flexibility-sweep-rotmnist
+name: flexibility-sweep-rotmnist-2
 method: grid
 metric:
   name: val_loss
@@ -53,7 +53,7 @@ parameters:
           magnitude_func:
             values: ["none", "sigmoid"]
           max_b_exponent:
-            values: [1, 2, 3]
+            values: [4]
       drop_rate:
         value: 0.1
       channels_masking:
