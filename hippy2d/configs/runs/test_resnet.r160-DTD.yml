@@ -1,0 +1,31 @@
+# hippy2d/configs/runs/test_resnet.r160-DTD.yml
+dataset_name: DTD
+
+d_hparams:
+  data_dir: notebooks/data/dtd
+  batch_size: 64
+  test_batch_size: 128
+  target_size: 96
+  normalize: true
+  use_circ_mask: true
+  num_workers: 4
+
+model_name: timm:test_resnet.r160_in1k
+m_param:
+  pretrained: false
+
+optimizer_name: AdamW
+optimizer_hparams:
+  lr: 0.001
+  weight_decay: 0.01
+
+lr_name: MultiStepLR
+lr_hparams:
+  milestones: [20, 40, 60]
+  gamma: 0.1
+
+label_smoothing: 0.1
+early_stopping: 15
+epochs: 30
+seed: 390
+run_name: test_resnet.r160-dtd
