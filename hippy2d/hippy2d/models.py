@@ -369,7 +369,9 @@ def make_blocks(layer,
                 layers, 
                 norm,
                 act,
-                channels_masking):
+                channels_masking,
+                norm1_layer=None,
+                norm2_layer=None):
     """
     Create ResNet-style stages with specified block configurations.
     
@@ -426,6 +428,9 @@ def make_blocks(layer,
                 'drop_path': None,  # Can be added later for stochastic depth
                 'drop_block': None,
             }
+            if block_fn is MBConvBlock:
+                block_kwargs['norm1_layer'] = norm1_layer
+                block_kwargs['norm2_layer'] = norm2_layer
             
             blocks.append(block_fn(**block_kwargs))
             
@@ -579,6 +584,8 @@ class MBPrototype(torch.nn.Module):
                  # Block settings
                  # TODO: Change back to batch
                  norm:str = "layer", 
+                 norm1_layer: Optional[str] = None,
+                 norm2_layer: Optional[str] = None,
                  activation: str = "ELU",
                  channels_masking:bool = True,
                  # Classifier settings
@@ -613,6 +620,8 @@ class MBPrototype(torch.nn.Module):
             channels=channels,
             layers=layers,
             norm=norm,
+            norm1_layer=norm1_layer,
+            norm2_layer=norm2_layer,
             act=act,
             channels_masking=channels_masking,
         )
