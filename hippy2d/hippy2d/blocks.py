@@ -172,6 +172,8 @@ class MBConvBlock(torch.nn.Module):
                  # Layers Settings
                  act_layer: Type[nn.Module] = nn.ReLU, 
                  norm_layer: str = "batch", 
+                 norm1_layer: Optional[str] = None,
+                 norm2_layer: Optional[str] = None,
                  aa_layer: Optional[Type[nn.Module]] = nn.AvgPool2d,
                  drop_path: Optional[torch.nn.Module] = None,
                  drop_block:Optional[torch.nn.Module] = None, 
@@ -180,8 +182,14 @@ class MBConvBlock(torch.nn.Module):
 
         assert drop_path is None, "drop_path is not implemented yet"
         assert drop_block is None, "drop_block is not implemented yet"
-        # Normalization layer
-        assert norm_layer in ["batch", "layer", "group"], f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer' or 'group'."
+        # Normalization layers
+        allowed_norms = ["batch", "layer", "group"]
+        if norm1_layer is None:
+            norm1_layer = norm_layer
+        if norm2_layer is None:
+            norm2_layer = norm_layer
+        assert norm1_layer in allowed_norms, f"Unknown normalization type: {norm1_layer}. Use 'batch', 'layer' or 'group'."
+        assert norm2_layer in allowed_norms, f"Unknown normalization type: {norm2_layer}. Use 'batch', 'layer' or 'group'."
         
         # Prepare convolutional Layers
         assert 'in_channels' not in conv_kwargs, "in_channels already in conv_kwargs"
@@ -213,7 +221,7 @@ class MBConvBlock(torch.nn.Module):
 
         self.conv1 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
         num_invariants = self.conv1.out_channels
-        self.norm1 = MBConvBlock._get_norm_layer(norm_layer,num_invariants, dconv_output_shape)
+        self.norm1 = MBConvBlock._get_norm_layer(norm1_layer, num_invariants, dconv_output_shape)
         self.act1 = act_layer(inplace=True)
 
         # 3. Conv1x1S
@@ -221,7 +229,7 @@ class MBConvBlock(torch.nn.Module):
                                      out_channels=out_channels,
                                      kernel_size=1,
                                      bias=False)
-        self.norm2 = MBConvBlock._get_norm_layer(norm_layer, out_channels, dconv_output_shape)
+        self.norm2 = MBConvBlock._get_norm_layer(norm2_layer, out_channels, dconv_output_shape)
         self.drop_block = torch.nn.Identity() # TODO: implement drop_block
         # Residual Part 
         self.register_buffer("residual_scale",
