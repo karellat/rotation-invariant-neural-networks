@@ -584,6 +584,7 @@ class MBPrototype(torch.nn.Module):
                  # Block settings
                  # TODO: Change back to batch
                  norm:str = "layer", 
+                 disable_act1: bool = False,
                  norm1_layer: Optional[str] = None,
                  norm2_layer: Optional[str] = None,
                  activation: str = "ELU",
@@ -624,6 +625,7 @@ class MBPrototype(torch.nn.Module):
             norm2_layer=norm2_layer,
             act=act,
             channels_masking=channels_masking,
+            disable_act1=disable_act1,
         )
         for stage in stage_modules:
             self.add_module(*stage)  # layer1, layer2, etc

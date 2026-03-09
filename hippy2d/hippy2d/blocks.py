@@ -171,6 +171,7 @@ class MBConvBlock(torch.nn.Module):
                  kernel_size:int=3,
                  # Layers Settings
                  act_layer: Type[nn.Module] = nn.ReLU, 
+                 disable_act1: bool = False,
                  norm_layer: str = "batch", 
                  norm1_layer: Optional[str] = None,
                  norm2_layer: Optional[str] = None,
@@ -222,7 +223,7 @@ class MBConvBlock(torch.nn.Module):
         self.conv1 = conv_factory.get_conv_layer(conv_layer, conv_kwargs)
         num_invariants = self.conv1.out_channels
         self.norm1 = MBConvBlock._get_norm_layer(norm1_layer, num_invariants, dconv_output_shape)
-        self.act1 = act_layer(inplace=True)
+        self.act1 = torch.nn.Identity() if disable_act1 else act_layer(inplace=True)
 
         # 3. Conv1x1S
         self.conv2 = torch.nn.Conv2d(in_channels=num_invariants,
