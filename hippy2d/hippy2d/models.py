@@ -370,6 +370,7 @@ def make_blocks(layer,
                 norm,
                 act,
                 channels_masking,
+                disable_act1=False,
                 norm1_layer=None,
                 norm2_layer=None):
     """
@@ -431,6 +432,7 @@ def make_blocks(layer,
             if block_fn is MBConvBlock:
                 block_kwargs['norm1_layer'] = norm1_layer
                 block_kwargs['norm2_layer'] = norm2_layer
+                block_kwargs['disable_act1'] = disable_act1
             
             blocks.append(block_fn(**block_kwargs))
             
