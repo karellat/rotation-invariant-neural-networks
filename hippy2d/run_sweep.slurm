@@ -36,5 +36,4 @@ fi
 
 # Run the training script
 echo "Running training script. Python=`which python`"
-
-NVIDIA_CUDA_VISIBLE=0 PYTHONPATH="`pwd`" wandb agent --entity "karella" --project "hippy2d"  "$SWEEPID"
+CUDA_VISIBLE_DEVICES=0 PYTHONPATH="`pwd`" wandb agent --entity "karella" --project "hippy2d"  "$SWEEPID"
