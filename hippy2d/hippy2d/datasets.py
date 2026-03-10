@@ -575,6 +575,58 @@ class EuroSAT(HuggingFaceDataModule):
         # Store for rotated dataset (required for parent class)
         self.hg_dataset_test = self.hg_dataset.select(self.test_idx)
 
+# HF: Astronomy Datasets
+class GalaxyZoo(HuggingFaceDataModule):
+    DATASET_NAME = "mrJordi0/galaxy-zoo-dataset"
+    NUM_CLASSES = 8
+    DEFAULT_IMAGE_SIZE = 96
+    
+    id2label = {
+        0: "Round Elliptical",
+        1: "In-between Elliptical",
+        2: "Cigar-shaped Elliptical",
+        3: "Edge-on Spiral",
+        4: "Barred Spiral",
+        5: "Unbarred Spiral",
+        6: "Irregular",
+        7: "Merger"
+    }
+    @property
+    def num_classes(self):
+        return self.NUM_CLASSES
+    
+    def _build_train_transforms(self, **kwargs):
+        """Add data augmentation for training"""
+        transform_list = self._build_base_transforms()
+        
+        # Resize
+        transform_list.append(transforms.Resize((self.target_size, self.target_size)))
+        
+        # Add augmentations
+        transform_list.extend([
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomVerticalFlip()
+        ])
+        
+        # Tukey mask (before dtype conversion)
+        if self.use_tukey_mask:
+            transform_list.append(CircMask())
+        
+        # Dtype conversion
+        if self.to_complex:
+            transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
+        
+        return transforms.Compose(transform_list)
+    
+    def prepare_data(self):
+        self.hg_dataset_train = datasets.load_dataset(self.DATASET_NAME, split='train')
+        self.hg_dataset_valid = datasets.load_dataset(self.DATASET_NAME, split='validation')
+        self.hg_dataset_test = datasets.load_dataset(self.DATASET_NAME, split='test')
+    
+    def setup_splits(self, stage: str):
+        self.train_ds = self.hg_dataset_train.with_transform(self.train_transforms)
+        self.valid_ds = self.hg_dataset_valid.with_transform(self.valid_transforms)
+        self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
 
 class DTD(LightningDataModule, ABC):
     DEFAULT_IMAGE_SIZE = 128
