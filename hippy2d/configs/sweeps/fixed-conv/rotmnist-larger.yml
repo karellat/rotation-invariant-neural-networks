@@ -1,5 +1,5 @@
 program: scripts/training.py
-name: mbconv-rotmnist-magreal-larger-noact-act
+name: mbconv-rotmnist-fixed-magreal-larger-noact-act
 method: grid
 metric:
   name: val_loss
@@ -50,7 +50,7 @@ parameters:
       block_types:
         value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
-        values: ["LearnableCesaMagRealLayer"]
+        values: ["FixedMagRealLayer"]
       drop_rate:
         value: 0.2
       channels_masking:
@@ -68,6 +68,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: mbconv-rotmnist-magreal-large-noact-act
+    value: mbconv-rotmnist-fixed-magreal-large-noact-act
   seed:
     values: [42, 7, 74]

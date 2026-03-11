@@ -682,3 +682,44 @@ class FixedMagRealLayer(torch.nn.Module):
         invariants = self.invariants_layer(moments)
         # Separate trivials 
         return invariants
+
+class FixedFlexibleLayer(torch.nn.Module):
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4, 
+                  groups: int = 1, 
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid',
+                  max_b_exponent: Optional[int]=None):
+        super().__init__()
+        self.basis_qp = flusser_basis(max_total_degree=max_order)
+        self.basis_qp = sorted(self.basis_qp, key=lambda pq: pq[0] - pq[1])
+        self.orders = torch.tensor([p-q for p, q in self.basis_qp]) 
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = FixedFlusserMomentLayer(orders=self.orders,
+                                                    basis_qp=self.basis_qp,
+                                                    in_channels=in_channels,
+                                                    padding=padding,
+                                                    kernel_size=kernel_size,
+                                                    max_order=max_order,
+                                                    groups=groups)
+        
+        # Construct invariants
+        self.invariants_layer = FlexibleInvariantLayer(orders=self.orders,
+                                                      groups=groups,
+                                                      in_channels=in_channels,
+                                                      max_b_exponent=max_b_exponent)
+        
+        self.out_channels = self.invariants_layer.out_channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
