@@ -665,12 +665,12 @@ class DTD(LightningDataModule, ABC):
         self.classes = None
 
         train_transforms = [
-            transforms.Resize((self.target_size, self.target_size)),
+            transforms.RandomCrop((self.target_size, self.target_size)),
             transforms.ToImage(),
             transforms.ToDtype(torch.get_default_dtype(), scale=True),
         ]
         eval_transforms = [
-            transforms.Resize((self.target_size, self.target_size)),
+            transforms.CenterCrop((self.target_size, self.target_size)),
             transforms.ToImage(),
             transforms.ToDtype(torch.get_default_dtype(), scale=True),
         ]
