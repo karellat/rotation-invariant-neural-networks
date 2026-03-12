@@ -630,11 +630,12 @@ class GalaxyZoo(HuggingFaceDataModule):
         self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
 
 class DTD(LightningDataModule, ABC):
-    DEFAULT_IMAGE_SIZE = 128
+    NUM_CLASSES = 47
+    DEFAULT_IMAGE_SIZE = 96
 
     @property
     def num_classes(self):
-        return len(self.classes)
+        return DTD.NUM_CLASSES
 
     @property
     def output_shape(self):

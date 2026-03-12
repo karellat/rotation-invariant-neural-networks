@@ -4,10 +4,11 @@ import torch
 import escnn
 from hippy2d.learnable import complex_power_moivre, flusser_basis_orders
 from hippy2d.utils import SafeAtan2
-from einops import rearrange
+from einops import rearrange, repeat
 from collections import defaultdict
 
 from escnn import gspaces
+from escnn.nn.modules.masking_module import build_mask as escnn_build_mask
 import numpy as np
 from escnn.group import Representation
 from escnn.nn.modules.basismanager import BlocksBasisExpansion
@@ -34,6 +35,65 @@ def compute_padding(padding, kernel_size):
         return padding
     else:
         raise TypeError("padding must be str or int")
+
+
+def flusser_basis(max_total_degree: int):
+    return [
+        (p0, q0)
+        for p0 in range(max_total_degree + 1)
+        for q0 in range(p0 + 1)
+    ]
+
+
+def complex_polynomials(p: int,
+                        q: int,
+                        size: int = 15,
+                        extent: float = 1.0,
+                        supersample: int = 1,
+                        use_escnn_mask: bool = True,
+                        mask_margin: float = 0.0,
+                        mask_sigma: float = 2.0) -> torch.Tensor:
+    """
+    Build normalized complex basis term z^p * conj(z)^q on a square grid.
+    This mirrors the utility used in notebooks/38_fixed_kernels.ipynb.
+    """
+    if size <= 0:
+        raise ValueError("size must be > 0")
+    if supersample <= 0 or int(supersample) != supersample:
+        raise ValueError("supersample must be a positive integer")
+    supersample = int(supersample)
+
+    hi = size * supersample
+    ax_hi = np.linspace(-extent, extent, hi)
+    x_hi, y_hi = np.meshgrid(ax_hi, ax_hi)
+
+    z_hi = x_hi + 1j * y_hi
+    v_hi = (z_hi ** p) * (np.conj(z_hi) ** q)
+    if supersample > 1:
+        v = v_hi.reshape(size, supersample, size, supersample).mean(axis=(1, 3))
+    else:
+        v = v_hi
+
+    ax = np.linspace(-extent, extent, size)
+    x, y = np.meshgrid(ax, ax)
+    if use_escnn_mask:
+        if escnn_build_mask is not None:
+            mask = escnn_build_mask(
+                size,
+                dim=2,
+                margin=mask_margin,
+                sigma=mask_sigma,
+                dtype=torch.get_default_dtype(),
+            )[0, 0].cpu().numpy()
+        else:
+            r = np.sqrt(x ** 2 + y ** 2)
+            mask = (r <= extent).astype(v.real.dtype)
+        v = v * mask
+
+    s = np.max(np.abs(v))
+    if s > 0:
+        v = v / s
+    return torch.from_numpy(v)
 
 def _complex_mul(x, y, complex_dim=3):
     xr = x.select(complex_dim, 0)
@@ -156,6 +216,78 @@ class MomentLayer(torch.nn.Module):
             self.register_buffer("filter", _filter)
 
         return super().train(mode)
+
+
+class FixedFlusserMomentLayer(torch.nn.Module):
+    """
+    Moment layer with fixed complex polynomial kernels (Flusser basis),
+    matching the construction in notebooks/38_fixed_kernels.ipynb.
+    """
+
+    def __init__(self,
+                 orders: list[int],
+                 basis_qp: list[tuple[int, int]],
+                 max_order: int,
+                 in_channels: int,
+                 groups: Optional[int] = 1,
+                 padding: str = "same",
+                 preserve_energy: bool = True, 
+                 kernel_size: int = 11,
+                 extent: float = 1.0,
+                 supersample: int = 1,):
+        super().__init__()
+        assert groups == 1, "We are using group convolution, so groups must be None or equal to in_channels"
+        self.in_channels = in_channels
+        self.group = in_channels
+        self.orders = orders
+        self.groups = groups if groups is not None else in_channels
+        self.in_size = in_channels // self.groups
+        self.padding = compute_padding(padding, kernel_size)
+        self.kernel_size = kernel_size
+        self.preserve_energy = preserve_energy
+
+        if self.in_channels % self.groups != 0:
+            raise ValueError("in_channels must be divisible by groups")
+        if any(order < 0 for order in self.orders):
+            raise ValueError("FixedFlusserMomentLayer supports non-negative orders only")
+
+        _filters = []
+        for order, (p, q) in zip(self.orders, basis_qp):
+            if order != p - q:
+                raise ValueError(f"Order {order} does not match basis_qp {p}-{q}")
+            _filter = complex_polynomials(p, q, 
+                                          size=kernel_size,
+                                          extent=extent,
+                                          supersample=supersample)
+            if preserve_energy:
+                _filter = _filter / torch.sum(_filter.abs())
+            if order == 0:
+                # For the trivial representation, we can use a real filter (the imaginary part is zero)
+                _filter = _filter.real.unsqueeze(0)  # shape (1, H, W)
+            else: 
+                # For non-trivial representations, we need to stack the real and imaginary parts to form a complex filter
+                _filter = torch.stack([_filter.real, _filter.imag], dim=0)  # shape (2, H, W)
+            _filters.append(_filter)
+
+        self.output_orders = orders
+        # Count trivials as 1 and non-trivials as 2 (real and imag) for each input channel
+        self.moments_per_input = sum(1 if order == 0 else 2 for order in self.output_orders)
+
+        self.register_buffer("filter",
+                            repeat(torch.concat(_filters, dim=0), 'c h w -> (i c) 1 h w', i=in_channels)
+                            )  # shape (num_moments, 1, H, W)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = torch.nn.functional.conv2d(
+            x,
+            self.filter.to(dtype=x.dtype, device=x.device),
+            bias=None,
+            stride=1,
+            groups=self.in_channels,
+            padding=self.padding,
+        )
+        moments = rearrange(moments, 'b (ch o) h w -> b ch o h w', ch=self.in_channels, o=self.moments_per_input)
+        return moments
 
 class InvariantsLayer(torch.nn.Module):
     def __init__(self,
@@ -502,6 +634,87 @@ class LearnableFlexibleLayer(torch.nn.Module):
                                                        in_channels=in_channels, 
                                                        magnitude_func=magnitude_func,
                                                        max_b_exponent=max_b_exponent)
+        
+        self.out_channels = self.invariants_layer.out_channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
+
+class FixedMagRealLayer(torch.nn.Module): 
+    # Fixed convolution
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4, 
+                  groups: int = 1, 
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid'):
+        super().__init__()
+        self.basis_qp = flusser_basis(max_total_degree=max_order)
+        self.basis_qp = sorted(self.basis_qp, key=lambda pq: pq[0] - pq[1])
+        self.orders = torch.tensor([p-q for p, q in self.basis_qp]) 
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = FixedFlusserMomentLayer(orders=self.orders,
+                                                    basis_qp=self.basis_qp,
+                                                    in_channels=in_channels,
+                                                    padding=padding,
+                                                    kernel_size=kernel_size,
+                                                    max_order=max_order,
+                                                    groups=groups)
+        
+        # Construct invariants
+        self.invariants_layer = InvariantLayerMagReal(orders=self.orders,
+                                                      groups=groups,
+                                                      in_channels=in_channels)
+        
+        self.out_channels = self.invariants_layer.out_channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
+
+class FixedFlexibleLayer(torch.nn.Module):
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4, 
+                  groups: int = 1, 
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid',
+                  max_b_exponent: Optional[int]=None):
+        super().__init__()
+        self.basis_qp = flusser_basis(max_total_degree=max_order)
+        self.basis_qp = sorted(self.basis_qp, key=lambda pq: pq[0] - pq[1])
+        self.orders = torch.tensor([p-q for p, q in self.basis_qp]) 
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = FixedFlusserMomentLayer(orders=self.orders,
+                                                    basis_qp=self.basis_qp,
+                                                    in_channels=in_channels,
+                                                    padding=padding,
+                                                    kernel_size=kernel_size,
+                                                    max_order=max_order,
+                                                    groups=groups)
+        
+        # Construct invariants
+        self.invariants_layer = FlexibleInvariantLayer(orders=self.orders,
+                                                      groups=groups,
+                                                      in_channels=in_channels,
+                                                      max_b_exponent=max_b_exponent)
         
         self.out_channels = self.invariants_layer.out_channels
 
