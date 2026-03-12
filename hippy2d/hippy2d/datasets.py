@@ -634,7 +634,7 @@ class DTD(LightningDataModule, ABC):
 
     @property
     def num_classes(self):
-        return len(DTD.NUM_CLASSES)
+        return DTD.NUM_CLASSES
 
     @property
     def output_shape(self):
