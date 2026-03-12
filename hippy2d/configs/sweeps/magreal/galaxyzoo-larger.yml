@@ -1,0 +1,73 @@
+program: scripts/training.py
+name: mbconv-galaxyzoo-magreal-larger-noact-act
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: GalaxyZoo
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      data_dir:
+        value: data
+      target_size:
+        value: 96
+  early_stopping:
+    value: 30
+  epochs:
+    value: 60
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [15, 30, 50]
+  m_param:
+    parameters:
+      in_channels:
+        value: 3
+      num_classes:
+        value: 8
+      input_size:
+        value: 96
+      disable_act1:
+        value: true
+      norm1_layer:
+        value: layer
+      norm2_layer:
+        value: batch
+      kernels_size:
+        value: [11, 11, 11]
+      layers:
+        value: [2, 3, 3]
+      channels:
+        value: [20, 24, 30]
+      block_types:
+        value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
+      layer:
+        value: "LearnableCesaMagRealLayer"
+      drop_rate:
+        value: 0.2
+      channels_masking:
+        value: true
+  model_name:
+    value: MBPrototype
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001525
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: mbconv-galaxyzoo-magreal-larger-noact-act-b64
+  seed:
+    values: [42, 7, 74]

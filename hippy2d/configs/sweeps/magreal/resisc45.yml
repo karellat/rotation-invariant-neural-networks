@@ -1,0 +1,71 @@
+program: scripts/training.py
+name: learnablecesa-resisc45
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: RESISC45
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 8
+      data_dir:
+        value: data
+      to_complex:
+        value: false
+      target_size:
+        value: 96
+  early_stopping:
+    value: 30
+  epochs:
+    value: 100
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [30, 50, 70]
+  m_param:
+    parameters:
+      in_channels:
+        value: 3
+      num_classes:
+        value: 45
+      input_size:
+        value: 96
+      norm:
+        value: batch
+      kernels_size:
+        value: [11, 11, 11]
+      layers:
+        value: [1, 2, 2]
+      channels:
+        value: [16, 20, 26]
+      block_types:
+        value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
+      layer:
+        values: ["LearnableCesaMagRealLayer", "LearnableCesaInvLayer", "LearnableCesa"]
+      drop_rate:
+        value: 0.1
+      channels_masking:
+        value: true
+  model_name:
+    value: MBPrototype
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: learnablecesa-resisc45-magreal
+  seed:
+    values: [42, 7, 74]
