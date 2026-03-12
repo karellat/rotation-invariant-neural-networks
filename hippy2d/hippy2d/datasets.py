@@ -629,7 +629,8 @@ class GalaxyZoo(HuggingFaceDataModule):
         self.test_ds = self.hg_dataset_test.with_transform(self.valid_transforms)
 
 class DTD(LightningDataModule, ABC):
-    DEFAULT_IMAGE_SIZE = 128
+    NUM_CLASSES = 8
+    DEFAULT_IMAGE_SIZE = 96
 
     @property
     def num_classes(self):
@@ -664,12 +665,12 @@ class DTD(LightningDataModule, ABC):
         self.classes = None
 
         train_transforms = [
-            transforms.RandomCrop((self.target_size, self.target_size)),
+            transforms.Resize((self.target_size, self.target_size)),
             transforms.ToImage(),
             transforms.ToDtype(torch.get_default_dtype(), scale=True),
         ]
         eval_transforms = [
-            transforms.CenterCrop((self.target_size, self.target_size)),
+            transforms.Resize((self.target_size, self.target_size)),
             transforms.ToImage(),
             transforms.ToDtype(torch.get_default_dtype(), scale=True),
         ]
