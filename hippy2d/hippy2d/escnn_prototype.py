@@ -113,9 +113,8 @@ def _complex_mul_real_parts(x_r, x_i, y_r, y_i):
     return x_r * y_r - x_i * y_i
 
 
-def _complex_mul_real_parts_fused(x_r, x_i, y_r, y_i):
-    real = x_r * y_r
-    return real.addcmul_(x_i, y_i, value=-1)
+def _complex_mul_real_polar_parts(magnitude_a, angle_a, magnitude_b, angle_b):
+    return (magnitude_a * magnitude_b) * torch.cos(angle_a + angle_b)
 
 
 def _rotate_moments(moments: torch.Tensor,
@@ -469,18 +468,16 @@ class FlexibleInvariantLayer(torch.nn.Module):
 
             selected_angles_a = angles.index_select(2, self.tril_rows)
             selected_angles_b = angles.index_select(2, self.tril_cols)
-            selected_magnitudes_a = magnitudes.index_select(2, self.tril_rows)
-            selected_magnitudes_b = magnitudes.index_select(2, self.tril_cols)
-
+            weighted_magnitudes_a = self.magnitude_func(magnitudes.index_select(2, self.tril_rows))
+            weighted_magnitudes_b = self.magnitude_func(magnitudes.index_select(2, self.tril_cols))
             angles_a = selected_angles_a * pair_exp_a
             angles_b = selected_angles_b * pair_exp_b
-
-            real_a = self.magnitude_func(selected_magnitudes_a) * torch.cos(angles_a)
-            imag_a = self.magnitude_func(selected_magnitudes_a) * torch.sin(angles_a)
-            real_b = self.magnitude_func(selected_magnitudes_b) * torch.cos(angles_b)
-            imag_b = self.magnitude_func(selected_magnitudes_b) * torch.sin(angles_b)
-
-            real_lower_triangle = _complex_mul_real_parts_fused(real_a, imag_a, real_b, imag_b)
+            real_lower_triangle = _complex_mul_real_polar_parts(
+                weighted_magnitudes_a,
+                angles_a,
+                weighted_magnitudes_b,
+                angles_b,
+            )
             stacked_invariants = torch.cat([trivial, magnitudes, real_lower_triangle], dim=2)
         else:
             stacked_invariants = torch.cat([trivial, magnitudes], dim=2)
