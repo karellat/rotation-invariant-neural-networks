@@ -1,0 +1,17 @@
+name: kt_flows
+channels:
+  - pytorch
+  - conda-forge
+  - defaults
+
+dependencies:
+  - python=3.14.3
+  - pip=26.0.*
+  - pip:
+    - torch==2.10.*
+    - torchvision==0.25.*
+    - numpy==2.4.3
+    - matplotlib==3.10.8
+    - einops
+    - ipython
+    - ipykernel
