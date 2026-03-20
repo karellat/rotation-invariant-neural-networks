@@ -13,7 +13,7 @@ parameters:
       batch_size:
         value: 32
       test_batch_size:
-        value: 128
+        value: 
       data_dir:
         value: data
       upscale_size:

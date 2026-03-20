@@ -396,8 +396,86 @@ class InvariantLayerMagReal(torch.nn.Module):
         invariants = rearrange(torch.cat([trivial, all_magnitudes, non_trivial], dim=2),
                                'b ch o h w -> b (ch o) h w') 
         return invariants
-
+# Refactored
 class FlexibleInvariantLayer(torch.nn.Module):
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int,
+                 groups: int, 
+                 magnitude_func: str='sigmoid',
+                 max_b_exponent: Optional[int]=2):
+        super().__init__()
+        # Parameters
+        self.orders = orders
+        self.in_channels = in_channels
+        self.groups = groups
+        self.max_b_exponent = max_b_exponent
+        self.in_size = in_channels // groups
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        # Magnitude func 
+        if magnitude_func.lower() == "none":
+            self.magnitude_func = torch.nn.Identity()
+        elif magnitude_func.lower() == "sigmoid":
+            self.magnitude_func = torch.sigmoid
+        else:
+            raise ValueError(f"magnitude_func '{magnitude_func}' not recognized")
+
+        nontrivial_count = len(self.orders) - self.trivial_idx
+        nontrivial_orders = torch.tensor(self.orders[self.trivial_idx:], dtype=torch.int32)
+        exp_a = torch.zeros(nontrivial_count, nontrivial_count, dtype=torch.int32)
+        exp_b = torch.zeros(nontrivial_count, nontrivial_count, dtype=torch.int32)
+        # Select exponents 
+        for idx_a, a in enumerate(self.orders[self.trivial_idx:]):
+            for idx_b, b in enumerate(self.orders[self.trivial_idx:]):
+                gcd = np.gcd(a, b)
+                exp_a[idx_a, idx_b] = b // gcd
+                exp_b[idx_a, idx_b] = -a // gcd
+        # Many things are symmetric within the flexible basis. 
+        tril_rows, tril_cols = torch.tril_indices(nontrivial_count, nontrivial_count, offset=-1)
+        # Filter out higher orders 
+        if self.max_b_exponent is not None:
+            # Filter by original order on row-indexed `a` (before gcd reduction).
+            keep = nontrivial_orders[tril_cols] <= self.max_b_exponent
+            tril_rows = tril_rows[keep]
+            tril_cols = tril_cols[keep]
+        # Select exponents 
+        exp_a = exp_a[tril_rows, tril_cols]
+        exp_b = exp_b[tril_rows, tril_cols]
+        self.register_buffer("exp_a", exp_a)
+        self.register_buffer("exp_b", exp_b)
+        # tril_rows and tril_cols can be used to index into the nontrivial moments
+        self.register_buffer("tril_rows", tril_rows)
+        self.register_buffer("tril_cols", tril_cols)
+        self.num_invariants = (len(orders) + len(exp_a))
+        self.out_channels = self.in_channels * self.num_invariants
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivials = moments[:, :, :self.trivial_idx, :, :]
+        non_trivials = moments[:, :, self.trivial_idx:, :, :]
+        
+        # Non-trivial to complex 
+        non_trivials = rearrange(non_trivials, 
+                                'b ch (o c) h w -> b ch o c h w',
+                                 o=non_trivials.shape[2]//2,
+                                 c=2)
+        # Calculate norm & all the angles
+        magnitudes = torch.linalg.vector_norm(non_trivials, dim=-3)
+        if self.max_b_exponent == 0:
+            stacked_invariants = torch.cat([trivials, magnitudes], dim=2)
+        else:
+            angles = SafeAtan2.apply(non_trivials[..., 1, :, :], 
+                                    non_trivials[..., 0, :, :], 1e-8)
+            magnitudes = self.magnitude_func(magnitudes)
+            mag_a  = torch.index_select(magnitudes, 2, self.tril_rows)
+            mag_b  = torch.index_select(magnitudes, 2, self.tril_cols) 
+            angle_a = torch.index_select(angles, 2, self.tril_rows) * self.exp_a[..., None, None]
+            angle_b = torch.index_select(angles, 2, self.tril_cols) * self.exp_b[..., None, None]
+            nontrivial_real = mag_a * mag_b * torch.cos(angle_a + angle_b)
+            stacked_invariants = torch.cat([trivials, magnitudes, nontrivial_real], dim=2)
+        return rearrange(stacked_invariants, 'b ch o h w -> b (ch o) h w') 
+
+
+class _FlexibleInvariantLayer(torch.nn.Module):
     def __init__(self,
                  orders: list[int],
                  in_channels: int,
