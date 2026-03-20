@@ -8,7 +8,7 @@ from hippy2d.models import PrototypeOptimalInvCNN, PrototypeTiny, Resnet
 from hippy2d.learnable import LearnableFlusser, VarLearnableFlusser
 from hippy2d.blocks import ResnetBlock, TimmBasicBlock, MBConvBlock
 from hippy2d.utils import get_testing_img, get_default_complex
-from hippy2d.escnn_prototype import LearnableCesa
+from hippy2d.escnn_prototype import LearnableCesa, InvariantLayerMag
 import time
 import logging
 
@@ -136,7 +136,20 @@ class TestLearnable:
                                 conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
-    
+
+    def test_90_mbblock_mag(self, test_images, test_device):
+        """Test the 90-degree rotation block."""
+        torch.set_default_dtype(torch.float32)
+        test_images = (test_images[0].to(torch.float32), test_images[1].to(torch.float32))
+        inv_block = MBConvBlock(input_size=IMAGE_SIZE,
+                                in_channels=IMAGE_CHANNELS,
+                                out_channels=12,
+                                kernel_size=15,
+                                norm_layer="batch",
+                                conv_layer="LearnableCesaMag",
+                                conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
+        self._test_90_module(inv_block, test_images, test_device)
+
     def test_90_fixed_flexiblebblock_magreal(self, test_images, test_device):
         """Test the 90-degree rotation block."""
         torch.set_default_dtype(torch.float32)
@@ -164,6 +177,27 @@ class TestLearnable:
                                 conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
+
+    def test_invariant_layer_mag_returns_trivials_and_magnitudes(self):
+        orders = [0, 0, 1, 2]
+        layer = InvariantLayerMag(orders=orders, in_channels=1, groups=1)
+
+        moments = torch.tensor(
+            [[[
+                [[2.0]],
+                [[3.0]],
+                [[3.0]],
+                [[4.0]],
+                [[5.0]],
+                [[12.0]],
+            ]]]
+        )
+
+        y = layer(moments)
+
+        expected = torch.tensor([[[[2.0]], [[3.0]], [[5.0]], [[13.0]]]])
+        torch.testing.assert_close(y, expected)
+        assert layer.out_channels == expected.shape[1]
 
     def test_90_mbblock_flexible(self, test_images, test_device):
         """Test the 90-degree rotation block."""

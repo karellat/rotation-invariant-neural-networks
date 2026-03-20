@@ -396,6 +396,36 @@ class InvariantLayerMagReal(torch.nn.Module):
         invariants = rearrange(torch.cat([trivial, all_magnitudes, non_trivial], dim=2),
                                'b ch o h w -> b (ch o) h w') 
         return invariants
+
+class InvariantLayerMag(torch.nn.Module):
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int,
+                 groups: int):
+        super().__init__()
+        for i in range(len(orders)-1):
+            assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
+        self.orders = orders
+        self.in_channels = in_channels
+        self.groups = groups
+        self.in_size = in_channels // groups
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        self.non_trivial_count = len(self.orders) - self.trivial_idx
+        self.out_channels = self.in_channels * (self.trivial_idx + self.non_trivial_count)
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivial = moments[:, :, :self.trivial_idx, :, :]
+        non_trivial = moments[:, :, self.trivial_idx:, :, :]
+
+        non_trivial = rearrange(non_trivial,
+                                'b ch (o c) h w -> b ch o c h w',
+                                o=non_trivial.shape[2]//2,
+                                c=2)
+        magnitudes = torch.linalg.vector_norm(non_trivial, dim=-3)
+
+        invariants = rearrange(torch.cat([trivial, magnitudes], dim=2),
+                               'b ch o h w -> b (ch o) h w')
+        return invariants
 # Refactored
 class FlexibleInvariantLayer(torch.nn.Module):
     def __init__(self,
@@ -681,6 +711,40 @@ class LearnableCesaMagRealLayer(torch.nn.Module):
         moments = self.moment_layer(x)  # b, ch*o, h,
         invariants = self.invariants_layer(moments)
         # Separate trivials 
+        return invariants
+
+class LearnableCesaMag(torch.nn.Module):
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int,
+                  out_channels: int,
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4,
+                  groups: int = 1,
+                  kernel_size: int=15,
+                  magnitude_func: str='sigmoid'):
+        super().__init__()
+        self.orders = flusser_basis_orders(max_order)
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        self.moment_layer = MomentLayer(orders=self.orders,
+                                        max_order=max_order,
+                                        in_channels=in_channels,
+                                        padding=padding,
+                                        kernel_size=kernel_size,
+                                        groups=groups)
+        self.moment_types = self.moment_layer.out_type
+        self.invariants_layer = InvariantLayerMag(orders=self.orders,
+                                                  groups=groups,
+                                                  in_channels=in_channels)
+
+        self.out_channels = self.invariants_layer.out_channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)
+        invariants = self.invariants_layer(moments)
         return invariants
 
 class LearnableFlexibleLayer(torch.nn.Module):
