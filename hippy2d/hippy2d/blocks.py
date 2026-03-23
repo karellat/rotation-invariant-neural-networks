@@ -154,8 +154,10 @@ class MBConvBlock(torch.nn.Module):
         elif norm_layer == "group":
             num_groups = choose_groups(channels) if channels < 32 else choose_groups(channels)
             return nn.GroupNorm(num_groups=num_groups, num_channels=channels, affine=False)
+        elif norm_layer == "instance": 
+            return nn.InstanceNorm2d(channels, affine=True)
         else: 
-            raise ValueError(f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer' or 'group'.")
+            raise ValueError(f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer', 'instance' or 'group'.")
 
     def __init__(self, 
                  # Conv Settings 
@@ -184,13 +186,13 @@ class MBConvBlock(torch.nn.Module):
         assert drop_path is None, "drop_path is not implemented yet"
         assert drop_block is None, "drop_block is not implemented yet"
         # Normalization layers
-        allowed_norms = ["batch", "layer", "group"]
+        allowed_norms = ["batch", "layer", "group", "instance"]
         if norm1_layer is None:
             norm1_layer = norm_layer
         if norm2_layer is None:
             norm2_layer = norm_layer
-        assert norm1_layer in allowed_norms, f"Unknown normalization type: {norm1_layer}. Use 'batch', 'layer' or 'group'."
-        assert norm2_layer in allowed_norms, f"Unknown normalization type: {norm2_layer}. Use 'batch', 'layer' or 'group'."
+        assert norm1_layer in allowed_norms, f"Unknown normalization type: {norm1_layer}. Use 'batch', 'layer', 'instance' or 'group'."
+        assert norm2_layer in allowed_norms, f"Unknown normalization type: {norm2_layer}. Use 'batch', 'layer', 'instance' or 'group'."
         
         # Prepare convolutional Layers
         assert 'in_channels' not in conv_kwargs, "in_channels already in conv_kwargs"
