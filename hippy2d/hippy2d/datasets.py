@@ -754,6 +754,7 @@ class TomasCrops(LightningDataModule, ABC):
                  target_size: int = DEFAULT_IMAGE_SIZE,
                  to_complex: bool = False,
                  normalize: bool = False,
+                 aug_gray_scale: bool = True,
                  use_circ_mask: bool = True,
                  num_workers: Optional[int] = None,
                  val_size: float = 0.1,
@@ -769,6 +770,7 @@ class TomasCrops(LightningDataModule, ABC):
         self.target_size = target_size
         self.to_complex = to_complex
         self.normalize = normalize
+        self.aug_gray_scale = aug_gray_scale
         self.use_circ_mask = use_circ_mask
         self.num_workers = num_workers
         self.val_size = val_size
@@ -786,15 +788,11 @@ class TomasCrops(LightningDataModule, ABC):
             transforms.ToDtype(torch.get_default_dtype(), scale=True),
         ]
 
-        if self.normalize:
-            train_transforms.append(
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            )
-            eval_transforms.append(
-                transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
-            )
+        if self.aug_gray_scale:
+            assert not self.normalize, "Cannot use grayscale augmentation with normalization"
+            train_transforms.append(transforms.Grayscale(num_output_channels=1))
+            eval_transforms.append(transforms.Grayscale(num_output_channels=1))
+
         if self.use_circ_mask:
             train_transforms.append(CircMask())
             eval_transforms.append(CircMask())
@@ -804,7 +802,8 @@ class TomasCrops(LightningDataModule, ABC):
 
         self.train_transforms = transforms.Compose(train_transforms)
         self.eval_transforms = transforms.Compose(eval_transforms)
-        self._output_shape = [batch_size, 3, self.target_size, self.target_size]
+        channels = 1 if self.aug_gray_scale else 3
+        self._output_shape = [batch_size, channels, self.target_size, self.target_size]
 
     def prepare_data(self):
         train_root = os.path.join(self.data_dir, "train")
@@ -823,28 +822,30 @@ class TomasCrops(LightningDataModule, ABC):
         val_root = os.path.join(self.data_dir, "val")
 
         train_base = ImageFolder(root=train_root, transform=self.train_transforms)
-        eval_train_base = ImageFolder(root=train_root, transform=self.eval_transforms)
-        self.test_ds = ImageFolder(root=test_root, transform=self.eval_transforms)
+        test_base = ImageFolder(root=test_root, transform=self.eval_transforms)
         self.classes = train_base.classes
 
         if os.path.isdir(val_root):
             self.train_ds = train_base
             self.valid_ds = ImageFolder(root=val_root, transform=self.eval_transforms)
+            self.test_ds = test_base
             return
 
         if self.val_size and self.val_size > 0:
-            indices = np.arange(len(train_base.targets))
-            train_idx, valid_idx = train_test_split(
-                indices,
+            test_indices = np.arange(len(test_base.targets))
+            test_idx, valid_idx = train_test_split(
+                test_indices,
                 test_size=self.val_size,
                 random_state=self.random_state,
-                stratify=train_base.targets,
+                stratify=test_base.targets,
             )
-            self.train_ds = Subset(train_base, train_idx)
-            self.valid_ds = Subset(eval_train_base, valid_idx)
+            self.train_ds = train_base
+            self.valid_ds = Subset(test_base, valid_idx)
+            self.test_ds = Subset(test_base, test_idx)
         else:
             self.train_ds = train_base
-            self.valid_ds = self.test_ds
+            self.valid_ds = test_base
+            self.test_ds = test_base
 
     def train_dataloader(self):
         return DataLoader(self.train_ds,

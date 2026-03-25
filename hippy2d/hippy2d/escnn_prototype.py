@@ -309,6 +309,7 @@ class InvariantsLayer(torch.nn.Module):
         self.trivial_idx = np.sum(np.array(self.orders) == 0)
         self.diagonal_idx = np.sum(np.array(self.orders) == 1) - 1
         self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None])
+        self.out_channels = (self.in_channels * (self.trivial_idx + self.diagonal_idx + 2*(len(self.orders) - self.trivial_idx - self.diagonal_idx - 1)))
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
@@ -345,7 +346,8 @@ class InvariantLayerMagReal(torch.nn.Module):
     def __init__(self,
                  orders: list[int],
                  in_channels: int,
-                 groups: int):
+                 groups: int,
+                 norm_mag_func: str=torch.sigmoid):
         super().__init__()
         for i in range(len(orders)-1):
             assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
@@ -355,8 +357,10 @@ class InvariantLayerMagReal(torch.nn.Module):
         self.groups = groups
         self.in_size = in_channels // groups
         self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        self.non_trivials_count = len(self.orders) - self.trivial_idx
         self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None])
         # Calculate output channels for this layer
+        self.magnitude_func = norm_mag_func
         self.out_channels = (self.in_channels 
                              * 
                              (self.trivial_idx + 1
@@ -377,7 +381,7 @@ class InvariantLayerMagReal(torch.nn.Module):
         norm = non_trivial[:, :, 0:1] 
         norm_magnitude = all_magnitudes[:, :, 0:1]
         
-        magnitude = torch.sigmoid(norm_magnitude) 
+        magnitude = self.magnitude_func(norm_magnitude)
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
         new_angle = angle * self.exponents 
 
@@ -394,12 +398,21 @@ class InvariantLayerMagReal(torch.nn.Module):
         invariants = rearrange(torch.cat([trivial, all_magnitudes, non_trivial], dim=2),
                                'b ch o h w -> b (ch o) h w') 
         return invariants
+    
+    def parse_output(self, invariants: torch.Tensor) -> dict[int, torch.Tensor]:
+        # This is a utility function to parse the output of the layer back into a dictionary of moments by order.
+        invariants = rearrange(invariants, 'b (ch o) h w -> b ch o h w', ch=self.in_channels)
+        trivials, non_trivials = invariants[:, :, :self.trivial_idx, :, :], invariants[:, :, self.trivial_idx:, :, :]
+        all_magnitudes, real_part = non_trivials[:, :, :self.non_trivials_count, :, :], non_trivials[:, :, self.non_trivials_count:, :, :]
+        return dict(trivials=trivials, magnitudes=all_magnitudes, real=real_part)
 
 class InvariantLayerMagNormReal(torch.nn.Module):
     def __init__(self,
                  orders: list[int],
                  in_channels: int,
-                 groups: int):
+                 groups: int,
+                 norm_mag_func: str=torch.sigmoid,
+                 ):
         super().__init__()
         for i in range(len(orders)-1):
             assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
@@ -415,6 +428,7 @@ class InvariantLayerMagNormReal(torch.nn.Module):
                              * 
                              (self.trivial_idx + 1
                               + 2*(len(self.orders) - self.trivial_idx - 1)))
+        self.magnitude_func = norm_mag_func
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
@@ -431,7 +445,7 @@ class InvariantLayerMagNormReal(torch.nn.Module):
         norm = non_trivial[:, :, 0:1] 
         norm_magnitude = all_magnitudes[:, :, 0:1]
         
-        magnitude = torch.sigmoid(norm_magnitude) 
+        magnitude = self.magnitude_func(norm_magnitude)
         angle = SafeAtan2.apply(norm[..., 1, :, :], norm[..., 0, :, :], 1e-8)
         new_angle = angle * self.exponents 
 
@@ -531,6 +545,7 @@ class FlexibleInvariantLayer(torch.nn.Module):
         # tril_rows and tril_cols can be used to index into the nontrivial moments
         self.register_buffer("tril_rows", tril_rows)
         self.register_buffer("tril_cols", tril_cols)
+        self.register_buffer("nontrivial_orders", nontrivial_orders)
         self.num_invariants = (len(orders) + len(exp_a))
         self.out_channels = self.in_channels * self.num_invariants
 
