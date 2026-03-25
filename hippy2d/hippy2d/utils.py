@@ -15,6 +15,7 @@ import numpy as np
 import pytorch_lightning as pl
 from torch.optim.lr_scheduler import _LRScheduler
 from pytorch_lightning.utilities import rank_zero_only
+from typing import Mapping
 
 # Optimal number of workers
 def get_optimal_workers():
@@ -109,6 +110,72 @@ def get_testing_img(rgb: bool = False) -> Image:
     # Get central crop 256x256
     img = img.crop((img.width // 2 - 128, img.height // 2 - 128, img.width // 2 + 128, img.height // 2 + 128))
     return img
+
+def rasterize_point_configurations(
+    configurations: torch.Tensor,
+    grid_size: int | tuple[int, int],
+    sigma: float,
+    amplitude: float = 1.0,
+    normalize: bool = False,
+) -> torch.Tensor:
+    """
+    Rasterize batched 2D point configurations onto a grid with Gaussian blobs.
+
+    Parameters
+    ----------
+    configurations:
+        Tensor of shape ``[N, A, 2]`` containing ``(x, y)`` point coordinates.
+        Coordinates are interpreted in a Cartesian system centered at the grid
+        origin, matching the convention used in ``make_blurred_atom_image``.
+    grid_size:
+        Either a single integer for a square grid or ``(height, width)``.
+    sigma:
+        Standard deviation of each Gaussian in pixel units.
+    amplitude:
+        Peak value of each Gaussian before summing.
+    normalize:
+        If ``True``, divide each Gaussian by ``2 * pi * sigma^2`` so every point
+        contributes unit integral instead of unit peak.
+
+    Returns
+    -------
+    torch.Tensor
+        Tensor of shape ``[N, H, W]`` containing the rasterized images.
+    """
+    if configurations.ndim != 3 or configurations.shape[-1] != 2:
+        raise ValueError(
+            f"configurations must have shape [N, A, 2], got {tuple(configurations.shape)}"
+        )
+    if sigma <= 0:
+        raise ValueError(f"sigma must be positive, got {sigma}")
+
+    if isinstance(grid_size, int):
+        if grid_size <= 0:
+            raise ValueError(f"grid_size must be positive, got {grid_size}")
+        height = width = grid_size
+    else:
+        if len(grid_size) != 2:
+            raise ValueError(f"grid_size must be an int or a pair, got {grid_size}")
+        height, width = grid_size
+        if height <= 0 or width <= 0:
+            raise ValueError(f"grid dimensions must be positive, got {grid_size}")
+
+    dtype = configurations.dtype
+    device = configurations.device
+
+    y_coords = torch.arange(height, dtype=dtype, device=device) - (height // 2)
+    x_coords = torch.arange(width, dtype=dtype, device=device) - (width // 2)
+    yy, xx = torch.meshgrid(y_coords, x_coords, indexing="ij")
+
+    points_x = configurations[..., 0][:, :, None, None]
+    points_y = configurations[..., 1][:, :, None, None]
+    dist2 = (xx[None, None, :, :] - points_x) ** 2 + (yy[None, None, :, :] - points_y) ** 2
+
+    images = amplitude * torch.exp(-dist2 / (2.0 * sigma ** 2))
+    if normalize:
+        images = images / (2.0 * math.pi * sigma ** 2)
+
+    return images.sum(dim=1)
 
 def get_circular_mask(shape: int, radius:int = None, dtype=torch.float64) -> torch.Tensor:
     """
