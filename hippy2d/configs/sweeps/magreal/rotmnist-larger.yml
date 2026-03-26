@@ -50,7 +50,7 @@ parameters:
       block_types:
         value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
-        values: ["LearnableCesaMagRealLayer", "LearnableCesaMag"]
+        value: "LearnableCesaMagRealLayer"
       drop_rate:
         value: 0.2
       channels_masking:

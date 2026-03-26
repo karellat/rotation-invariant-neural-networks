@@ -117,6 +117,15 @@ def _complex_mul_real_polar_parts(magnitude_a, angle_a, magnitude_b, angle_b):
     return (magnitude_a * magnitude_b) * torch.cos(angle_a + angle_b)
 
 
+def _parse_magnitude_func(magnitude_func: str):
+    if magnitude_func.lower() == "none":
+        return torch.nn.Identity()
+    elif magnitude_func.lower() == "sigmoid":
+        return torch.sigmoid
+    else:
+        raise ValueError(f"magnitude_func '{magnitude_func}' not recognized")
+
+
 def _rotate_moments(moments: torch.Tensor,
                     exponents: torch.Tensor,
                     eps=1e-8,
@@ -347,7 +356,7 @@ class InvariantLayerMagReal(torch.nn.Module):
                  orders: list[int],
                  in_channels: int,
                  groups: int,
-                 norm_mag_func: str=torch.sigmoid):
+                 norm_mag_func: str):
         super().__init__()
         for i in range(len(orders)-1):
             assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
@@ -360,7 +369,7 @@ class InvariantLayerMagReal(torch.nn.Module):
         self.non_trivials_count = len(self.orders) - self.trivial_idx
         self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None])
         # Calculate output channels for this layer
-        self.magnitude_func = norm_mag_func
+        self.magnitude_func = _parse_magnitude_func(norm_mag_func)
         self.out_channels = (self.in_channels 
                              * 
                              (self.trivial_idx + 1
@@ -501,7 +510,7 @@ class FlexibleInvariantLayer(torch.nn.Module):
                  orders: list[int],
                  in_channels: int,
                  groups: int, 
-                 magnitude_func: str='sigmoid',
+                 magnitude_func: str='none',
                  max_b_exponent: Optional[int]=2):
         super().__init__()
         # Parameters
@@ -773,7 +782,8 @@ class LearnableCesaMagRealLayer(torch.nn.Module):
         self.moment_types = self.moment_layer.out_type
         self.invariants_layer = InvariantLayerMagReal(orders=self.orders,
                                                       groups=groups,
-                                                      in_channels=in_channels)
+                                                      in_channels=in_channels, 
+                                                      norm_mag_func=magnitude_func)
         
         self.out_channels = self.invariants_layer.out_channels
 
@@ -938,7 +948,6 @@ class FixedFlexibleLayer(torch.nn.Module):
         # Separate trivials 
         return invariants
 
-
 class LearnableCesaMagNormRealLayer(torch.nn.Module): 
     # Flusser basis but basis learnable as in Cesa Escnn
     def __init__(self,
@@ -967,6 +976,44 @@ class LearnableCesaMagNormRealLayer(torch.nn.Module):
         self.invariants_layer = InvariantLayerMagNormReal(orders=self.orders,
                                                       groups=groups,
                                                       in_channels=in_channels)
+        
+        self.out_channels = self.invariants_layer.out_channels
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
+
+
+class LearnableCesaNonoActMagRealLayer(torch.nn.Module): 
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  input_size: int,
+                  padding: str='same',
+                  max_order: int=4, 
+                  groups: int = 1, 
+                  kernel_size: int=15):
+        super().__init__()
+        self.orders = flusser_basis_orders(max_order) 
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = MomentLayer(orders=self.orders,
+                                        max_order=max_order,
+                                        in_channels=in_channels,
+                                        padding=padding,
+                                        kernel_size=kernel_size, 
+                                        groups=groups)
+        # Construct invariants
+        self.moment_types = self.moment_layer.out_type
+        self.invariants_layer = InvariantLayerMagReal(orders=self.orders,
+                                                      groups=groups,
+                                                      in_channels=in_channels, 
+                                                      norm_mag_func="none")
         
         self.out_channels = self.invariants_layer.out_channels
 

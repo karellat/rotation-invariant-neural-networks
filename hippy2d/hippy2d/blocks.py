@@ -177,6 +177,7 @@ class MBConvBlock(torch.nn.Module):
                  norm_layer: str = "batch", 
                  norm1_layer: Optional[str] = None,
                  norm2_layer: Optional[str] = None,
+                 magnitude_func: str = "sigmoid",
                  aa_layer: Optional[Type[nn.Module]] = nn.AvgPool2d,
                  drop_path: Optional[torch.nn.Module] = None,
                  drop_block:Optional[torch.nn.Module] = None, 
