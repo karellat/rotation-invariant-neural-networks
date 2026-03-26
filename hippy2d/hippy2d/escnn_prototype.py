@@ -511,7 +511,7 @@ class FlexibleInvariantLayer(torch.nn.Module):
                  in_channels: int,
                  groups: int, 
                  magnitude_func: str='none',
-                 max_b_exponent: Optional[int]=2):
+                 max_b_exponent: Optional[int]=4):
         super().__init__()
         # Parameters
         self.orders = orders
@@ -857,7 +857,7 @@ class LearnableFlexibleLayer(torch.nn.Module):
                                                        groups=groups,
                                                        in_channels=in_channels, 
                                                        magnitude_func=magnitude_func,
-                                                       max_b_exponent=max_b_exponent)
+                                                       max_b_exponent=max_order)
         
         self.out_channels = self.invariants_layer.out_channels
 
