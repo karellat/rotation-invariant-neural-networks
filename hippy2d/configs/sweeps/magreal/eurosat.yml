@@ -36,7 +36,7 @@ parameters:
       input_size:
         value: 64
       disable_act1:
-        values: [true, false]
+        value: true
       norm1_layer:
         value: layer
       norm2_layer:
@@ -50,7 +50,7 @@ parameters:
       block_types:
         value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
-        values: ["LearnableCesaMagRealLayer"]
+        values: ["LearnableCesaMagRealLayer", "LearnableFlexibleLayer", "LearnableCesaNonoActMagRealLayer"]
       drop_rate:
         value: 0.1
       channels_masking:
