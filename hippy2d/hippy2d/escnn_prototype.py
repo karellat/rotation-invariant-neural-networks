@@ -590,7 +590,8 @@ class InvariantFuncMagReal(torch.nn.Module):
         if magnitude_func.lower() == "prod":
             return lambda mag_a, mag_b: mag_a * mag_b
         elif magnitude_func.lower() == "sqrt_prod":
-            return lambda mag_a, mag_b: torch.sqrt(mag_a * mag_b)
+            # Avoiding nans 
+            return lambda mag_a, mag_b: torch.sqrt(torch.clamp(mag_a * mag_b, min=1e-8))
         elif magnitude_func.lower() == "nick":
             return lambda mag_a, mag_b: (mag_a * mag_b) / (mag_a * mag_b + 1)
         else: 
