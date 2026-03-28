@@ -156,6 +156,8 @@ class MBConvBlock(torch.nn.Module):
             return nn.GroupNorm(num_groups=num_groups, num_channels=channels, affine=False)
         elif norm_layer == "instance": 
             return nn.InstanceNorm2d(channels, affine=True)
+        elif norm_layer == "none":
+            return nn.Identity()
         else: 
             raise ValueError(f"Unknown normalization type: {norm_layer}. Use 'batch', 'layer', 'instance' or 'group'.")
 
@@ -177,7 +179,6 @@ class MBConvBlock(torch.nn.Module):
                  norm_layer: str = "batch", 
                  norm1_layer: Optional[str] = None,
                  norm2_layer: Optional[str] = None,
-                 magnitude_func: str = "sigmoid",
                  aa_layer: Optional[Type[nn.Module]] = nn.AvgPool2d,
                  drop_path: Optional[torch.nn.Module] = None,
                  drop_block:Optional[torch.nn.Module] = None, 
@@ -187,7 +188,7 @@ class MBConvBlock(torch.nn.Module):
         assert drop_path is None, "drop_path is not implemented yet"
         assert drop_block is None, "drop_block is not implemented yet"
         # Normalization layers
-        allowed_norms = ["batch", "layer", "group", "instance"]
+        allowed_norms = ["batch", "layer", "group", "instance", "none"]
         if norm1_layer is None:
             norm1_layer = norm_layer
         if norm2_layer is None:

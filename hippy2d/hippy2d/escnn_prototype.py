@@ -583,6 +583,103 @@ class FlexibleInvariantLayer(torch.nn.Module):
             stacked_invariants = torch.cat([trivials, magnitudes, nontrivial_real], dim=2)
         return rearrange(stacked_invariants, 'b ch o h w -> b (ch o) h w') 
 
+# Testing different phase functions 
+
+class InvariantFuncMagReal(torch.nn.Module):
+    def _parse_magnitude_func(self, magnitude_func: str):
+        if magnitude_func.lower() == "prod":
+            return lambda mag_a, mag_b: mag_a * mag_b
+        elif magnitude_func.lower() == "sqrt_prod":
+            return lambda mag_a, mag_b: torch.sqrt(mag_a * mag_b)
+        elif magnitude_func.lower() == "nick":
+            return lambda mag_a, mag_b: (mag_a * mag_b) / (mag_a * mag_b + 1)
+        else: 
+            raise ValueError(f"magnitude_func '{magnitude_func}' not recognized")
+    def __init__(self,
+                 orders: list[int],
+                 in_channels: int,
+                 groups: int,
+                 norm_mag_func: str,
+                 spatial_size: int,
+                 norm_per_inv_type: str = 'prod'):
+        super().__init__()
+        for i in range(len(orders)-1):
+            assert orders[i] <= orders[i+1], "Orders must be sorted in increasing order"
+        # Parameters
+        self.orders = orders
+        self.in_channels = in_channels
+        self.groups = groups
+        self.in_size = in_channels // groups
+        self.trivial_idx = np.sum(np.array(self.orders) == 0)
+        self.non_trivials_count = len(self.orders) - self.trivial_idx
+        self.register_buffer("exponents", -torch.tensor(self.orders[self.trivial_idx+1:], dtype=torch.int32)[:, None, None])
+        # Calculate output channels for this layer
+        self.magnitude_func = self._parse_magnitude_func(norm_mag_func)
+        if norm_per_inv_type.lower() == 'none':
+            self.trivial_norm = torch.nn.Identity()
+            self.mag_norm = torch.nn.Identity()
+            self.real_norm = torch.nn.Identity()
+        elif norm_per_inv_type.lower() == 'layer':
+            self.trivial_norm = torch.nn.LayerNorm((self.in_channels * self.trivial_idx, spatial_size, spatial_size),
+                                                   elementwise_affine=False)
+            self.mag_norm = torch.nn.LayerNorm((self.in_channels * self.non_trivials_count, spatial_size, spatial_size),
+                                               elementwise_affine=False)
+            self.real_norm = torch.nn.LayerNorm((self.in_channels * (len(self.orders) - self.trivial_idx - 1), spatial_size, spatial_size),
+                                               elementwise_affine=False)
+        elif norm_per_inv_type.lower() == 'batch': 
+            self.trivial_norm = torch.nn.BatchNorm2d(self.in_channels * self.trivial_idx, affine=False)
+            self.mag_norm = torch.nn.BatchNorm2d(self.in_channels * self.non_trivials_count, affine=False)
+            self.real_norm = torch.nn.BatchNorm2d(self.in_channels * (len(self.orders) - self.trivial_idx - 1), affine=False)
+
+        self.out_channels = (self.in_channels 
+                             * 
+                             (self.trivial_idx + 1
+                              + 2*(len(self.orders) - self.trivial_idx - 1)))
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        trivial = moments[:, :, :self.trivial_idx, :, :]
+        non_trivial = moments[:, :, self.trivial_idx:, :, :]
+        
+        # Non-trivial to complex 
+        non_trivial = rearrange(non_trivial, 
+                                'b ch (o c) h w -> b ch o c h w',
+                                 o=non_trivial.shape[2]//2,
+                                 c=2)
+        # Calculate the magnitude for all moments
+        all_magnitudes = torch.linalg.vector_norm(non_trivial, dim=-3)
+        all_angles = SafeAtan2.apply(non_trivial[..., 1, :, :], non_trivial[..., 0, :, :], 1e-8)
+        # Normalizer
+        norm_magnitude = all_magnitudes[:, :, 0:1]
+        norm_angle = all_angles[:, :, 0:1]
+        # Moments
+        moments = non_trivial[:, :, 1:]
+        moment_magnitudes = all_magnitudes[:, :, 1:]
+        moment_angles = all_angles[:, :, 1:]
+        # Matching spin of moments
+        norm_angle = norm_angle * self.exponents 
+        # Calculating real part of the non-trivial invariants with a magnitude function on the normalizer   
+        magnitude = self.magnitude_func(norm_magnitude, moment_magnitudes)
+        non_trivial = magnitude * torch.cos(moment_angles + norm_angle)
+        # Rearrange and concatenate invariants
+        trivial = rearrange(trivial, 'b ch o h w -> b (ch o) h w')
+        all_magnitudes = rearrange(all_magnitudes, 'b ch o h w -> b (ch o) h w')
+        non_trivial = rearrange(non_trivial, 'b ch o h w -> b (ch o) h w')
+        
+        trivial = self.trivial_norm(trivial)
+        all_magnitudes = self.mag_norm(all_magnitudes)
+        non_trivial = self.real_norm(non_trivial)
+
+        invariants = torch.cat([trivial, all_magnitudes, non_trivial],
+                                dim=1)
+        return invariants
+    
+    def parse_output(self, invariants: torch.Tensor) -> dict[int, torch.Tensor]:
+        # This is a utility function to parse the output of the layer back into a dictionary of moments by order.
+        invariants = rearrange(invariants, 'b (ch o) h w -> b ch o h w', ch=self.in_channels)
+        trivials, non_trivials = invariants[:, :, :self.trivial_idx, :, :], invariants[:, :, self.trivial_idx:, :, :]
+        all_magnitudes, real_part = non_trivials[:, :, :self.non_trivials_count, :, :], non_trivials[:, :, self.non_trivials_count:, :, :]
+        return dict(trivials=trivials, magnitudes=all_magnitudes, real=real_part)
+
 
 class _FlexibleInvariantLayer(torch.nn.Module):
     def __init__(self,
@@ -986,7 +1083,7 @@ class LearnableCesaMagNormRealLayer(torch.nn.Module):
         return invariants
 
 
-class LearnableCesaNonoActMagRealLayer(torch.nn.Module): 
+class LearnableCesaMagRealVarFunc(torch.nn.Module): 
     # Flusser basis but basis learnable as in Cesa Escnn
     def __init__(self,
                   in_channels: int, 
@@ -995,6 +1092,8 @@ class LearnableCesaNonoActMagRealLayer(torch.nn.Module):
                   padding: str='same',
                   max_order: int=4, 
                   groups: int = 1, 
+                  mag_func: str='sqrt_prod',
+                  norm_per_inv_type: str='batch',
                   kernel_size: int=15):
         super().__init__()
         self.orders = flusser_basis_orders(max_order) 
@@ -1010,10 +1109,12 @@ class LearnableCesaNonoActMagRealLayer(torch.nn.Module):
                                         groups=groups)
         # Construct invariants
         self.moment_types = self.moment_layer.out_type
-        self.invariants_layer = InvariantLayerMagReal(orders=self.orders,
+        self.invariants_layer = InvariantFuncMagReal(orders=self.orders,
                                                       groups=groups,
                                                       in_channels=in_channels, 
-                                                      norm_mag_func="none")
+                                                      spatial_size=input_size,
+                                                      norm_mag_func=mag_func,
+                                                      norm_per_inv_type=norm_per_inv_type)
         
         self.out_channels = self.invariants_layer.out_channels
 

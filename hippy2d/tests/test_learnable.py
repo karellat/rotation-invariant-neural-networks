@@ -12,6 +12,14 @@ from hippy2d.escnn_prototype import LearnableCesa, InvariantLayerMag
 import time
 import logging
 
+from hippy2d.escnn_moment_invariants import (
+    FixedFlusserMomentLayer,
+    FlexibleInvariantLayer,
+    MagnitudeInvariantLayer,
+    MomentInvariantModule,
+    flusser_basis,
+)
+
 torch.set_default_dtype(torch.float64)
 # NOTE: The tests will likely fail with float32 due to numerical precision issues. We should think of suitable normalization.
 
@@ -137,6 +145,23 @@ class TestLearnable:
         # Forward pass through the complex invariant block
         self._test_90_module(inv_block, test_images, test_device)
 
+    def test_90_mbblock_magfuncreal(self, test_images, test_device):
+        """Test the 90-degree rotation block."""
+        torch.set_default_dtype(torch.float32)
+        test_images = (test_images[0].to(torch.float32), test_images[1].to(torch.float32))
+        inv_block = MBConvBlock(input_size=IMAGE_SIZE,
+                                in_channels=IMAGE_CHANNELS,
+                                out_channels=12,
+                                kernel_size=15, 
+                                norm1_layer="none", 
+                                norm2_layer="batch", 
+                                conv_layer="LearnableCesaMagRealVarFunc",
+                                conv_kwargs=dict(input_size=IMAGE_SIZE)).to(test_device)
+        # Forward pass through the complex invariant block
+        self._test_90_module(inv_block, test_images, test_device)
+
+
+
     def test_90_mbblock_magnormreal(self, test_images, test_device):
         """Test the 90-degree rotation block."""
         torch.set_default_dtype(torch.float32)
@@ -212,6 +237,83 @@ class TestLearnable:
         expected = torch.tensor([[[[2.0]], [[3.0]], [[5.0]], [[13.0]]]])
         torch.testing.assert_close(y, expected)
         assert layer.out_channels == expected.shape[1]
+
+    def test_composed_moment_invariant_module_supports_swappable_layers(self):
+        basis_qp = flusser_basis(max_total_degree=2)
+        orders = sorted([p - q for p, q in basis_qp])
+        moment_layer = FixedFlusserMomentLayer(
+            orders=orders,
+            basis_qp=sorted(basis_qp, key=lambda pq: pq[0] - pq[1]),
+            max_order=2,
+            in_channels=2,
+            groups=1,
+            kernel_size=5,
+        )
+        invariant_layer = FlexibleInvariantLayer(
+            orders=orders,
+            in_channels=2,
+            groups=1,
+            magnitude_func="none",
+            max_b_exponent=0,
+        )
+        module = MomentInvariantModule(moment_layer=moment_layer, invariant_layer=invariant_layer)
+
+        x = torch.randn(1, 2, 16, 16)
+        y = module(x)
+
+        assert y.shape[0] == 1
+        assert y.shape[1] == invariant_layer.out_channels
+        assert module.out_channels == invariant_layer.out_channels
+
+    def test_composed_moment_invariant_module_validates_configuration(self):
+        moment_layer = FixedFlusserMomentLayer(
+            orders=[0, 1],
+            basis_qp=[(0, 0), (1, 0)],
+            max_order=1,
+            in_channels=1,
+            groups=1,
+            kernel_size=5,
+        )
+        invariant_layer = MagnitudeInvariantLayer(
+            orders=[0, 2],
+            in_channels=1,
+            groups=1,
+        )
+
+        with pytest.raises(ValueError, match="same orders"):
+            MomentInvariantModule(moment_layer=moment_layer, invariant_layer=invariant_layer)
+
+    def test_moment_layer_parser_splits_trivial_and_complex_parts(self):
+        moment_layer = FixedFlusserMomentLayer(
+            orders=[0, 0, 1, 2],
+            basis_qp=[(0, 0), (1, 1), (1, 0), (2, 0)],
+            max_order=2,
+            in_channels=1,
+            groups=1,
+            kernel_size=5,
+        )
+        moments = torch.tensor(
+            [[[
+                [[2.0]],
+                [[3.0]],
+                [[5.0]],
+                [[7.0]],
+                [[11.0]],
+                [[13.0]],
+            ]]]
+        )
+
+        parsed = moment_layer.parse_output(moments)
+
+        assert moment_layer.num_features_per_input == 6
+        assert moment_layer.num_features == 6
+        assert parsed.trivial.shape == (1, 1, 2, 1, 1)
+        assert parsed.non_trivial.shape == (1, 1, 4, 1, 1)
+        assert parsed.non_trivial_complex.shape == (1, 1, 2, 2, 1, 1)
+        torch.testing.assert_close(parsed.trivial[:, :, 0], torch.tensor([[[[2.0]]]]))
+        torch.testing.assert_close(parsed.trivial[:, :, 1], torch.tensor([[[[3.0]]]]))
+        torch.testing.assert_close(parsed.non_trivial_complex[:, :, 0, :, 0, 0], torch.tensor([[[5.0, 7.0]]]))
+        torch.testing.assert_close(parsed.non_trivial_complex[:, :, 1, :, 0, 0], torch.tensor([[[11.0, 13.0]]]))
 
     def test_90_mbblock_flexible(self, test_images, test_device):
         """Test the 90-degree rotation block."""
