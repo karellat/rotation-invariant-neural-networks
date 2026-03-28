@@ -1,5 +1,4 @@
 from hippy2d import (
-    escnn_moment_invariants,
     escnn_prototype,
     flexibleconv2d,
     learnable,
@@ -22,8 +21,6 @@ def get_conv_layer(conv_name: str, conv_hparams: Dict):
         return _get_by_name(flexibleconv2d, conv_name, conv_hparams)
     elif hasattr(learnable, conv_name):
         return _get_by_name(learnable, conv_name, conv_hparams)
-    elif hasattr(escnn_moment_invariants, conv_name):
-        return _get_by_name(escnn_moment_invariants, conv_name, conv_hparams)
     elif hasattr(escnn_prototype, conv_name):
         return _get_by_name(escnn_prototype, conv_name, conv_hparams)
     else:
