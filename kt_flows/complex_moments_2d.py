@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import ot
 import math
 import torch
 import numpy as np
-from itertools import permutations
 from typing import Optional
+from itertools import permutations
 
 from utils import rotate_points_2d, wrap_angle
 
@@ -129,12 +130,13 @@ class CostFunction(torch.nn.Module):
         i_samples = self.invariants(m_samples)
         # Distance
         L2_dist = torch.cdist(i_noise, i_samples, p=2)
-        _, closest_idx = L2_dist.min(dim=1)
-        aligned_samples = samples[closest_idx]
+        sol = ot.solve(L2_dist.cpu().detach().numpy())
+        closest_idx = np.argmax(sol.plan, axis=1)
+        paired_samples = samples[closest_idx]
         # Estimate the group alignment between noise and aligned samples
-        R_sample, Perm_sample, t_sample = self.alignment(aligned_samples, noise)
-        g = (R_sample, Perm_sample, t_sample)
-        return L2_dist, aligned_samples, g
+        R_sample, Perm_sample, t_sample = self.alignment(paired_samples, noise)
+        g_for_noise = (R_sample, Perm_sample, t_sample)
+        return L2_dist, paired_samples, g_for_noise
 
     def test_points(self, points: torch.Tensor, angle: torch.Tensor | float):
         rotated_points = rotate_points_2d(points, angle)
