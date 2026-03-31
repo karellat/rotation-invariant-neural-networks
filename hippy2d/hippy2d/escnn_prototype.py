@@ -601,7 +601,7 @@ class InvariantFuncMagReal(torch.nn.Module):
                  groups: int,
                  norm_mag_func: str,
                  spatial_size: int,
-                 magnitude_only: bool=False,
+                 output_features: str = 'all',
                  norm_per_inv_type: str = 'prod'):
         super().__init__()
         for i in range(len(orders)-1):
@@ -632,18 +632,24 @@ class InvariantFuncMagReal(torch.nn.Module):
             self.mag_norm = torch.nn.BatchNorm2d(self.in_channels * self.non_trivials_count, affine=False)
             self.real_norm = torch.nn.BatchNorm2d(self.in_channels * (len(self.orders) - self.trivial_idx - 1), affine=False)
 
-        self.magnitude_only = magnitude_only
+        assert output_features in ['all', 'magnitude', 'real'], "output_features must be one of 'all', 'trivial', 'magnitude', 'real'"
+        self.output_features = output_features
 
-        if self.magnitude_only:
-            self.out_channels = (self.in_channels 
-                                * 
-                                (self.trivial_idx 
-                                + (len(self.orders) - self.trivial_idx)))
-        else:
+        if self.output_features == 'all': 
             self.out_channels = (self.in_channels 
                                 * 
                                 (self.trivial_idx + 1
                                 + 2*(len(self.orders) - self.trivial_idx - 1)))
+        elif self.output_features == 'magnitude':
+            self.out_channels = (self.in_channels 
+                                    * 
+                                    (self.trivial_idx 
+                                    + (len(self.orders) - self.trivial_idx)))
+        elif self.output_features == 'real':
+            self.out_channels = (self.in_channels 
+                                    * 
+                                    (self.trivial_idx 
+                                    + (len(self.orders) - self.trivial_idx - 1)))
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         trivial = moments[:, :, :self.trivial_idx, :, :]
@@ -668,7 +674,7 @@ class InvariantFuncMagReal(torch.nn.Module):
         trivial = rearrange(trivial, 'b ch o h w -> b (ch o) h w')
         all_magnitudes = rearrange(all_magnitudes, 'b ch o h w -> b (ch o) h w')
         # Matching spin of moments
-        if not self.magnitude_only:
+        if self.output_features in ['all', 'real']:
             norm_angle = norm_angle * self.exponents 
             # Calculating real part of the non-trivial invariants with a magnitude function on the normalizer   
             magnitude = self.magnitude_func(norm_magnitude, moment_magnitudes)
@@ -679,11 +685,14 @@ class InvariantFuncMagReal(torch.nn.Module):
         trivial = self.trivial_norm(trivial)
         all_magnitudes = self.mag_norm(all_magnitudes)
         
-        if not self.magnitude_only:
+        if  self.output_features == 'all':
             invariants = torch.cat([trivial, all_magnitudes, non_trivial],
                                 dim=1)
-        else:
+        elif self.output_features == 'magnitude':
             invariants = torch.cat([trivial, all_magnitudes],
+                                dim=1)
+        else:
+            invariants = torch.cat([trivial, non_trivial],
                                 dim=1)
         return invariants
     
@@ -1106,7 +1115,7 @@ class LearnableCesaMagRealVarFunc(torch.nn.Module):
                   max_order: int=4, 
                   groups: int = 1, 
                   mag_func: str='sqrt_prod',
-                  magnitude_only: bool=False,
+                  output_features: str='all', 
                   norm_per_inv_type: str='batch',
                   kernel_size: int=15):
         super().__init__()
@@ -1129,7 +1138,7 @@ class LearnableCesaMagRealVarFunc(torch.nn.Module):
                                                       spatial_size=input_size,
                                                       norm_mag_func=mag_func,
                                                       norm_per_inv_type=norm_per_inv_type,
-                                                      magnitude_only=magnitude_only)
+                                                      output_features=output_features)
         
         self.out_channels = self.invariants_layer.out_channels
 

@@ -58,17 +58,21 @@ class InvNet(L.LightningModule):
         y_hat = self.model(x)
         loss = self.loss_fnc(y_hat, y)
         acc = (y_hat.argmax(dim=-1) == y).to(torch.get_default_dtype()).mean()
-        return y_hat, loss, acc
+        topk = min(5, y_hat.shape[-1])
+        top5_acc = y_hat.topk(topk, dim=-1).indices.eq(y.unsqueeze(-1)).any(dim=-1)
+        top5_acc = top5_acc.to(torch.get_default_dtype()).mean()
+        return y_hat, loss, acc, top5_acc
 
     def forward(self, x: torch.Tensor):
         return self.model(x)
 
     def training_step(self, batch, batch_idx):
         x, y = batch
-        _, loss, acc = self.shared_step(x, y)
+        _, loss, acc, top5_acc = self.shared_step(x, y)
 
         self.log('train_loss', loss, prog_bar=True, sync_dist=True)
         self.log('train_acc', acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
+        self.log('train_top5_acc', top5_acc, on_step=False, on_epoch=True, sync_dist=True)
 
         return loss
 
@@ -79,18 +83,21 @@ class InvNet(L.LightningModule):
                 x, y = v[0]
             else:
                 x, y = v
-            preds, loss, acc = self.shared_step(x, y)
+            preds, loss, acc, top5_acc = self.shared_step(x, y)
             # NOTE: Return the validation loss with key 'val'
             # Other datasets are only for debugging purposes
             self.log(f'{k}_loss', loss, sync_dist=True, prog_bar=True, on_step=False, on_epoch=True)
             self.log(f'{k}_acc', acc, prog_bar=True, sync_dist=True)
+            self.log(f'{k}_top5_acc', top5_acc, sync_dist=True, on_step=False, on_epoch=True)
             if k == 'val':
                 res_preds = preds
                 res_loss = loss
                 res_acc = acc
+                res_top5_acc = top5_acc
         return {
             'loss': res_loss,
             'acc': res_acc,
+            'top5_acc': res_top5_acc,
             'preds': res_preds
         }
 
@@ -115,17 +122,18 @@ class InvNet(L.LightningModule):
         x, y = batch
         
         if dataloader_name == 'test': 
-            y_hat, loss, acc = self.shared_step(x, y)
+            y_hat, loss, acc, top5_acc = self.shared_step(x, y)
             
             # Log basic metrics
             self.log(f'test_loss', loss, sync_dist=True, batch_size=datamodule.test_batch_size, add_dataloader_idx=False)
             self.log(f'test_acc', acc, sync_dist=True, batch_size=datamodule.test_batch_size, add_dataloader_idx=False)
+            self.log(f'test_top5_acc', top5_acc, sync_dist=True, batch_size=datamodule.test_batch_size, add_dataloader_idx=False)
             
             # Compute rotation consistency metrics (RCI) with N=4 rotations
             x_90, x_180, x_270 = torch.rot90(x, 1, [-2, -1]), torch.rot90(x, 2, [-2, -1]), torch.rot90(x, 3, [-2, -1])
-            y_hat_90, _, _ = self.shared_step(x_90, y)
-            y_hat_180, _, _ = self.shared_step(x_180, y)
-            y_hat_270, _, _ = self.shared_step(x_270, y)
+            y_hat_90, _, _, _ = self.shared_step(x_90, y)
+            y_hat_180, _, _, _ = self.shared_step(x_180, y)
+            y_hat_270, _, _, _ = self.shared_step(x_270, y)
 
             # Stack rotated predictions
             y_hat_rd = torch.stack([y_hat_90, y_hat_180, y_hat_270], dim=1)
@@ -155,7 +163,7 @@ class InvNet(L.LightningModule):
             y_flat = rearrange(y, 'b n -> (b n)')
             
             # Get predictions for all rotations
-            logits, _, _ = self.shared_step(x_flat, y_flat)
+            logits, _, _, _ = self.shared_step(x_flat, y_flat)
             y_hat = torch.argmax(logits, dim=1)
             correct = rearrange((y_hat == y_flat), '(b n) -> b n',
                                  b=batch_size,
