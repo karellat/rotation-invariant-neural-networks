@@ -736,6 +736,146 @@ class DTD(LightningDataModule, ABC):
                           persistent_workers=self.num_workers > 0)
 
 
+class ImageFoldersDataModule(LightningDataModule):
+    DEFAULT_IMAGE_SIZE = 224
+
+    @property
+    def num_classes(self):
+        return len(self.classes)
+
+    @property
+    def output_shape(self):
+        return self._output_shape
+
+    def __init__(self,
+                 train_dir: str,
+                 valid_dir: str,
+                 test_dir: str,
+                 batch_size: int = 32,
+                 test_batch_size: int = 256,
+                 target_size: Optional[int] = None,
+                 to_complex: bool = False,
+                 normalize: bool = False,
+                 aug_gray_scale: bool = False,
+                 use_circ_mask: bool = True,
+                 num_workers: Optional[int] = None,
+                 train_mean: Optional[list] = None,
+                 train_std: Optional[list] = None):
+        super().__init__()
+
+        for split_name, split_dir in {
+            "train": train_dir,
+            "valid": valid_dir,
+            "test": test_dir,
+        }.items():
+            assert os.path.isdir(split_dir), f"{split_name.capitalize()} folder not found: {split_dir}"
+
+        if num_workers is None:
+            num_workers = get_optimal_workers()
+
+        if normalize:
+            if train_mean is None or train_std is None:
+                raise ValueError("train_mean and train_std must be provided when normalize=True")
+
+        self.train_dir = train_dir
+        self.valid_dir = valid_dir
+        self.test_dir = test_dir
+        self.batch_size = batch_size
+        self.test_batch_size = test_batch_size
+        self.target_size = target_size
+        self.to_complex = to_complex
+        self.normalize = normalize
+        self.aug_gray_scale = aug_gray_scale
+        self.use_circ_mask = use_circ_mask
+        self.num_workers = num_workers
+        self.train_mean = train_mean
+        self.train_std = train_std
+        self.classes = None
+
+        self.train_transforms = self._build_train_transforms()
+        self.eval_transforms = self._build_eval_transforms()
+
+        channels = 1 if self.aug_gray_scale else 3
+        if self.target_size is None:
+            self._output_shape = [batch_size, channels, None, None]
+        else:
+            self._output_shape = [batch_size, channels, self.target_size, self.target_size]
+
+    def _build_base_transforms(self):
+        transform_list = []
+
+        if self.target_size is not None:
+            transform_list.append(transforms.Resize((self.target_size, self.target_size)))
+
+        transform_list.extend([
+            transforms.ToImage(),
+            transforms.ToDtype(torch.get_default_dtype(), scale=True),
+        ])
+
+        if self.aug_gray_scale:
+            transform_list.append(transforms.Grayscale(num_output_channels=1))
+
+        if self.normalize:
+            transform_list.append(transforms.Normalize(mean=self.train_mean, std=self.train_std))
+
+        if self.use_circ_mask:
+            transform_list.append(CircMask())
+
+        if self.to_complex:
+            transform_list.append(transforms.ToDtype(dtype=get_default_complex()))
+
+        return transform_list
+
+    def _build_train_transforms(self):
+        return transforms.Compose(self._build_base_transforms())
+
+    def _build_eval_transforms(self):
+        return transforms.Compose(self._build_base_transforms())
+
+    def prepare_data(self):
+        train_folder = ImageFolder(root=self.train_dir)
+        valid_folder = ImageFolder(root=self.valid_dir)
+        test_folder = ImageFolder(root=self.test_dir)
+
+        assert train_folder.classes == valid_folder.classes, "Train/valid class folders do not match."
+        assert train_folder.classes == test_folder.classes, "Train/test class folders do not match."
+        self.classes = train_folder.classes
+
+    def setup(self, stage: Optional[str] = None):
+        train_folder = ImageFolder(root=self.train_dir, transform=self.train_transforms)
+        valid_folder = ImageFolder(root=self.valid_dir, transform=self.eval_transforms)
+        test_folder = ImageFolder(root=self.test_dir, transform=self.eval_transforms)
+
+        assert train_folder.classes == valid_folder.classes, "Train/valid class folders do not match."
+        assert train_folder.classes == test_folder.classes, "Train/test class folders do not match."
+
+        self.classes = train_folder.classes
+        self.train_ds = train_folder
+        self.valid_ds = valid_folder
+        self.test_ds = test_folder
+
+    def train_dataloader(self):
+        return DataLoader(self.train_ds,
+                          batch_size=self.batch_size,
+                          shuffle=True,
+                          num_workers=self.num_workers,
+                          persistent_workers=self.num_workers > 0)
+
+    def val_dataloader(self):
+        return DataLoader(self.valid_ds,
+                          batch_size=self.test_batch_size,
+                          shuffle=False,
+                          num_workers=self.num_workers,
+                          persistent_workers=self.num_workers > 0)
+
+    def test_dataloader(self):
+        return DataLoader(self.test_ds,
+                          batch_size=self.test_batch_size,
+                          shuffle=False,
+                          num_workers=self.num_workers,
+                          persistent_workers=self.num_workers > 0)
+
+
 class TomasCrops(LightningDataModule, ABC):
     DEFAULT_IMAGE_SIZE = 96
 

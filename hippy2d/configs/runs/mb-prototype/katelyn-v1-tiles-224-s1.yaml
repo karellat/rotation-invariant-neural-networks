@@ -1,0 +1,35 @@
+d_hparams:
+  batch_size: 64
+  train_dir: /Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/train
+  valid_dir: /Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/val
+  test_dir: /Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/test
+  target_size: 224
+  aug_gray_scale: true
+  to_complex: false
+dataset_name: ImageFoldersDataModule
+early_stopping: 30
+epochs: 60
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 30
+  - 50
+  - 70
+lr_name: MultiStepLR
+model_name: MBPrototype
+m_param:
+  in_channels: 1
+  input_size: 224
+  norm: layer
+  kernels_size: [11, 11, 11]
+  layers: [1, 2, 2]
+  channels: [16, 20, 26]
+  block_types: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
+  layer: "LearnableCesaMixedMagRealLayer"
+  drop_rate: 0.2
+  channels_masking: true
+optimizer_hparams:
+  lr: 0.001525
+optimizer_name: AdamW
+run_name: learnable-cese-mbconv-katelyn-v1-tiles-224
+seed: 42

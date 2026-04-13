@@ -1,0 +1,36 @@
+d_hparams:
+  batch_size: 64
+  test_batch_size: 128
+  train_dir: /Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/train
+  valid_dir: /Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/val
+  test_dir: /Users/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/test
+  target_size: 224
+  aug_gray_scale: true
+  to_complex: false
+  use_circ_mask: true
+dataset_name: ImageFoldersDataModule
+early_stopping: 30
+epochs: 100
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 30
+  - 50
+  - 70
+lr_name: MultiStepLR
+model_name: E2Cnn
+m_param:
+  in_channels: 1
+  input_size: 224
+  max_order: 3
+  stem_channels: 16
+  channels: [16, 32, 40]
+  block_type: GatedBlock
+  trivial_pooling_type: PointwiseMaxPool
+optimizer_hparams:
+  lr: 0.001
+  weight_decay: 0.05
+optimizer_name: AdamW
+label_smoothing: 0.1
+run_name: e2cnn-katelyn-v1-tiles-224
+seed: 42
