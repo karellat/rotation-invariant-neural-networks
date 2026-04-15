@@ -25,7 +25,15 @@ m_param:
   layers: [1, 2, 2]
   channels: [16, 20, 26]
   block_types: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
-  layer: "LearnableCesaMixedMagRealLayer"
+  layer: "LearnableCesaMagRealVarFunc"
+  disable_act1: true
+  norm1_layer: layer
+  norm2_layer: batch
+  default_layer_kwargs: 
+    norm_per_inv_type: layer
+    mag_func: nick
+    output_features: all
+    max_order: 3
   drop_rate: 0.2
   channels_masking: true
 optimizer_hparams:
