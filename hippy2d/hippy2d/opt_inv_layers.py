@@ -10,6 +10,7 @@ from escnn.nn.modules.conv.rd_convolution import get_grid_coords
 from escnn.nn.modules.conv.r2convolution import compute_basis_params
 from escnn.nn.modules.masking_module import build_mask as escnn_build_mask
 
+from hippy2d.learnable import flusser_basis_orders
 
 def compute_padding(padding, kernel_size):
     """
@@ -224,6 +225,8 @@ class CompiledInvariantLayer(torch.nn.Module):
             self._compiled_forward = torch.compile(self._invariants_common, **compile_kwargs)
         else:
             self._compiled_forward = self._invariants_common
+        
+        self.out_channels = self.trivial_idx + self.non_trivial_orders_count + (self.non_trivial_orders_count - 1)
 
     @staticmethod
     def _resolve_phase_function(phase_function: str | Callable) -> Callable:
@@ -247,21 +250,6 @@ class CompiledInvariantLayer(torch.nn.Module):
             return _MAGNITUDE_FUNCTIONS[key]
         return magnitude_function
     
-    @staticmethod
-    def _resolve_prenormalization(pre_norm_function: str | None) -> Callable:
-        """Resolve prenormalization function from string alias or return callable as-is."""
-        if pre_norm_function is None:
-            return torch.nn.Identity()
-        elif isinstance(pre_norm_function, str):
-            key = pre_norm_function.lower()
-            if key not in _NORM_FUNCTIONS:
-                raise ValueError(
-                    f"Unknown pre_norm_function '{pre_norm_function}'. Available: {list(_NORM_FUNCTIONS)}"
-                )
-            return _NORM_FUNCTIONS[key]
-        else:
-            raise ValueError("pre_norm_function must be a string key or None")
-
     def _invariants_common(self, moments: torch.Tensor) -> torch.Tensor:
         """Compute trivials, magnitudes, and phase-normalized real invariants.
 
@@ -290,7 +278,10 @@ class CompiledInvariantLayer(torch.nn.Module):
             self.magnitude_function,
         )
 
-        return torch.cat((trivial, magnitudes, phase_invariants), dim=2)
+        invariants = torch.cat((trivial, magnitudes, phase_invariants), dim=2)
+        invariants = rearrange(invariants, "b c i h w -> b (c i) h w")
+        return invariants
+
 
     def forward(self, moments: torch.Tensor) -> torch.Tensor:
         """Forward pass over input moments."""
@@ -360,3 +351,37 @@ class CompiledMomentLayer(torch.nn.Module):
         moments = rearrange(moments, 'b (ch o) h w -> b ch o h w', ch=self.in_channels)
         # TODO: 
         return moments
+
+
+class OptimalBasisBlock(torch.nn.Module): 
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  padding: str='same',
+                  orders: list[int]=flusser_basis_orders(3),
+                  phase_func: str='real',
+                  mag_func: str='nicks',
+                  kernel_size: int=11):
+        super().__init__()
+        self.orders = orders
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = CompiledMomentLayer(max_order=max(orders),
+                                               orders=orders,
+                                               in_channels=in_channels,
+                                               padding=padding,
+                                               kernel_size=kernel_size)
+        # Construct invariants
+        self.invariants_layer = CompiledInvariantLayer(
+            orders=orders,
+            phase_function=phase_func,
+            magnitude_function=mag_func)
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
