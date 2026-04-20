@@ -230,7 +230,6 @@ class MomentLayer(torch.nn.Module):
 
         return super().train(mode)
 
-
 class FixedFlusserMomentLayer(torch.nn.Module):
     """
     Moment layer with fixed complex polynomial kernels (Flusser basis),
@@ -1103,7 +1102,6 @@ class LearnableCesaMagNormRealLayer(torch.nn.Module):
         invariants = self.invariants_layer(moments)
         # Separate trivials 
         return invariants
-
 
 class LearnableCesaMagRealVarFunc(torch.nn.Module): 
     # Flusser basis but basis learnable as in Cesa Escnn

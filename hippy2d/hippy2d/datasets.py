@@ -741,7 +741,7 @@ class ImageFoldersDataModule(LightningDataModule):
 
     @property
     def num_classes(self):
-        return len(self.classes)
+        return self._num_classes
 
     @property
     def output_shape(self):
@@ -791,6 +791,7 @@ class ImageFoldersDataModule(LightningDataModule):
         self.train_mean = train_mean
         self.train_std = train_std
         self.classes = None
+        self._num_classes = 10
 
         self.train_transforms = self._build_train_transforms()
         self.eval_transforms = self._build_eval_transforms()
