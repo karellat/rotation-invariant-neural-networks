@@ -194,6 +194,9 @@ def training_loop(run_name: str,
                   label_smoothing: float,
                   lr_hparams: dict,
                   float_precision: str):
+    # TODO: Fix recompile errors
+    import torch._dynamo
+    torch._dynamo.config.cache_size_limit = 128  # default is usually 64
 
     # Get git commit sha
     repo = Repo(search_parent_directories=True)

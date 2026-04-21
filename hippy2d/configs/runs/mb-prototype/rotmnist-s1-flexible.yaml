@@ -1,10 +1,9 @@
 d_hparams:
-  batch_size: 32
+  batch_size: 64
   data_dir: data
-  pad: 0
+  target_size: 64
   to_complex: false
-  normalize: true
-dataset_name: MnistRotTest
+dataset_name: DTD
 early_stopping: 30
 epochs: 60
 lr_hparams:
@@ -18,23 +17,16 @@ model_name: MBPrototype
 m_param:
   in_channels: 3
   input_size: 64
-  norm1_layer: "none"
-  norm2_layer: batch
+  norm: layer
   kernels_size: [11, 11, 11]
-  disable_act1: true
-  layers: [1, 2, 2]
-  channels: [16, 20, 26]
+  layers: [2, 3, 3]
+  channels: [32, 40, 52]
   block_types: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
-  layer: "OptimalBasisBlock"
-  layer_kwargs: 
-    pre_norm_function: "layer_norm"
-    phase_function: "polar"
-    magnitude_function: "nicks"
+  layer: "LearnableFlexibleLayer"
   drop_rate: 0.2
   channels_masking: true 
 optimizer_hparams:
   lr: 0.001525
-  weight_decay: 0.05
 optimizer_name: AdamW
-run_name: mbconv-mnistrottest-compiled
+run_name: learnable-cese-mbconv-flexi-rotmnist
 seed: 42

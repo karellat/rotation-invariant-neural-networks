@@ -1,16 +1,16 @@
 program: scripts/training.py
-name: learnablecesa-dtd
-method: grid
+name: compiled-dtd
+method: bayes
 metric:
-  name: val_loss
   goal: minimize
+  name: val_loss
 parameters:
   dataset_name:
     value: DTD
   d_hparams:
     parameters:
       batch_size:
-        value: 16
+        values: [8, 16, 32, 64]
       data_dir:
         value: data
       target_size:
@@ -64,7 +64,7 @@ parameters:
           magnitude_func:
             value: "nicks"
       drop_rate:
-        value: 0.1
+        values: [0.1, 0.2, 0.3]
       channels_masking:
         value: true
   model_name:
@@ -74,7 +74,7 @@ parameters:
       lr:
         value: 0.0015
       weight_decay:
-        value: 0.05
+        values: [0.01, 0.02, 0.05, 0.08, 0.1]
   optimizer_name:
     value: AdamW
   label_smoothing:

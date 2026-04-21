@@ -77,8 +77,11 @@ class TestCompiledInvariantLayer:
         orders = [0, 1, 2, 3]
         layers = torch.nn.Sequential(
             MomentLayer(max_order=4, orders=orders, in_channels=IMAGE_CHANNELS),
-            CompiledInvariantLayer(orders=orders, phase_function="real", magnitude_function="nicks"),
+            CompiledInvariantLayer(orders=orders,
+                                   pre_norm_function="layer_norm", 
+                                   phase_function="polar",
+                                   compile_functions=True,
+                                   magnitude_function="nicks"),
         ).to(test_device)
 
         self._test_90_module(layers, test_images, test_device)
-        

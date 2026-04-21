@@ -1,10 +1,8 @@
 d_hparams:
-  batch_size: 32
+  batch_size: 16
   data_dir: data
-  pad: 0
-  to_complex: false
-  normalize: true
-dataset_name: MnistRotTest
+  upscale_size: 64
+dataset_name: RotMnist
 early_stopping: 30
 epochs: 60
 lr_hparams:
@@ -26,15 +24,15 @@ m_param:
   channels: [16, 20, 26]
   block_types: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
   layer: "OptimalBasisBlock"
-  layer_kwargs: 
-    pre_norm_function: "layer_norm"
-    phase_function: "polar"
-    magnitude_function: "nicks"
+  default_layer_kwargs: 
+    pre_norm_func: "layer_norm"
+    phase_func: "polar"
+    magnitude_func: "nicks"
   drop_rate: 0.2
   channels_masking: true 
 optimizer_hparams:
   lr: 0.001525
   weight_decay: 0.05
 optimizer_name: AdamW
-run_name: mbconv-mnistrottest-compiled
+run_name: compiled
 seed: 42

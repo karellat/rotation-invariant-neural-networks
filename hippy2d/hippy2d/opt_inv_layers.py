@@ -134,6 +134,30 @@ def rotate_complex_self_n(
     out = q.pow(n)
     return torch.stack((out.real, out.imag), dim=-3)
 
+def shared_layer_norm(tuple_trivials_non_trivials, eps=1e-12): 
+    """"
+    Shift trivials and scale all fields together by shared variance
+    trivials - [Batch Channels Orders H W]
+    non_trivials - [Batch Channels Orders 2 H W]
+    """
+    trivials, non_trivials = tuple_trivials_non_trivials
+    trivials_mean = trivials.mean(dim=[1, 2, 3, 4], keepdim=True)
+    trivials_centered = trivials - trivials_mean
+    
+
+    trivial_sigma = torch.sqrt(
+        torch.clamp(torch.mean(trivials_centered ** 2,  dim=[1, 2, 3, 4], keepdim=True), 
+                    min=eps))[..., None]
+    non_trivial_sigma = torch.sqrt(
+        torch.clamp(torch.mean(non_trivials ** 2, dim=[1, 2, 3, 4, 5], keepdim=True), 
+                    min=eps))
+    shared_sigma = torch.sqrt(torch.clamp((trivial_sigma ** 2 + non_trivial_sigma ** 2)/2, min=eps))
+
+    trivials_normed = trivials_centered / shared_sigma[...,0]
+    non_trivials_normed = non_trivials / shared_sigma
+    return trivials_normed, non_trivials_normed
+
+
 
 @torch.compile
 def nicks_magnitude(mag1, mag2):
@@ -172,7 +196,7 @@ class CompiledInvariantLayer(torch.nn.Module):
         orders: Sequence[int] | torch.Tensor,
         phase_function: str | Callable="real",
         magnitude_function: str | Callable="nicks",
-#        pre_norm_function: str | None = None,
+        pre_norm_function: str | None = None,
 #        after_norm_function: str | None = None,
         compile_functions: bool = True,
         compile_kwargs: dict | None = dict(fullgraph=True),
@@ -220,6 +244,7 @@ class CompiledInvariantLayer(torch.nn.Module):
 
         self.phase_function = self._resolve_phase_function(phase_function)
         self.magnitude_function = self._resolve_magnitude_function(magnitude_function)
+        self.layer_norm_function = self._resolve_norm_function(pre_norm_function)
 
         if compile_functions:
             self._compiled_forward = torch.compile(self._invariants_common, **compile_kwargs)
@@ -237,6 +262,19 @@ class CompiledInvariantLayer(torch.nn.Module):
                 raise ValueError(f"Unknown phase_function '{phase_function}'. Available: {list(_PHASE_FUNCTIONS)}")
             return _PHASE_FUNCTIONS[key]
         return phase_function
+
+    @staticmethod 
+    def _resolve_norm_function(norm_function: str | Callable) -> Callable | None: 
+        """Resolve normalization function from string alias or return callable as-is."""
+        if norm_function is None:
+            return torch.nn.Identity()
+        if isinstance(norm_function, str):
+            key = norm_function.lower()
+            if key == "layer_norm":
+                return shared_layer_norm
+            else:
+                raise ValueError(f"Unknown norm_function '{norm_function}'. Available: ['shared_layer_norm']")
+        return norm_function
 
     @staticmethod
     def _resolve_magnitude_function(magnitude_function: str | Callable) -> Callable:
@@ -268,7 +306,9 @@ class CompiledInvariantLayer(torch.nn.Module):
             o=self.non_trivial_orders_count,
             c=2,
         )
+        tuple = (trivial, non_trivial, )
 
+        trivial, non_trivial = self.layer_norm_function(tuple)
         magnitudes = torch.linalg.vector_norm(non_trivial, dim=-3)
 
         phase_invariants = self.phase_function(
@@ -352,36 +392,3 @@ class CompiledMomentLayer(torch.nn.Module):
         # TODO: 
         return moments
 
-
-class OptimalBasisBlock(torch.nn.Module): 
-    # Flusser basis but basis learnable as in Cesa Escnn
-    def __init__(self,
-                  in_channels: int, 
-                  out_channels: int, 
-                  padding: str='same',
-                  orders: list[int]=flusser_basis_orders(3),
-                  phase_func: str='real',
-                  mag_func: str='nicks',
-                  kernel_size: int=11):
-        super().__init__()
-        self.orders = orders
-        self.out_channels = out_channels
-        self.input_channels = in_channels
-        self.kernel_size = kernel_size
-        # Construct moments
-        self.moment_layer = CompiledMomentLayer(max_order=max(orders),
-                                               orders=orders,
-                                               in_channels=in_channels,
-                                               padding=padding,
-                                               kernel_size=kernel_size)
-        # Construct invariants
-        self.invariants_layer = CompiledInvariantLayer(
-            orders=orders,
-            phase_function=phase_func,
-            magnitude_function=mag_func)
-        
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        moments = self.moment_layer(x)  # b, ch*o, h,
-        invariants = self.invariants_layer(moments)
-        # Separate trivials 
-        return invariants

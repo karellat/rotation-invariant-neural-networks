@@ -7,7 +7,7 @@ from escnn import gspaces
 from hippy2d.learnable import flusser_basis_orders
 from hippy2d.opt_inv_layers import OptimalBasisBlock
 
-ITERS = 100
+ITERS = 50
 MAX_ORDER = 4
 IN_CHANNELS = 3
 HID_CHANNELS = 16
@@ -36,6 +36,7 @@ def init_models(max_order, device):
             super().__init__()
             self.block1 = OptimalBasisBlock(in_channels=IN_CHANNELS, 
                                             out_channels=None,
+                                            phase_func="polar", 
                                             orders=orders) 
             self.conv1x1 = torch.nn.Conv2d(in_channels=IN_CHANNELS * self.block1.invariants_layer.out_channels,
                                            out_channels=HID_CHANNELS, 
@@ -43,6 +44,7 @@ def init_models(max_order, device):
                                            bias=False)
             self.block2 = OptimalBasisBlock(in_channels=HID_CHANNELS,
                                             out_channels=None,
+                                            phase_func="polar", 
                                             orders=orders)
         def forward(self, x):
             x = self.block1(x)
@@ -70,15 +72,13 @@ def init_models(max_order, device):
 
 def main():
     # Prepare sample data 
-
-    shape = [BATCH_SIZE, IN_CHANNELS, SPATIAL, SPATIAL]
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    v = torch.randn(*shape, device=device)
-     
     times = dict(ours=[], esnn=[])
     # Warm up
 
     for ord in [1, 2, 3, 4, 5, 6]:
+        shape = [BATCH_SIZE, IN_CHANNELS, SPATIAL, SPATIAL]
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        v = torch.randn(*shape, device=device)
         print(f"Testing order {ord}...")
         models = init_models(ord, device)
         for model_name, model in models.items():
@@ -96,10 +96,17 @@ def main():
             total_time = (t1 - t0) / ITERS
             print(model_name, total_time)
             times[model_name].append(total_time)
+
+        del models
+        # clear cuda cache
+        if device == "cuda":
+            torch.cuda.empty_cache()
     # Save as csv
     import pandas as pd
     df = pd.DataFrame(times)
-    df.to_csv("layer_timing.csv", index=False)
+    # Time stamp 
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    df.to_csv(f"layer_timing_{stamp}.csv", index=False)
 
 
 

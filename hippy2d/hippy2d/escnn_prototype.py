@@ -3,6 +3,7 @@ from typing import Optional
 import torch 
 import escnn
 from hippy2d.learnable import complex_power_moivre, flusser_basis_orders
+from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer
 from hippy2d.utils import SafeAtan2
 from einops import rearrange, repeat
 from collections import defaultdict
@@ -1140,6 +1141,45 @@ class LearnableCesaMagRealVarFunc(torch.nn.Module):
         
         self.out_channels = self.invariants_layer.out_channels
 
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Separate trivials 
+        return invariants
+
+class OptimalBasisBlock(torch.nn.Module): 
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  in_channels: int, 
+                  out_channels: int, 
+                  padding: str='same',
+                  orders: list[int]=flusser_basis_orders(3),
+                  phase_func: str='polar',
+                  mag_func: str='nicks',
+                  pre_norm_func: Optional[str]=None,
+                  kernel_size: int=11, 
+                  **kwargs):
+        super().__init__()
+        print(f"Got those extra arguments: {kwargs}")
+        self.orders = orders
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = CompiledMomentLayer(max_order=max(orders),
+                                               orders=orders,
+                                               in_channels=in_channels,
+                                               padding=padding,
+                                               kernel_size=kernel_size)
+        # Construct invariants
+        self.invariants_layer = CompiledInvariantLayer(
+            orders=orders,
+            phase_function=phase_func,
+            magnitude_function=mag_func,
+            pre_norm_function=pre_norm_func)
+
+        self.out_channels = self.invariants_layer.out_channels * in_channels
+        
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         moments = self.moment_layer(x)  # b, ch*o, h,
         invariants = self.invariants_layer(moments)
