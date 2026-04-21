@@ -10,7 +10,7 @@ from escnn.nn.modules.conv.rd_convolution import get_grid_coords
 from escnn.nn.modules.conv.r2convolution import compute_basis_params
 from escnn.nn.modules.masking_module import build_mask as escnn_build_mask
 
-from hippy2d.learnable import flusser_basis_orders
+from hippy2d.utils import SafeAtan2
 
 def compute_padding(padding, kernel_size):
     """
@@ -65,7 +65,7 @@ def rotate_real_self_n(
 
     nt_mag = mag[:, :, 1:]
     nt_r, nt_i = real[:, :, 1:], imag[:, :, 1:]
-    rot_angle = torch.atan2(n_i, n_r) * -o[:, None, None]
+    rot_angle = SafeAtan2.apply(n_i, n_r, eps) * -o[:, None, None]
 
     n_r = torch.cos(rot_angle)
     n_i = torch.sin(rot_angle)
@@ -96,7 +96,7 @@ def rotate_polar_self_n(
     """
     safe_mag = mag.clamp(min=eps)
     real, imag = v.unbind(dim=-3)
-    angle = torch.atan2(imag / safe_mag, real / safe_mag)
+    angle = SafeAtan2.apply(imag / safe_mag, real / safe_mag, eps)
 
     n_angle = angle[:, :, 0:1] * -o[:, None, None]
     n_mag = mag[:, :, 0:1]
