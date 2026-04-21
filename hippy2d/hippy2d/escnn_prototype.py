@@ -1153,7 +1153,7 @@ class OptimalBasisBlock(torch.nn.Module):
                   in_channels: int, 
                   out_channels: int, 
                   padding: str='same',
-                  orders: list[int]=flusser_basis_orders(3),
+                  max_order: int=3,
                   phase_func: str='polar',
                   mag_func: str='nicks',
                   pre_norm_func: Optional[str]=None,
@@ -1161,19 +1161,19 @@ class OptimalBasisBlock(torch.nn.Module):
                   **kwargs):
         super().__init__()
         print(f"Got those extra arguments: {kwargs}")
-        self.orders = orders
+        self.orders = flusser_basis_orders(max_order)
         self.out_channels = out_channels
         self.input_channels = in_channels
         self.kernel_size = kernel_size
         # Construct moments
-        self.moment_layer = CompiledMomentLayer(max_order=max(orders),
-                                               orders=orders,
+        self.moment_layer = CompiledMomentLayer(max_order=max_order,
+                                               orders=self.orders,
                                                in_channels=in_channels,
                                                padding=padding,
                                                kernel_size=kernel_size)
         # Construct invariants
         self.invariants_layer = CompiledInvariantLayer(
-            orders=orders,
+            orders=self.orders,
             phase_function=phase_func,
             magnitude_function=mag_func,
             pre_norm_function=pre_norm_func)
