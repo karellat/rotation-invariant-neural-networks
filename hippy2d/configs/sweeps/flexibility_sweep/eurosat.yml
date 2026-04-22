@@ -1,28 +1,22 @@
 program: scripts/training.py
-name: compiled-dtd-no-inner-mask
+name: flexibility-sweep-eurosat-longer
 method: grid
 metric:
-  goal: minimize
   name: val_loss
+  goal: minimize
 parameters:
   dataset_name:
-    value: DTD
+    value: EuroSAT
   d_hparams:
     parameters:
       batch_size:
-        value: 16
+        value: 4
       data_dir:
         value: data
-      target_size:
-        value: 96
       to_complex:
         value: false
-      normalize:
-        value: true
-      use_circ_mask:
-        value: true
   early_stopping:
-    value: 30
+    value: 20
   epochs:
     value: 100
   lr_name:
@@ -32,45 +26,37 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [30, 50, 70]
+        value: [20, 50, 70]
   m_param:
     parameters:
       in_channels:
         value: 3
       num_classes:
-        value: 47
+        value: 10
       input_size:
-        value: 96
-      disable_act1:
-        value: true
-      norm1_layer:
-        value: none
-      norm2_layer:
+        value: 64
+      norm:
         value: batch
       kernels_size:
         value: [11, 11, 11]
       layers:
         value: [1, 2, 2]
       channels:
-        value: [16, 32, 40]
+        value: [16, 20, 26]
       block_types:
         value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
-        value: "OptimalBasisBlock"
-      default_layer_kwargs: 
+        value: LearnableFlexibleLayer
+      default_layer_kwargs:
         parameters:
-          pre_norm_func:
-            value: "layer_norm"
-          phase_func:
-            value: "polar"
           magnitude_func:
-            value: "nicks"
-          max_order:
-            value: 4
+            value: "sigmoid"
+          max_b_exponent:
+            values: [1, 2, 3, 4]
       drop_rate:
         value: 0.1
       channels_masking:
-        value: false
+        value: true
   model_name:
     value: MBPrototype
   optimizer_hparams:
@@ -84,6 +70,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: compiled-dtd-no-inner-mask
+    value: learnablecesa-flexibility-eurosat
   seed:
     values: [42, 7, 74]

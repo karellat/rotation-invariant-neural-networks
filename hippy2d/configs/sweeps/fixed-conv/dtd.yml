@@ -1,9 +1,9 @@
 program: scripts/training.py
-name: compiled-dtd-no-inner-mask
+name: learnablecesa-dtd
 method: grid
 metric:
-  goal: minimize
   name: val_loss
+  goal: minimize
 parameters:
   dataset_name:
     value: DTD
@@ -18,11 +18,9 @@ parameters:
       to_complex:
         value: false
       normalize:
-        value: true
-      use_circ_mask:
-        value: true
+        values: [true, false]
   early_stopping:
-    value: 30
+    value: 15
   epochs:
     value: 100
   lr_name:
@@ -44,7 +42,7 @@ parameters:
       disable_act1:
         value: true
       norm1_layer:
-        value: none
+        value: layer
       norm2_layer:
         value: batch
       kernels_size:
@@ -52,25 +50,15 @@ parameters:
       layers:
         value: [1, 2, 2]
       channels:
-        value: [16, 32, 40]
+        value: [16, 20, 26]
       block_types:
         value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
-        value: "OptimalBasisBlock"
-      default_layer_kwargs: 
-        parameters:
-          pre_norm_func:
-            value: "layer_norm"
-          phase_func:
-            value: "polar"
-          magnitude_func:
-            value: "nicks"
-          max_order:
-            value: 4
+        value: "LearnableCesaMagRealLayer"
       drop_rate:
         value: 0.1
       channels_masking:
-        value: false
+        value: true
   model_name:
     value: MBPrototype
   optimizer_hparams:
@@ -84,6 +72,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: compiled-dtd-no-inner-mask
+    value: learnablecesa-dtd-magreal
   seed:
     values: [42, 7, 74]

@@ -1,24 +1,20 @@
 program: scripts/training.py
-name: compiled-dtd-no-inner-mask
+name: compiled-galaxy-zoo
 method: grid
 metric:
-  goal: minimize
   name: val_loss
+  goal: minimize
 parameters:
   dataset_name:
-    value: DTD
+    value: GalaxyZoo
   d_hparams:
     parameters:
       batch_size:
-        value: 16
+        value: 64
       data_dir:
         value: data
       target_size:
         value: 96
-      to_complex:
-        value: false
-      normalize:
-        value: true
       use_circ_mask:
         value: true
   early_stopping:
@@ -33,12 +29,14 @@ parameters:
         value: 0.1
       milestones:
         value: [30, 50, 70]
+  model_name:
+    value: MBPrototype
   m_param:
     parameters:
       in_channels:
         value: 3
       num_classes:
-        value: 47
+        value: 8
       input_size:
         value: 96
       disable_act1:
@@ -57,22 +55,18 @@ parameters:
         value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
         value: "OptimalBasisBlock"
+      channels_masking:
+        value: false
       default_layer_kwargs: 
         parameters:
           pre_norm_func:
             value: "layer_norm"
           phase_func:
             value: "polar"
-          magnitude_func:
+          mag_func:
             value: "nicks"
           max_order:
-            value: 4
-      drop_rate:
-        value: 0.1
-      channels_masking:
-        value: false
-  model_name:
-    value: MBPrototype
+            value: 3
   optimizer_hparams:
     parameters:
       lr:
@@ -84,6 +78,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: compiled-dtd-no-inner-mask
+    value: compiled-galaxy-zoo
   seed:
     values: [42, 7, 74]

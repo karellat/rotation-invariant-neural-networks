@@ -1,28 +1,25 @@
+
 program: scripts/training.py
-name: compiled-dtd-no-inner-mask
+name: fixed-flexibility-larger
 method: grid
 metric:
-  goal: minimize
   name: val_loss
+  goal: minimize
 parameters:
   dataset_name:
-    value: DTD
+    value: RotMnist
   d_hparams:
     parameters:
       batch_size:
-        value: 16
+        value: 32
+      test_batch_size:
+        value: 128
       data_dir:
         value: data
-      target_size:
-        value: 96
-      to_complex:
-        value: false
-      normalize:
-        value: true
-      use_circ_mask:
-        value: true
+      upscale_size:
+        value: 64
   early_stopping:
-    value: 30
+    value: 10
   epochs:
     value: 100
   lr_name:
@@ -36,41 +33,35 @@ parameters:
   m_param:
     parameters:
       in_channels:
-        value: 3
+        value: 1
       num_classes:
-        value: 47
-      input_size:
-        value: 96
+        value: 10 
       disable_act1:
         value: true
       norm1_layer:
-        value: none
+        value: layer
       norm2_layer:
         value: batch
       kernels_size:
         value: [11, 11, 11]
       layers:
-        value: [1, 2, 2]
+        value: [2, 3, 3]
       channels:
-        value: [16, 32, 40]
+        value: [20, 24, 30]
       block_types:
         value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
       layer:
-        value: "OptimalBasisBlock"
-      default_layer_kwargs: 
-        parameters:
-          pre_norm_func:
-            value: "layer_norm"
-          phase_func:
-            value: "polar"
+        value: "FixedFlexibleLayer"
+      default_layer_kwargs:
+        parameters: 
           magnitude_func:
-            value: "nicks"
-          max_order:
-            value: 4
+            value: "sigmoid"
+          max_b_exponent:
+            values: [1, 2, 3, 4]
       drop_rate:
         value: 0.1
       channels_masking:
-        value: false
+        value: true 
   model_name:
     value: MBPrototype
   optimizer_hparams:
@@ -84,6 +75,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: compiled-dtd-no-inner-mask
+    value: fixed-flexibility
   seed:
-    values: [42, 7, 74]
+    values: [42, 7, 123]

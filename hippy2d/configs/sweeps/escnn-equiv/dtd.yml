@@ -1,9 +1,9 @@
 program: scripts/training.py
-name: compiled-dtd-no-inner-mask
+name: escnn-dtd-circ-mask
 method: grid
 metric:
-  goal: minimize
   name: val_loss
+  goal: minimize
 parameters:
   dataset_name:
     value: DTD
@@ -33,46 +33,24 @@ parameters:
         value: 0.1
       milestones:
         value: [30, 50, 70]
+  model_name:
+    value: E2Cnn
   m_param:
     parameters:
       in_channels:
         value: 3
-      num_classes:
-        value: 47
       input_size:
-        value: 96
-      disable_act1:
-        value: true
-      norm1_layer:
-        value: none
-      norm2_layer:
-        value: batch
-      kernels_size:
-        value: [11, 11, 11]
-      layers:
-        value: [1, 2, 2]
+        value: 64
+      max_order:
+        value: 4
+      stem_channels:
+        value: 16
       channels:
         value: [16, 32, 40]
-      block_types:
-        value: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
-      layer:
-        value: "OptimalBasisBlock"
-      default_layer_kwargs: 
-        parameters:
-          pre_norm_func:
-            value: "layer_norm"
-          phase_func:
-            value: "polar"
-          magnitude_func:
-            value: "nicks"
-          max_order:
-            value: 4
-      drop_rate:
-        value: 0.1
-      channels_masking:
-        value: false
-  model_name:
-    value: MBPrototype
+      block_type:
+        value: GatedBlock
+      trivial_pooling_type:
+        value: PointwiseMaxPool
   optimizer_hparams:
     parameters:
       lr:
@@ -84,6 +62,6 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: compiled-dtd-no-inner-mask
+    value: escnn-dtd-circ-mask
   seed:
     values: [42, 7, 74]
