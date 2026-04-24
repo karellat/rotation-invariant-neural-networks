@@ -14,6 +14,8 @@ parameters:
         value: 96
       to_complex:
         value: false
+      normalize:
+        value: true
   dataset_name:
     value: RESISC45
   early_stopping:
@@ -48,7 +50,7 @@ parameters:
       layers:
         value: [1, 2, 2]
       channels:
-        value: [16, 32, 40]
+        value: [20, 32, 32]
       drop_rate: 
         value: 0.2
   optimizer_hparams:
