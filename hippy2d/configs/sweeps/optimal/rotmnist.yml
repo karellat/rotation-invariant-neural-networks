@@ -1,0 +1,60 @@
+program: scripts/training.py
+name: escnn-equiv-rotmnist-gated
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: RotMnist
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 16
+      test_batch_size:
+        value: 64
+      data_dir:
+        value: data
+      upscale_size:
+        value: 64
+  early_stopping:
+    value: 15
+  epochs:
+    value: 100
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [10, 50, 90]
+model_name:
+  value: PrototypeOptimal
+m_param:
+  in_channels: 
+    value: 1
+  input_size:
+    value: 64
+  kernels_size:
+    value: [11, 11, 11]
+  layers:
+    value: [1, 2, 2]
+  channels:
+    value: [16, 20, 26]
+  drop_rate: 
+    value: 0.2
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001525
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: optimal-prototype-rotmnist
+  seed:
+    values: [42, 43, 44]
