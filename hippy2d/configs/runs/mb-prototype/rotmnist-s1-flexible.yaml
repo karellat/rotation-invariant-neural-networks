@@ -22,7 +22,7 @@ m_param:
   layers: [2, 3, 3]
   channels: [32, 40, 52]
   block_types: ["MBConvBlock", "MBConvBlock", "MBConvBlock"]
-  layer: "LearnableFlexibleLayer"
+  layer: ""
   drop_rate: 0.2
   channels_masking: true 
 optimizer_hparams:

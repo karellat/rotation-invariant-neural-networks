@@ -10,7 +10,7 @@ from typing import List, Any, Dict, Optional
 import hippy2d
 from hippy2d import blocks
 from hippy2d import conv_factory
-from hippy2d.blocks import ResnetBlock, choose_groups, GatedBlock, MBConvBlock
+from hippy2d.blocks import ResnetBlock, choose_groups, GatedBlock, MBConvBlock, OptimalBlock
 from hippy2d.utils import get_default_complex   
 from hippy2d.datasets import ROTATED_TEST_SET_KEY
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
@@ -675,6 +675,118 @@ class MBPrototype(torch.nn.Module):
         x = self.forward_features(x)
         x = self.forward_head(x)
         return x
+
+class PrototypeOptimal(torch.nn.Module): 
+    @staticmethod
+    def make_stage(input_size,
+                   kernel_size, 
+                   layers, 
+                   stage_idx,
+                   max_order,
+                   channels_masking,
+                   in_channels, 
+                   out_channels): 
+        stack = []
+        current_size =input_size
+
+        for layer_idx in range(layers):
+            is_first_block = (layer_idx == 0)
+            # Stage 1 (stage_idx=0) doesn't downsample
+            use_downsample = (stage_idx > 0) and is_first_block
+            
+            stack.append(OptimalBlock(input_size=current_size,
+                                      in_channels=in_channels,
+                                      out_channels=out_channels,
+                                      max_order=max_order,
+                                      kernel_size=kernel_size, 
+                                      downsample=use_downsample,
+                                      channel_mask=channels_masking))
+            
+            # Update state for next block
+            in_channels = out_channels
+            if use_downsample:
+                current_size = current_size // 2
+        return stack, current_size
+
+    def __init__(self, 
+                    in_channels:int = 3,
+                    input_size:int = 64,
+                    stem_kernel_size: int = 15,
+                    kernels_size: int = [11, 11, 11],
+                    layers: list = [1, 2, 2], 
+                    channels: list = [16, 20, 26],
+                    max_order: int = 3,
+                    channels_masking:bool = False,
+                    # Classifier settings
+                    classification:bool = True, 
+                    hidden_classifier_size:int = 64,
+                    num_classes:int = 10,
+                    drop_rate: float = 0.0): 
+        super(PrototypeOptimal, self).__init__()
+        num_stages = len(kernels_size)
+        assert (len(kernels_size) == len(layers)) and (len(kernels_size) == len(channels))
+        assert num_stages >= 1
+        self.stem = OptimalBlock(input_size=input_size,
+                                 kernel_size=stem_kernel_size,
+                                 in_channels=in_channels, 
+                                 out_channels=channels[0],
+                                 downsample=True, 
+                                 max_order=max_order,
+                                 channel_mask=channels_masking)
+        in_channels = channels[0]
+        current_size = input_size // 2
+        stages = []
+        for stage_idx in range(num_stages):
+            block, current_size = PrototypeOptimal.make_stage(input_size=current_size,
+                                                in_channels=in_channels,
+                                                out_channels=channels[stage_idx],
+                                                stage_idx=stage_idx,
+                                                kernel_size=kernels_size[stage_idx],
+                                                channels_masking=channels_masking,
+                                                layers=layers[stage_idx],
+                                                max_order=max_order)
+            stages += block
+            in_channels = channels[stage_idx]
+        # Backbone
+        self.backbone = torch.nn.Sequential(*stages)
+
+        self.drop_rate = drop_rate
+        self.num_feature = self.head_hidden_size = channels[-1]
+        self.classification = classification
+        if classification:
+            self.global_pool = torch.nn.AdaptiveAvgPool2d((1, 1))
+            self.flat = torch.nn.Flatten()
+            self.classifier = torch.nn.Sequential(
+                torch.nn.Linear(in_features=self.head_hidden_size, out_features=hidden_classifier_size),
+                torch.nn.BatchNorm1d(num_features=hidden_classifier_size),
+                torch.nn.ELU(inplace=True),
+                torch.nn.Linear(in_features=hidden_classifier_size, out_features=num_classes)
+            )
+    @torch.compile
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.stem(x)
+        x = self.backbone(x)
+        return x
+
+    @torch.compile
+    def forward_head(self, x: torch.Tensor) -> torch.Tensor:
+        if self.classification:
+            x = self.global_pool(x)
+            x = self.flat(x)
+            x = F.dropout(x, p=self.drop_rate, training=self.training)
+            x = self.classifier(x)
+        return x
+
+        
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.forward_features(x)
+        x = self.forward_head(x)
+        return x
+ 
+            
+            
+        
+
 
 # Optimal Convolution
 class PrototypeOptimalInvCNN(torch.nn.Module): 

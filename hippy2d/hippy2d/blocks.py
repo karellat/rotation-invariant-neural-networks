@@ -7,6 +7,8 @@ from hippy2d import conv_factory
 from hippy2d.utils import tukey_2d
 from hippy2d.conv_factory import get_conv_layer
 from hippy2d.escnn_layers import InvariantLayer, EscnnInvariantLayer
+from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer
+from hippy2d.learnable import flusser_basis_orders
 
 
 class ResnetBlock(torch.nn.Module):
@@ -614,3 +616,89 @@ class EscnnInvGatedBlock(escnn.nn.modules.EquivariantModule):
 
     def evaluate_output_shape(self, input_shape):
         return super().evaluate_output_shape(input_shape)
+
+class OptimalBlock(torch.nn.Module): 
+    # Flusser basis but basis learnable as in Cesa Escnn
+    def __init__(self,
+                  input_size: int,
+                  in_channels: int, 
+                  out_channels: int, 
+                  padding: str='same',
+                  max_order: int=3,
+                  phase_func: str='polar',
+                  mag_func: str='nicks',
+                  pre_norm_func: Optional[str]="layer_norm",
+                  kernel_size: int=11, 
+                  channel_mask: bool=False,
+                  downsample: bool=False,
+                  **kwargs):
+        super().__init__()
+        print(f"Got those extra arguments: {kwargs}")
+
+        if padding == "same":
+            dconv_output_shape = input_size
+        else:
+            dconv_output_shape = input_size + (2 * padding) - kernel_size + 1
+        assert (input_size - dconv_output_shape) % 2 == 0, "Input size must be even for valid padding"
+
+        self.mask = None if not channel_mask else torch.nn.Parameter(torch.from_numpy(tukey_2d(input_size, 0.5)).to(dtype=torch.get_default_dtype()), requires_grad=False)
+
+        self.orders = flusser_basis_orders(max_order)
+        self.out_channels = out_channels
+        self.input_channels = in_channels
+        self.kernel_size = kernel_size
+        # Construct moments
+        self.moment_layer = CompiledMomentLayer(max_order=max_order,
+                                               orders=self.orders,
+                                               in_channels=in_channels,
+                                               padding=padding,
+                                               kernel_size=kernel_size)
+        # Construct invariants
+        self.invariants_layer = CompiledInvariantLayer(
+            orders=self.orders,
+            phase_function=phase_func,
+            magnitude_function=mag_func,
+            pre_norm_function=pre_norm_func)
+
+        inv_out_channels = self.invariants_layer.out_channels * in_channels
+
+        self.conv1x1 = torch.nn.Conv2d(in_channels=inv_out_channels,
+                                     out_channels=out_channels,
+                                     kernel_size=1,
+                                     bias=False)
+        # Batch Norm
+        self.norm = nn.BatchNorm2d(out_channels, affine=True)
+
+        # Residual scale
+        self.register_buffer("residual_scale",
+                             torch.tensor(1.0) / torch.sqrt(torch.tensor(2.0)),
+                             persistent=False)
+
+        if in_channels != out_channels:
+            self.identity= torch.nn.Conv2d(in_channels=in_channels,
+                                           out_channels=out_channels,
+                                           kernel_size=1)
+        else: 
+            self.identity = torch.nn.Identity()
+
+        self.act = torch.nn.ELU()
+        self.downsample = torch.nn.AvgPool2d(kernel_size=2, stride=2) if downsample else torch.nn.Identity()
+
+    @torch.compile
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        shortcut = self.identity(self.downsample(x))
+
+        if self.mask is not None:
+            x = x * self.mask
+        # Invariants
+        moments = self.moment_layer(x)  # b, ch*o, h,
+        invariants = self.invariants_layer(moments)
+        # Projection conv layer
+        y = self.conv1x1(invariants)
+        y = self.norm(y)
+    
+        y = self.downsample(y)
+        y += shortcut 
+        y = y * self.residual_scale
+        y = self.act(y)
+        return y
