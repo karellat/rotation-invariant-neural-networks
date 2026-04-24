@@ -1,22 +1,25 @@
+
 program: scripts/training.py
-name: escnn-equiv-rotmnist-gated
+name: optimal-mnist-rot-test
 method: grid
 metric:
   name: val_loss
   goal: minimize
 parameters:
   dataset_name:
-    value: RotMnist
+    value: MnistRotTest
   d_hparams:
     parameters:
       batch_size:
-        value: 16
-      test_batch_size:
         value: 64
       data_dir:
         value: data
-      upscale_size:
-        value: 64
+      pad:
+        value: 0
+      to_complex:
+        value: false
+      normalize:
+        value: true
   early_stopping:
     value: 15
   epochs:
@@ -28,7 +31,7 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [10, 50, 90]
+        value: [30, 50, 70]
   model_name:
     value: PrototypeOptimal
   m_param:
@@ -45,17 +48,19 @@ parameters:
         value: [16, 20, 26]
       drop_rate: 
         value: 0.2
-    optimizer_hparams:
-      parameters:
-        lr:
-          value: 0.001525
-        weight_decay:
-          value: 0.05
+      channels_masking:
+        value: true
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
   optimizer_name:
     value: AdamW
   label_smoothing:
     value: 0.1
   run_name:
-    value: optimal-prototype-rotmnist
+    value: optimal-mnist-rot-test
   seed:
-    values: [42, 43, 44]
+    values: [42, 7, 123]

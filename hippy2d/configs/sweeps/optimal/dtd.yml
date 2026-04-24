@@ -1,24 +1,28 @@
 program: scripts/training.py
-name: escnn-equiv-rotmnist-gated
+name: optimal-dtd-no-inner-mask
 method: grid
 metric:
-  name: val_loss
   goal: minimize
+  name: val_loss
 parameters:
   dataset_name:
-    value: RotMnist
+    value: DTD
   d_hparams:
     parameters:
       batch_size:
         value: 16
-      test_batch_size:
-        value: 64
       data_dir:
         value: data
-      upscale_size:
-        value: 64
+      target_size:
+        value: 96
+      to_complex:
+        value: false
+      normalize:
+        value: true
+      use_circ_mask:
+        value: true
   early_stopping:
-    value: 15
+    value: 30
   epochs:
     value: 100
   lr_name:
@@ -28,7 +32,7 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [10, 50, 90]
+        value: [30, 50, 70]
   model_name:
     value: PrototypeOptimal
   m_param:
@@ -36,26 +40,28 @@ parameters:
       in_channels: 
         value: 1
       input_size:
-        value: 64
+        value: 96
       kernels_size:
         value: [11, 11, 11]
+      max_order:
+        value: 4
       layers:
         value: [1, 2, 2]
       channels:
-        value: [16, 20, 26]
+        value: [16, 32, 40]
       drop_rate: 
         value: 0.2
-    optimizer_hparams:
-      parameters:
-        lr:
-          value: 0.001525
-        weight_decay:
-          value: 0.05
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
   optimizer_name:
     value: AdamW
   label_smoothing:
     value: 0.1
   run_name:
-    value: optimal-prototype-rotmnist
+    value: optimal-dtd-no-inner-mask
   seed:
-    values: [42, 43, 44]
+    values: [42, 7, 74]

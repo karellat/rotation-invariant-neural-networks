@@ -1,0 +1,69 @@
+method: grid
+metric:
+  goal: minimize
+  name: val_loss
+name: optimal-resisc45
+parameters:
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 8
+      data_dir:
+        value: data
+      target_size:
+        value: 96
+      to_complex:
+        value: false
+  dataset_name:
+    value: RESISC45
+  early_stopping:
+    value: 30
+  epochs:
+    value: 100
+  label_smoothing:
+    value: 0.1
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value:
+        - 30
+        - 50
+        - 70
+  lr_name:
+    value: MultiStepLR
+  model_name:
+    value: PrototypeOptimal
+  m_param:
+    parameters:
+      in_channels: 
+        value: 3
+      input_size:
+        value: 96
+      max_order:
+        value: 3
+      kernels_size:
+        value: [11, 11, 11]
+      layers:
+        value: [1, 2, 2]
+      channels:
+        value: [16, 32, 40]
+      drop_rate: 
+        value: 0.2
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  run_name:
+    value: optimal-resisc45
+  seed:
+    values:
+    - 42
+    - 7
+    - 74
+program: scripts/training.py
