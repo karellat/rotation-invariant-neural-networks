@@ -1,0 +1,31 @@
+d_hparams:
+  batch_size: 32
+  data_dir: data
+  pad: 0
+  to_complex: false
+  normalize: true
+dataset_name: MnistRotTest
+early_stopping: 30
+epochs: 60
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 30
+  - 50
+  - 70
+lr_name: MultiStepLR
+model_name: PrototypeOptimal 
+m_param:
+  in_channels: 1
+  input_size: 64
+  kernels_size: [11, 11, 11]
+  layers: [1, 2, 2]
+  channels: [16, 20, 26]
+  drop_rate: 0.2
+  channels_masking: True
+optimizer_hparams:
+  lr: 0.001525
+  weight_decay: 0.05
+optimizer_name: AdamW
+run_name: protoype-optimal-mnistrottest
+seed: 42

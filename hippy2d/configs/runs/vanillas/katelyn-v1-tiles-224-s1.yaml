@@ -1,0 +1,31 @@
+d_hparams:
+  batch_size: 64
+  test_batch_size: 128
+  train_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/train
+  valid_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/val
+  test_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/test
+  target_size: 96
+  aug_gray_scale: true 
+  to_complex: false
+  train_data_fraction: 0.05
+  aug_flips: false
+  aug_rot: true
+
+dataset_name: ImageFoldersDataModule
+early_stopping: 30
+epochs: 60
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 30
+  - 50
+  - 70
+lr_name: MultiStepLR
+m_param:
+  in_channels: 1
+model_name: Resnet18
+optimizer_hparams:
+  lr: 0.001525
+optimizer_name: AdamW
+run_name: resnet18-katelyn-rot
+seed: 42

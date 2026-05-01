@@ -757,10 +757,15 @@ class ImageFoldersDataModule(LightningDataModule):
                  to_complex: bool = False,
                  normalize: bool = False,
                  aug_gray_scale: bool = False,
+                 aug_flips: bool = False,
+                 aug_rot: bool = False,
                  use_circ_mask: bool = True,
                  num_workers: Optional[int] = None,
                  train_mean: Optional[list] = None,
-                 train_std: Optional[list] = None):
+                 train_std: Optional[list] = None,
+                 train_data_fraction: Optional[float] = None,
+                 stratified_train_subset: bool = True,
+                 random_state: int = 42):
         super().__init__()
 
         for split_name, split_dir in {
@@ -786,10 +791,19 @@ class ImageFoldersDataModule(LightningDataModule):
         self.to_complex = to_complex
         self.normalize = normalize
         self.aug_gray_scale = aug_gray_scale
+        self.aug_flips = aug_flips
+        self.aug_rot = aug_rot
         self.use_circ_mask = use_circ_mask
         self.num_workers = num_workers
         self.train_mean = train_mean
         self.train_std = train_std
+        if train_data_fraction is None:
+            train_data_fraction = 1.0
+        if not 0 < train_data_fraction <= 1:
+            raise ValueError("train_data_fraction must be in the interval (0, 1].")
+        self.train_data_fraction = train_data_fraction
+        self.stratified_train_subset = stratified_train_subset
+        self.random_state = random_state
         self.classes = None
         self._num_classes = 10
 
@@ -828,10 +842,59 @@ class ImageFoldersDataModule(LightningDataModule):
         return transform_list
 
     def _build_train_transforms(self):
-        return transforms.Compose(self._build_base_transforms())
+        transform_list = self._build_base_transforms()
+        aug_transforms = []
+
+        if self.aug_flips:
+            aug_transforms.extend([
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomVerticalFlip(),
+            ])
+
+        if self.aug_rot:
+            aug_transforms.append(
+                transforms.RandomRotation(degrees=(0, 359), interpolation=InterpolationMode.BILINEAR)
+            )
+
+        return transforms.Compose([*aug_transforms, *transform_list])
 
     def _build_eval_transforms(self):
         return transforms.Compose(self._build_base_transforms())
+
+    def _limit_train_dataset(self, train_folder: ImageFolder):
+        if self.train_data_fraction >= 1:
+            return train_folder
+
+        n_train = len(train_folder)
+        n_subset = max(1, int(round(n_train * self.train_data_fraction)))
+        indices = np.arange(n_train)
+
+        if self.stratified_train_subset:
+            try:
+                subset_indices, _ = train_test_split(
+                    indices,
+                    train_size=n_subset,
+                    stratify=train_folder.targets,
+                    random_state=self.random_state,
+                )
+            except ValueError as error:
+                logger.warning(
+                    "Could not create a stratified train subset with "
+                    f"train_data_fraction={self.train_data_fraction}: {error}. "
+                    "Falling back to a non-stratified random subset."
+                )
+                rng = np.random.default_rng(self.random_state)
+                subset_indices = rng.choice(indices, size=n_subset, replace=False)
+        else:
+            rng = np.random.default_rng(self.random_state)
+            subset_indices = rng.choice(indices, size=n_subset, replace=False)
+
+        subset_indices = np.sort(subset_indices).tolist()
+        logger.info(
+            f"Using {len(subset_indices)}/{n_train} training samples "
+            f"({self.train_data_fraction:.1%})."
+        )
+        return Subset(train_folder, subset_indices)
 
     def prepare_data(self):
         train_folder = ImageFolder(root=self.train_dir)
@@ -841,6 +904,7 @@ class ImageFoldersDataModule(LightningDataModule):
         assert train_folder.classes == valid_folder.classes, "Train/valid class folders do not match."
         assert train_folder.classes == test_folder.classes, "Train/test class folders do not match."
         self.classes = train_folder.classes
+        self._num_classes = len(self.classes)
 
     def setup(self, stage: Optional[str] = None):
         train_folder = ImageFolder(root=self.train_dir, transform=self.train_transforms)
@@ -851,7 +915,8 @@ class ImageFoldersDataModule(LightningDataModule):
         assert train_folder.classes == test_folder.classes, "Train/test class folders do not match."
 
         self.classes = train_folder.classes
-        self.train_ds = train_folder
+        self._num_classes = len(self.classes)
+        self.train_ds = self._limit_train_dataset(train_folder)
         self.valid_ds = valid_folder
         self.test_ds = test_folder
 
