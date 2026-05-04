@@ -1,0 +1,35 @@
+d_hparams:
+  batch_size: 64
+  test_batch_size: 128
+  train_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1-images/train
+  valid_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1-images/val
+  test_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1-images/test
+  target_size: 224
+  aug_gray_scale: true
+  to_complex: false
+  aug_flips: true
+  aug_rot: false
+
+dataset_name: ImageFoldersDataModule
+early_stopping: 30
+epochs: 60
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 30
+  - 50
+  - 70
+lr_name: MultiStepLR
+model_name: PrototypeOptimal 
+m_param:
+  in_channels: 1
+  input_size: 224
+  kernels_size: [11, 11, 11, 11]
+  layers: [1, 2, 2, 2]
+  channels: [16, 20, 26, 32]
+  drop_rate: 0.2
+optimizer_hparams:
+  lr: 0.001525
+optimizer_name: AdamW
+run_name: optimal-prototype-kately-images-flips
+seed: 42

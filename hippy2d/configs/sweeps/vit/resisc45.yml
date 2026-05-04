@@ -1,0 +1,61 @@
+method: grid
+metric:
+  goal: minimize
+  name: val_loss
+name: vit-resisc45
+parameters:
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 8
+      data_dir:
+        value: data
+      target_size:
+        value: 96
+      to_complex:
+        value: false
+      normalize:
+        value: true
+  dataset_name:
+    value: RESISC45
+  early_stopping:
+    value: 30
+  epochs:
+    value: 100
+  label_smoothing:
+    value: 0.1
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value:
+        - 30
+        - 50
+        - 70
+  lr_name:
+    value: MultiStepLR
+  model_name:
+    value: timm:test_vit4.r160_in1k
+  m_param:
+    parameters:
+      pretrained:
+        value: false
+      patch_size:
+        value: 16
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  run_name:
+    value: vit-resisc45
+  seed:
+    values:
+    - 42
+    - 7
+    - 74
+program: scripts/training.py

@@ -1,13 +1,13 @@
 d_hparams:
   batch_size: 64
   test_batch_size: 128
-  train_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/train
-  valid_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/val
-  test_dir: /home/karella/Projects/rotation-invariant-neural-networks/hippy2d/data/v1_tiles_224x224/test
+  train_dir: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/train
+  valid_dir: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/val
+  test_dir: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/test
   target_size: 224
   aug_gray_scale: true
   to_complex: false
-  use_circ_mask: true
+  aug_flips: true
 dataset_name: ImageFoldersDataModule
 early_stopping: 30
 epochs: 100

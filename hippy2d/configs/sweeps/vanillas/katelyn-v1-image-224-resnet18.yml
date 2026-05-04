@@ -1,0 +1,61 @@
+program: scripts/training.py
+name: katelyn-v1-image-224-resnet18
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: ImageFoldersDataModule
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      test_batch_size:
+        value: 128
+      train_dir:
+        value: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/train
+      valid_dir:
+        value: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/val
+      test_dir:
+        value: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/test
+      target_size:
+        value: 224
+      aug_gray_scale:
+        value: true
+      to_complex:
+        value: false
+      aug_flips:
+        value: true
+      aug_rot:
+        value: true
+      train_data_fraction:
+        values: [0.0625, 0.125, 0.25, 0.5, 1]
+  early_stopping:
+    value: 30
+  epochs:
+    value: 60
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [30, 50, 70]
+  m_param:
+    parameters:
+      in_channels:
+        value: 1
+  model_name:
+    value: Resnet18
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001525
+  optimizer_name:
+    value: AdamW
+  run_name:
+    value: resnet18-katelyn-images-flipsrot
+  seed:
+    values: [42, 7, 74]
