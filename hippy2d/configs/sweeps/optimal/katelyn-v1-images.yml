@@ -28,7 +28,7 @@ parameters:
       aug_flips:
         value: true
       train_data_fraction:
-        values: [0.5, 1]
+        values: [0.0625, 0.125, 0.25, 0.5, 1]
   early_stopping:
     value: 30
   epochs:

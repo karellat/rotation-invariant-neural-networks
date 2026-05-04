@@ -32,5 +32,5 @@ optimizer_hparams:
   weight_decay: 0.05
 optimizer_name: AdamW
 label_smoothing: 0.1
-run_name: e2cnn-katelyn-v1-tiles-224
+run_name: e2cnn-katelyn-v1-images-224
 seed: 42
