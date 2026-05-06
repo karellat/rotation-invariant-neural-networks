@@ -356,7 +356,7 @@ class ResHNeXtv3(nn.Module):
 
         equivariant_stack = HOut(keep_order_dim=True, return_zero_order_phase=_return_phase_dim)
         self.hnext = nn.Sequential(img2input, *network_layers, equivariant_stack)
-        self.classifier = GAPMLP(in_channels=2*_last_out_channels,
+        self.classifier = GAPMLP(in_channels=2 * _last_out_channels * (self.maximum_order + 1),
                                  masking_dim=_last_channel_size,
                                  num_classes=num_classes)
 
