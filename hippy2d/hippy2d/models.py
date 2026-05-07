@@ -14,6 +14,7 @@ from hippy2d.blocks import ResnetBlock, choose_groups, GatedBlock, MBConvBlock, 
 from hippy2d.utils import get_default_complex   
 from hippy2d.datasets import ROTATED_TEST_SET_KEY
 from hippy2d.harmformer import HConv2d, HNormAct, HOut, ComplexImg2H, DropPath, HPooling, GAPMLP
+from hippy2d.harmformer_real import RealHConv2d, RealHNormAct, RealHOut, RealImg2H, RealDropPath, RealHPooling, RealOrderProjection
 
 # ESCNN 
 import escnn
@@ -282,6 +283,60 @@ class Blockv3(nn.Module):
     def __repr__(self):
         return f"ResBlockv-{self.number_orders}-{self.in_channels}->{self.out_channels}{'; Residual' if self.residual else ''}"
 
+
+class RealBlockv3(nn.Module):
+    def __init__(self,
+                 in_channels: int,
+                 out_channels: int,
+                 in_max_order: int,
+                 out_max_order: int,
+                 mask_shape: int,
+                 residual: bool,
+                 kernel_size: int,
+                 n_rings: int,
+                 drop_path: Optional[nn.Module] = None):
+        super().__init__()
+        self.hconv = RealHConv2d(in_channels=in_channels,
+                                 out_channels=out_channels,
+                                 in_max_order=in_max_order,
+                                 out_max_order=out_max_order,
+                                 tukey_window=True,
+                                 tukey_alpha=0.4,
+                                 mask_shape=mask_shape,
+                                 kernel_size=kernel_size,
+                                 padding=(kernel_size - 1) // 2,
+                                 n_rings=n_rings)
+        self.hnorm_act = RealHNormAct(act_fnc="relu",
+                                      channels=out_channels,
+                                      affine=True)
+        self.drop_path = drop_path
+        self.residual = residual
+        if residual:
+            assert in_max_order == out_max_order, "Residual connections require the same max order"
+            self.upsampling = in_channels != out_channels
+            self.number_orders = out_max_order + 1
+            if self.upsampling:
+                self.proj = torch.nn.ModuleList([
+                    RealOrderProjection(in_channels=in_channels,
+                                        out_channels=out_channels)
+                    for _ in range(self.number_orders)])
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        identity = x
+        x = self.hconv(x)
+        x = self.hnorm_act(x)
+        if self.residual:
+            if self.upsampling:
+                identity = torch.stack(dim=1, tensors=[
+                    self.proj[order_idx](identity[:, order_idx])
+                    for order_idx in range(self.number_orders)
+                ])
+            if self.drop_path is not None:
+                x = self.drop_path(x)
+            x = x + identity
+        return x
+
+
 # H-NeXt taken from Harmformer implementation
 class ResHNeXtv3(nn.Module):
     def __init__(self,
@@ -294,17 +349,32 @@ class ResHNeXtv3(nn.Module):
                  n_rings: int = 3,
                  input_size=64,
                  drop_path_rate: float = 0.0,
+                 real_representation: bool = False,
                  _return_phase_dim=False):
 
         super().__init__()
         model_str = model_str.upper().split(',')
         assert len(model_str) > 0, "No channels specified"
 
+        self.real_representation = real_representation
         self.maximum_order = maximum_order
         self.in_channels = in_channels
-        img2input = ComplexImg2H(circular_mask=True,
-                                 input_shape=input_size,
-                                 alpha=0.4)
+        if real_representation:
+            img2input = RealImg2H(circular_mask=True,
+                                  input_shape=input_size,
+                                  alpha=0.4)
+            block_cls = RealBlockv3
+            pooling_cls = RealHPooling
+            drop_path_cls = RealDropPath
+            output_cls = RealHOut
+        else:
+            img2input = ComplexImg2H(circular_mask=True,
+                                     input_shape=input_size,
+                                     alpha=0.4)
+            block_cls = Blockv3
+            pooling_cls = HPooling
+            drop_path_cls = DropPath
+            output_cls = HOut
         self.activation_name = activation_name
         self.kernel_size = kernel_size
         self.n_rings = n_rings
@@ -319,11 +389,11 @@ class ResHNeXtv3(nn.Module):
                 assert idx != 0, "No avg pooling at the first layer"
                 assert _last_channel_size % 2 == 0
                 # Add residual connections for the pooling layers
-                network_layers.append(HPooling(number_of_ranks=self.maximum_order + 1,
-                                               kernel_size=(2, 2),
-                                               pooling_type="avg",
-                                               stride=(2, 2),
-                                               ))
+                network_layers.append(pooling_cls(number_of_ranks=self.maximum_order + 1,
+                                                  kernel_size=(2, 2),
+                                                  pooling_type="avg",
+                                                  stride=(2, 2),
+                                                  ))
                 _last_channel_size = int(_last_channel_size / 2)
             elif "X" in layer_str:
                 channels, repeats = map(int, layer_str.split('X'))
@@ -340,29 +410,58 @@ class ResHNeXtv3(nn.Module):
                     else:
                         residual = True
                         in_order = self.maximum_order
-                    block_layers.append(Blockv3(in_channels=_last_out_channels,
-                                                out_channels=channels,
-                                                in_max_order=in_order,
-                                                out_max_order=self.maximum_order,
-                                                mask_shape=_last_channel_size,
-                                                residual=residual,
-                                                kernel_size=self.kernel_size,
-                                                n_rings=self.n_rings,
-                                                drop_path=None if dropout_rate == 0 else DropPath(dropout_rate)))
+                    block_layers.append(block_cls(in_channels=_last_out_channels,
+                                                  out_channels=channels,
+                                                  in_max_order=in_order,
+                                                  out_max_order=self.maximum_order,
+                                                  mask_shape=_last_channel_size,
+                                                  residual=residual,
+                                                  kernel_size=self.kernel_size,
+                                                  n_rings=self.n_rings,
+                                                  drop_path=None if dropout_rate == 0 else drop_path_cls(dropout_rate)))
                     _last_out_channels = channels
                 network_layers.append(torch.nn.Sequential(*block_layers))
             else:
                 raise ValueError(f"Unknown layer type {layer_str}")
 
-        equivariant_stack = HOut(keep_order_dim=True, return_zero_order_phase=_return_phase_dim)
+        if real_representation and _return_phase_dim:
+            raise NotImplementedError("return_zero_order_phase is not implemented for real_representation")
+        equivariant_stack = output_cls(keep_order_dim=True) if real_representation else output_cls(keep_order_dim=True, return_zero_order_phase=_return_phase_dim)
         self.hnext = nn.Sequential(img2input, *network_layers, equivariant_stack)
         self.classifier = GAPMLP(in_channels=2*_last_out_channels,
                                  masking_dim=_last_channel_size,
                                  num_classes=num_classes)
 
-    def forward(self, x: torch.Tensor):
+    def forward_features_complex(self, x: torch.Tensor) -> torch.Tensor:
+        # Keep the harmonic stack eager: Inductor cannot codegen complex64 kernels.
+        x = self.hnext(x)
+        return x
+
+    def forward_features_real(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.hnext(x)
+        return x
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        if self.real_representation:
+            return self.forward_features_real(x)
+        return self.forward_features_complex(x)
+
+    @torch.compile
+    def forward_head(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.classifier(x)
+        return x
+
+    @torch.compile
+    def forward_real(self, x: torch.Tensor) -> torch.Tensor:
         x = self.hnext(x)
         x = self.classifier(x)
+        return x
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.real_representation:
+            return self.forward_real(x)
+        x = self.forward_features(x)
+        x = self.forward_head(x)
         return x
 
 # Timm inspired Resnet
