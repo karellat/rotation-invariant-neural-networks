@@ -1,5 +1,5 @@
 program: scripts/training.py
-name: resHNeXt-eurosat
+name: resHNeXt-eurosat-real
 method: grid
 metric:
   name: val_loss
@@ -16,7 +16,7 @@ parameters:
       data_dir:
         value: data
       to_complex:
-        value: true
+        value: false
   early_stopping:
     value: 15
   epochs:
@@ -28,7 +28,10 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [10, 25, 40]
+        value:
+        - 10
+        - 25
+        - 40
   model_name:
     value: ResHNeXtv3
   m_param:
@@ -45,6 +48,8 @@ parameters:
         value: 3
       n_rings:
         value: 4
+      real_representation:
+        value: true
   optimizer_hparams:
     parameters:
       lr:
@@ -54,6 +59,9 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: resHNeXt-eurosat
+    value: resHNeXt-eurosat-real
   seed:
-    values: [42, 43, 44]
+    values:
+    - 42
+    - 43
+    - 44

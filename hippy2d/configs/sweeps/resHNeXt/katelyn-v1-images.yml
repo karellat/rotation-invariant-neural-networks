@@ -1,5 +1,5 @@
 program: scripts/training.py
-name: resHNeXt-katelyn-v1-images-sweep
+name: resHNeXt-katelyn-v1-images-sweep-real
 method: grid
 metric:
   name: val_loss
@@ -24,7 +24,7 @@ parameters:
       aug_gray_scale:
         value: true
       to_complex:
-        value: true
+        value: false
       aug_flips:
         value: true
       train_data_fraction:
@@ -40,7 +40,10 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [30, 50, 70]
+        value:
+        - 30
+        - 50
+        - 70
   model_name:
     value: ResHNeXtv3
   m_param:
@@ -53,6 +56,10 @@ parameters:
         value: 224
       model_str:
         value: 16x1,MP,32x2,MP,40x2
+      real_representation:
+        value: true
+      maximum_order:
+        value: 3
   optimizer_hparams:
     parameters:
       lr:
@@ -64,6 +71,8 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: resHNeXt-katelyn-v1-images-sweep
+    value: resHNeXt-katelyn-v1-images-sweep-real
   seed:
-    values: [7, 32]
+    values:
+    - 7
+    - 32

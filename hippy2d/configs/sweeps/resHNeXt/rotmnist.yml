@@ -1,5 +1,5 @@
 program: scripts/training.py
-name: resHNeXt-rotmnist
+name: resHNeXt-rotmnist-real
 method: grid
 metric:
   name: val_loss
@@ -18,7 +18,7 @@ parameters:
       upscale_size:
         value: 64
       to_complex:
-        value: true
+        value: false
   early_stopping:
     value: 15
   epochs:
@@ -30,7 +30,10 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [10, 50, 90]
+        value:
+        - 10
+        - 50
+        - 90
   model_name:
     value: ResHNeXtv3
   m_param:
@@ -43,6 +46,10 @@ parameters:
         value: 64
       model_str:
         value: 16x1,MP,32x2,MP,40x2
+      real_representation:
+        value: true
+      maximum_order:
+        value: 3
   optimizer_hparams:
     parameters:
       lr:
@@ -54,6 +61,9 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: resHNeXt-rotmnist
+    value: resHNeXt-rotmnist-real
   seed:
-    values: [42, 43, 44]
+    values:
+    - 42
+    - 43
+    - 44

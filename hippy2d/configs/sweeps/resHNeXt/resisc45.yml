@@ -1,5 +1,5 @@
 program: scripts/training.py
-name: resHNeXt-resisc45
+name: resHNeXt-resisc45-real
 method: grid
 metric:
   name: val_loss
@@ -16,7 +16,7 @@ parameters:
       target_size:
         value: 96
       to_complex:
-        value: true
+        value: false
       normalize:
         value: true
   early_stopping:
@@ -30,7 +30,10 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [30, 50, 70]
+        value:
+        - 30
+        - 50
+        - 70
   model_name:
     value: ResHNeXtv3
   m_param:
@@ -44,7 +47,9 @@ parameters:
       model_str:
         value: 16x1,MP,32x2,MP,40x2
       maximum_order:
-        value: 2
+        value: 3
+      real_representation:
+        value: true
   optimizer_hparams:
     parameters:
       lr:
@@ -56,6 +61,9 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: resHNeXt-resisc45
+    value: resHNeXt-resisc45-real
   seed:
-    values: [42, 7, 74]
+    values:
+    - 42
+    - 7
+    - 74

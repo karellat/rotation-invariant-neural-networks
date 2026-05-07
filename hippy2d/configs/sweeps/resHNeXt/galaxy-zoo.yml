@@ -1,5 +1,5 @@
 program: scripts/training.py
-name: resHNeXt-galaxy-zoo
+name: resHNeXt-galaxy-zoo-real
 method: grid
 metric:
   name: val_loss
@@ -18,7 +18,7 @@ parameters:
       use_circ_mask:
         value: true
       to_complex:
-        value: true
+        value: false
   early_stopping:
     value: 30
   epochs:
@@ -30,7 +30,10 @@ parameters:
       gamma:
         value: 0.1
       milestones:
-        value: [30, 50, 70]
+        value:
+        - 30
+        - 50
+        - 70
   model_name:
     value: ResHNeXtv3
   m_param:
@@ -43,6 +46,10 @@ parameters:
         value: 96
       model_str:
         value: 16x1,MP,32x2,MP,40x2
+      real_representation:
+        value: true
+      maximum_order:
+        value: 3
   optimizer_hparams:
     parameters:
       lr:
@@ -54,6 +61,9 @@ parameters:
   label_smoothing:
     value: 0.1
   run_name:
-    value: resHNeXt-galaxy-zoo
+    value: resHNeXt-galaxy-zoo-real
   seed:
-    values: [42, 7, 74]
+    values:
+    - 42
+    - 7
+    - 74
