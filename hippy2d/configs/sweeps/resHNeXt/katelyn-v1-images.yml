@@ -1,0 +1,69 @@
+program: scripts/training.py
+name: resHNeXt-katelyn-v1-images-sweep
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: ImageFoldersDataModule
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      test_batch_size:
+        value: 128
+      train_dir:
+        value: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/train
+      valid_dir:
+        value: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/val
+      test_dir:
+        value: /vast/home/karella/rotation-invariant-neural-networks/hippy2d/data/v1-images/test
+      target_size:
+        value: 224
+      aug_gray_scale:
+        value: true
+      to_complex:
+        value: true
+      aug_flips:
+        value: true
+      train_data_fraction:
+        value: 1
+  early_stopping:
+    value: 60
+  epochs:
+    value: 100
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [30, 50, 70]
+  model_name:
+    value: ResHNeXtv3
+  m_param:
+    parameters:
+      in_channels:
+        value: 1
+      num_classes:
+        value: 10
+      input_size:
+        value: 224
+      model_str:
+        value: 16x1,MP,32x2,MP,40x2
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: resHNeXt-katelyn-v1-images-sweep
+  seed:
+    values: [7, 32]

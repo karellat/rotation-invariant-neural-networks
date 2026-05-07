@@ -1,0 +1,59 @@
+program: scripts/training.py
+name: resHNeXt-mnist-rot-test
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: MnistRotTest
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      data_dir:
+        value: data
+      pad:
+        value: 0
+      to_complex:
+        value: true
+      normalize:
+        value: true
+  early_stopping:
+    value: 15
+  epochs:
+    value: 100
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [30, 50, 70]
+  model_name:
+    value: ResHNeXtv3
+  m_param:
+    parameters:
+      in_channels:
+        value: 1
+      num_classes:
+        value: 10
+      input_size:
+        value: 64
+      model_str:
+        value: 16x1,MP,32x2,MP,40x2
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: resHNeXt-mnist-rot-test
+  seed:
+    values: [42, 7, 123]
