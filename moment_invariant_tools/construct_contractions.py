@@ -1,7 +1,9 @@
-import collections
+import logging
 import functools
 import itertools
+import collections
 from .graph_check import GraphFilter
+from collections.abc import Iterable
 
 
 @functools.lru_cache
@@ -51,9 +53,10 @@ def get_next_indices(indices_so_far, index_pool, remaining_orders, gfilter):
 
     if not remaining_orders:
         yield indices_so_far
-        print("got somewhere unexpected")
+        logging.error("got somewhere unexpected")
         return
 
+    # Take the next rank from the remaining orders.
     rank = remaining_orders[0]
     if indices_so_far:
         last_indices = indices_so_far[-1]
@@ -90,8 +93,7 @@ def iter_ordered_index_sets(index_pool, ranks):
 
     if not all(index_pool[i] > 0 in index_pool for i in range(r0)):
         # In this case, the first thing has too high rank.
-        # TODO: Add this constraint to term generators
-        print("Unsatisfiable", r0, ranks)
+        logging.info("Unsatisfiable %s %s", r0, ranks)
         return
     for i in range(r0):
         index_pool[i] -= 1
@@ -150,10 +152,24 @@ def is_disconnected(index_set):
 full_count = 0
 
 
-def iter_indices(ranks):
+def iter_indices(ranks: tuple[int, ...])-> Iterable[tuple[tuple[int, ...], ...]]:
+    """Given a list of node ranks, generate all possible index sets that satisfy the constraints of a contraction.
+
+    Args:
+        ranks (tuple[int, ...]): Ranks of the nodes in the contraction.
+
+    Returns:
+        Iterable[tuple[tuple[int, ...], ...]]: ((edges for node1), (edges for node2), ...)
+
+    Yields:
+        Iterator[Iterable[tuple[tuple[int, ...], ...]]]: _description_
+    """
+    #TODO: It seems not filtering the final graphs with gFilter
     ranks = tuple(reversed(sorted(ranks)))
+    # TODO: Why + 1, ranks sum is usually even, if odd contraction cannot be closed, but if odd, we can have a dangling edge. So we need to allow for that.
     max_index = (sum(ranks) + 1) // 2
     index_pool = collections.Counter()
+    # Index pool represent edges??
     for k in range(max_index):
         index_pool[k] = 2
     global full_count
@@ -164,6 +180,7 @@ def iter_indices(ranks):
     yielded = 0
 
     for index_set in iter_ordered_index_sets(index_pool, ranks):
+        # Iterate through different edges
 
         index_set = relabel_index_order_deep(index_set)
 
@@ -178,5 +195,4 @@ def iter_indices(ranks):
         yielded += 1
         yield relabel_index_order_deep(tuple(reversed(index_set)))
 
-    print("Term exhausted")
-    print("yielded", yielded, "visited", len(visited), "seen", seen, "full count", full_count)
+    logging.info("Term exhausted\n\tyielded %s visited %s seen %s full count %s", yielded, len(visited), seen, full_count)

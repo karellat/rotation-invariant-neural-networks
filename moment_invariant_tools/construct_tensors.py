@@ -1,19 +1,60 @@
+import torch
 import itertools
 import collections
-import torch
+import logging
 
-ndim = 3  # number of spatial dimensions
+NDIM = 3  # number of spatial dimensions
 
 
-def trace(tensor, axis_1, axis_2):
+def trace(tensor: torch.Tensor, axis_1: int, axis_2: int) -> torch.Tensor:
+    """ Calculate tensor trace over axis_1 and axis_2
+
+    Args:
+        tensor (torch.Tensor): The input tensor.
+        axis_1 (int): The first axis along which to calculate the trace.
+        axis_2 (int): The second axis along which to calculate the trace.
+
+    Returns:
+        torch.Tensor: The trace of the tensor along the specified axes.
+    """
     return torch.diagonal(tensor, 0, axis_1, axis_2).sum(dim=-1)
 
 
-def tpl(int_tensor):
+def tpl(int_tensor: torch.Tensor) -> tuple[int, ...]:
+    """ Convert a tensor of integers to a tuple of integers.
+    Args:
+        int_tensor (torch.Tensor): The input tensor of integers.
+
+    Returns:
+        tuple[int, ...]: The tuple of integers.
+    """
     return tuple(x.item() for x in int_tensor.unbind())
 
 
-def build_full_mapping(ind_order):
+# TODO: This would be nice to pack into a class.
+def build_full_mapping(ind_order: int, ndim: int=NDIM) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Generate a mapping from Cartesian tensors to symmetric bases.
+
+    For a given rank, produces a mapping with shape [ndim,..., ndim, independent_values],
+    where ndim repeats according to the tensor rank. Independent values are represented
+    using one-hot vectors like [1, 0, 0, 0, 0] or signed vectors like [-1, 0, -1, 0, 0]
+    for trace-constrained elements, encoding which indices must be summed to maintain
+    the trace-free symmetric basis. The first output is typically used; the other two
+    are provided for debugging and understanding the mapping structure.
+
+    Args:
+        ind_order (int): The rank of the tensor to be mapped.
+        ndim (int, optional): Number of spatial dimensions. Defaults to NDIM.
+
+    Returns:
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor]: Three tensors representing:
+            - Mapping from Cartesian to STF (symmetric trace-free) basis
+            - Mapping from Cartesian to symmetric basis
+            - Mapping from symmetric to trace-free symmetric basis
+    """
+    assert ind_order >= 1, "Tensor order must be at least 1."
+    assert ndim >= 1, "Number of dimensions must be at least 1."
+
     # First, construct the map from the full cartesian space to a symmetric basis,
     # mapping each element from the cartesian space to the sorted version of its indices.
     input_ind = []
@@ -88,7 +129,7 @@ def build_full_mapping(ind_order):
             aa = bare_sym_map[a]
             new_sym_vals.append(aa)
 
-        # Writ this is in terms of
+        # Write this is in terms of
         new_traceless_vals = collections.Counter()
         for aa in new_sym_vals:
             for aaa, v in sym_traceless_csr[aa]:
@@ -117,26 +158,46 @@ def build_full_mapping(ind_order):
     return full_xform, xform, xform2
 
 
-def cartesian_irreducible_mapping(ind_order):
+def cartesian_irreducible_mapping(ind_order: int) -> torch.Tensor:
+    """Generate a mapping from Cartesian tensors to irreducible representations (symmetric trace-free tensors).
 
-    full_xform, cartesian_symmetric, symmetric_traceless = build_full_mapping(ind_order)
+    Args:
+        ind_order (int): The rank of the tensor to be mapped.
+
+    Returns:
+        torch.Tensor: A tensor mapping from Cartesian to irreducible representations, with shape [ndim,..., ndim, (2 * ind_order + 1)], where ndim repeats according to the tensor rank.
+          Independent values are represented using one-hot vectors like [1, 0, 0, 0, 0] or signed vectors like [-1, 0, -1, 0, 0] for trace-constrained elements, encoding which indices must be summed to maintain the trace-free symmetric basis.
+    """
+    full_xform, _, _ = build_full_mapping(ind_order)
 
     return full_xform
 
 
-def cartesian_solid_mapping(ind_order):
+def cartesian_solid_mapping(ind_order: int) -> torch.Tensor:
+    """Generate a mapping from Cartesian tensors to solid harmonics (symmetric tensors).
 
-    full_xform, cartesian_symmetric, symmetric_traceless = build_full_mapping(ind_order)
+    Args:
+        ind_order (int): The rank of the tensor to be mapped.
+
+    Returns:
+        torch.Tensor: A tensor mapping from Cartesian to solid harmonics, with shape [ndim,..., ndim, independent_values], where ndim repeats according to the tensor rank.
+          Independent values are represented using one-hot vectors like [1, 0, 0, 0, 0].
+    """
+    _, cartesian_symmetric, _ = build_full_mapping(ind_order)
 
     return cartesian_symmetric
 
 
-def get_order(tensor):
-    return len(tensor.shape)
+def check_traceless(tensor: torch.Tensor) -> bool:
+    """Check if Cartesian tensor [ndim, ...., ndim], len([ndim, ..., ndim]) = tensor order is traceless, meaning that all elements of the form tensor[..., i, i] sum to zero for all i.
 
+    Args:
+        tensor (torch.Tensor): The Cartesian tensor to check.
 
-def check_traceless(tensor):
-    tensor_order = get_order(tensor)
+    Returns:
+        bool: True if the tensor is traceless, False otherwise.
+    """
+    tensor_order = tensor.dim()
 
     for i, j in itertools.combinations(range(tensor_order), r=2):
         close = torch.allclose(trace(tensor, 0, 1), torch.as_tensor(0, dtype=tensor.dtype))
@@ -147,8 +208,17 @@ def check_traceless(tensor):
         return True
 
 
-def check_symmetric(tensor):
-    tensor_order = get_order(tensor)
+def check_symmetric(tensor: torch.Tensor) -> bool:
+    """Check if Cartesian tensor [ndim, ...., ndim], len([ndim, ..., ndim]) = tensor order is symmetric, meaning that all elements of the form tensor[..., i, j, ...] are equal to tensor[..., j, i, ...] for all i, j.
+
+    Args:
+        tensor (torch.Tensor): The Cartesian tensor to check.
+
+    Returns:
+        bool: True if the tensor is symmetric, False otherwise.
+    """
+    tensor_order = tensor.dim()
+
     for p in itertools.permutations(range(tensor_order), r=tensor_order):
         close = torch.allclose(tensor.permute(p), tensor)
         if not close:
@@ -158,19 +228,71 @@ def check_symmetric(tensor):
         return True
 
 
-def sample_reduced_tensor(rank, dtype=torch.float64):
+def sample_reduced_tensor(rank: int, dtype=torch.float64) -> torch.Tensor:
+    """Sample the independent values of a symmetric tracefree tensor.
+
+    Returns random values for the (2*rank + 1) independent components of a symmetric
+    trace-free tensor of the given rank. Note that this returns only the independent
+    values, not the full tensor.
+
+    Args:
+        rank (int): The rank of the tensor.
+        dtype (_type_, optional): The data type of the sampled values. Defaults to torch.float64.
+
+    Returns:
+        torch.Tensor: Random independent values for the symmetric trace-free tensor.
+    """
+    assert rank >= 0, "Rank must be at least 0."
     rand_vals = torch.rand(2 * rank + 1, dtype=dtype)
     return rand_vals
 
 
-def sample_solid_tensor(rank, dtype=torch.float64):
+def sample_solid_tensor(rank: int, dtype=torch.float64) -> torch.Tensor:
+    """
+    Sample the independent values of a symmertic tensor solid harmonic tensor.
+    Args:
+        rank (int): The rank of the tensor.
+        dtype (_type_, optional): The data type of the sampled values. Defaults to torch.float64.
+
+    Returns:
+        torch.Tensor: Random independent values for the symmetric solid harmonic tensor.
+    """
+    assert rank >= 0, "Rank must be at least 0."
     size = (rank + 1) * (rank + 2) / 2
     size = int(size)
     rand_vals = torch.rand(size, dtype=dtype)
     return rand_vals
 
 
-def sample_tensor(map_, dtype=torch.float64):
+def sample_tensor(map_: torch.Tensor, dtype=torch.float64) -> torch.Tensor:
+    """Given the mapping produced by build_full_mapping, sample a random tensor in the Cartesian space by sampling random independent values for the symmetric trace-free basis
+    and applying the mapping to produce the full Cartesian tensor. This is useful for testing and understanding the structure of the mapping.
+
+    Args:
+        map_ (torch.Tensor): The mapping tensor.
+        dtype (_type_, optional): The data type of the sampled values. Defaults to torch.float64.
+
+    Returns:
+        torch.Tensor: The sampled Cartesian tensor.
+    """
     n_components = map_.shape[-1]
     rand_vals = torch.rand(n_components, dtype=dtype)
     return map_.to(dtype) @ rand_vals
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    # Test SFT Tensors
+    for rank in range(1, 8):
+        logging.info(f"Testing rank {rank}...")
+        mapping = cartesian_irreducible_mapping(rank)
+        tensor = sample_tensor(mapping, dtype=torch.float64)
+        assert check_traceless(tensor), f"Tensor of rank {rank} is not traceless."
+        assert check_symmetric(tensor), f"Tensor of rank {rank} is not symmetric."
+    # Test Solid Harmonic Tensors
+    for rank in range(1, 8):
+        logging.info(f"Testing rank {rank}...")
+        mapping = cartesian_solid_mapping(rank)
+        tensor = sample_tensor(mapping, dtype=torch.float64)
+        assert check_symmetric(tensor), f"Tensor of rank {rank} is not symmetric."
+    logging.info("All tests passed!")
