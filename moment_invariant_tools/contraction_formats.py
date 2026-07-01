@@ -34,6 +34,17 @@ def formula_to_einsum(formula: tuple[tuple[int, ...], tuple[tuple[int, ...], ...
         input_strings.append(''.join(label_mapping[label] for label in edge_tuple))
         edge_counter.update(label_mapping[label] for label in edge_tuple)
 
+    # Check ranks and if they don't match add dangling edges to input and output string
+    for idx, (rank, edge_tuple) in enumerate(zip(ranks, edges)):
+        if len(edge_tuple) < rank:
+            # Add dangling edges to input and output string
+            dangling_edges = rank - len(edge_tuple)
+            for _ in range(dangling_edges):
+                new_label = chr(current_label)
+                edge_counter[new_label] += 1
+                current_label += 1
+                input_strings[idx] += new_label
+
     # Determine the output string (free edges)
     output_string = ""
     for label, count in edge_counter.items():
@@ -99,7 +110,7 @@ def is_valid_formula(formula: tuple[tuple[int, ...], tuple[tuple[int, ...], ...]
     for rank, node_edges in zip(ranks, edges):
         if not _is_tuple_of_nonnegative_ints(node_edges):
             return False
-        if len(node_edges) != rank:
+        if len(node_edges) > rank:
             return False
         if len(set(node_edges)) != len(node_edges):
             # A repeated label on one tensor is a self-trace/loop. The current
