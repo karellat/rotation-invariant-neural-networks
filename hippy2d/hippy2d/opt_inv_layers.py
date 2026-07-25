@@ -327,6 +327,71 @@ class CompiledInvariantLayer(torch.nn.Module):
         """Forward pass over input moments."""
         return self._compiled_forward(moments)
 
+class CompiledMomentO2Layer(torch.nn.Module): 
+    def __init__(self,
+                 max_order: int,
+                 orders: list[int],
+                 in_channels: int, 
+                 padding: str='same',
+                 kernel_size: int=11,
+                 **kwargs):
+        super().__init__()
+        # Parameters
+        self.orders = orders
+        self.max_order = max_order
+        self.in_size = in_channels
+        self.padding = compute_padding(padding, kernel_size)
+        self.in_channels = in_channels
+        self.kernel_size = kernel_size
+        basis_filter, self.rings, self.sigma, _ = compute_basis_params(kernel_size) 
+        gspace = gspaces.flipRot2dOnR2(N=-1)      
+        self.in_type = escnn.nn.FieldType(gspace, self.in_size*[gspace.trivial_repr])
+        irreps_per_input_channel = [gspace.irrep(1, order) if order != 0 else gspace.irrep(0, 0) for order in sorted(self.orders)]
+        # repeat the list of irreps for each input channel (avoid starred unpack in comprehension)
+        out_irreps = irreps_per_input_channel * in_channels
+        self.out_type = escnn.nn.FieldType(gspace, out_irreps)
+
+        # Basis generator
+        def basis_2d_generator(in_repr: Representation, out_repr: Representation):
+            return gspace.build_kernel_basis(in_repr, 
+                                             out_repr,
+                                             rings=self.rings,
+                                             sigma=self.sigma, 
+                                             maximum_frequency=max_order)
+
+
+        self.basisexpansion = BlocksBasisExpansion(self.in_type.representations, 
+                                            self.out_type.representations,
+                                            basis_generator=basis_2d_generator,
+                                            points=get_grid_coords(d=2, kernel_size=kernel_size, dilation=1),
+                                            basis_filter=basis_filter)
+
+        # Learnable parameters
+        self.weights = torch.nn.Parameter(torch.zeros(self.basisexpansion.dimension()), requires_grad=True)
+        escnn.nn.init.generalized_he_init(self.weights.data, self.basisexpansion)
+
+        # Caching filter for inference
+        self.register_buffer("filter", self.expand_parameters())
+
+    def expand_parameters(self):
+        _filter = self.basisexpansion(self.weights)
+        _filter = _filter.reshape(_filter.shape[0], _filter.shape[1], self.kernel_size, self.kernel_size)                      
+
+        return _filter
+
+    @torch.compile
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _filter = self.expand_parameters()
+        moments = torch.nn.functional.conv2d(x,
+                                         _filter,
+                                          bias=None,
+                                          stride=1,
+                                          groups=1, 
+                                          padding=self.padding) 
+        moments = rearrange(moments, 'b (ch o) h w -> b ch o h w', ch=self.in_channels)
+        # TODO: 
+        return moments
+
 class CompiledMomentLayer(torch.nn.Module): 
     def __init__(self,
                  max_order: int,

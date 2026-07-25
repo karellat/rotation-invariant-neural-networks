@@ -783,6 +783,7 @@ class PrototypeOptimal(torch.nn.Module):
                    stage_idx,
                    max_order,
                    channels_masking,
+                   sensitive_to_reflection,
                    in_channels, 
                    out_channels): 
         stack = []
@@ -798,6 +799,7 @@ class PrototypeOptimal(torch.nn.Module):
                                       out_channels=out_channels,
                                       max_order=max_order,
                                       kernel_size=kernel_size, 
+                                      sensitive_to_reflection=sensitive_to_reflection,
                                       downsample=use_downsample,
                                       channel_mask=channels_masking))
             
@@ -816,6 +818,7 @@ class PrototypeOptimal(torch.nn.Module):
                     channels: list = [16, 20, 26],
                     max_order: int = 3,
                     channels_masking:bool = False,
+                    sensitive_to_reflection:bool = True,
                     # Classifier settings
                     classification:bool = True, 
                     hidden_classifier_size:int = 64,
@@ -831,7 +834,8 @@ class PrototypeOptimal(torch.nn.Module):
                                  out_channels=channels[0],
                                  downsample=True, 
                                  max_order=max_order,
-                                 channel_mask=channels_masking)
+                                 channel_mask=channels_masking,
+                                 sensitive_to_reflection=sensitive_to_reflection)
         in_channels = channels[0]
         current_size = input_size // 2
         stages = []
@@ -841,6 +845,7 @@ class PrototypeOptimal(torch.nn.Module):
                                                 out_channels=channels[stage_idx],
                                                 stage_idx=stage_idx,
                                                 kernel_size=kernels_size[stage_idx],
+                                                sensitive_to_reflection=sensitive_to_reflection,
                                                 channels_masking=channels_masking,
                                                 layers=layers[stage_idx],
                                                 max_order=max_order)

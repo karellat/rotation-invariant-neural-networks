@@ -7,7 +7,7 @@ from hippy2d import conv_factory
 from hippy2d.utils import tukey_2d
 from hippy2d.conv_factory import get_conv_layer
 from hippy2d.escnn_layers import InvariantLayer, EscnnInvariantLayer
-from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer
+from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer, CompiledMomentO2Layer
 from hippy2d.learnable import flusser_basis_orders
 
 
@@ -631,6 +631,7 @@ class OptimalBlock(torch.nn.Module):
                   kernel_size: int=11, 
                   channel_mask: bool=False,
                   downsample: bool=False,
+                  sensitive_to_reflection: bool=True,
                   **kwargs):
         super().__init__()
         print(f"Got those extra arguments: {kwargs}")
@@ -648,11 +649,19 @@ class OptimalBlock(torch.nn.Module):
         self.input_channels = in_channels
         self.kernel_size = kernel_size
         # Construct moments
-        self.moment_layer = CompiledMomentLayer(max_order=max_order,
-                                               orders=self.orders,
-                                               in_channels=in_channels,
-                                               padding=padding,
+        if sensitive_to_reflection:
+            self.moment_layer = CompiledMomentLayer(max_order=max_order,
+                                                orders=self.orders,
+                                                in_channels=in_channels,
+                                                padding=padding,
                                                kernel_size=kernel_size)
+        else:
+            self.moment_layer = CompiledMomentO2Layer(max_order=max_order,
+                                                orders=self.orders,
+                                                in_channels=in_channels,
+                                                padding=padding,
+                                               kernel_size=kernel_size)
+        
         # Construct invariants
         self.invariants_layer = CompiledInvariantLayer(
             orders=self.orders,
