@@ -1,0 +1,78 @@
+method: grid
+metric:
+  goal: minimize
+  name: val_loss
+name: optimal-rotmnist-o2
+parameters:
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 16
+      data_dir:
+        value: data
+      test_batch_size:
+        value: 64
+      upscale_size:
+        value: 64
+  dataset_name:
+    value: RotMnist
+  early_stopping:
+    value: 15
+  epochs:
+    value: 100
+  label_smoothing:
+    value: 0.1
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value:
+        - 10
+        - 50
+        - 90
+  lr_name:
+    value: MultiStepLR
+  m_param:
+    parameters:
+      channels:
+        value:
+        - 16
+        - 20
+        - 26
+      drop_rate:
+        value: 0.2
+      in_channels:
+        value: 1
+      input_size:
+        value: 64
+      kernels_size:
+        value:
+        - 11
+        - 11
+        - 11
+      layers:
+        value:
+        - 1
+        - 2
+        - 2
+      sensitive_to_reflection:
+        value: false
+  model_name:
+    value: PrototypeOptimal
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001525
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  run_name:
+    value: optimal-rotmnist-o2
+  seed:
+    values:
+    - 42
+    - 43
+    - 44
+program: scripts/training.py
