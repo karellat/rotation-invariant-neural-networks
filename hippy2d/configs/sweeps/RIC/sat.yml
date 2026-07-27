@@ -1,0 +1,55 @@
+program: scripts/training.py
+name: sat-RIC
+method: grid
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  dataset_name:
+    value: EuroSAT
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 15
+      test_batch_size:
+        value: 15
+      data_dir:
+        value: data
+      to_complex:
+        value: false
+  early_stopping:
+    value: 15
+  epochs:
+    value: 100
+  lr_name:
+    value: MultiStepLR
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value: [10, 25, 40]
+  model_name:
+    value: RIC
+  m_param:
+    parameters:
+      in_channels: 
+        value: 3
+      input_size:
+        value: 64
+      batch_size:
+        value: 15
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  label_smoothing:
+    value: 0.1
+  run_name:
+    value: RIC-sat
+  seed:
+    values: [42, 7, 123]
