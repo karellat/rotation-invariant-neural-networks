@@ -115,6 +115,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
         num_workers: Optional[int] = None,
         n_angles: int = N_ANGLES,
         use_rotated_test: bool = True,
+        drop_last_batch: bool = False,
         **kwargs  # For dataset-specific parameters
     ):
         super().__init__()
@@ -133,7 +134,8 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
         self.use_rotated_test = use_rotated_test
         self.to_complex = to_complex
         self.normalize = normalize
-        
+        self.drop_last_batch = drop_last_batch
+
         # Initialize datasets
         self.train_ds = None
         self.valid_ds = None
@@ -234,6 +236,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
             shuffle=True,
             num_workers=self.num_workers,
             persistent_workers=True,
+            drop_last=self.drop_last_batch,
             collate_fn=collate_tuple
         )
     
@@ -244,6 +247,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=True,
+            drop_last=self.drop_last_batch,
             collate_fn=collate_tuple
         )
     
@@ -258,6 +262,7 @@ class HuggingFaceDataModule(LightningDataModule, ABC):
             shuffle=False,
             num_workers=self.num_workers,
             persistent_workers=True,
+            drop_last=self.drop_last_batch,
             collate_fn=collate_tuple
         )
         
