@@ -1,0 +1,25 @@
+d_hparams:
+  batch_size: 16
+  data_dir: data
+  upscale_size: 16
+dataset_name: RotMnist
+early_stopping: 30
+epochs: 60
+lr_hparams:
+  gamma: 0.1
+  milestones:
+  - 30
+  - 50
+  - 70
+lr_name: MultiStepLR
+model_name: RIC
+m_param:
+  in_channels: 1
+  input_size: 64
+  batch_size: 16
+optimizer_hparams:
+  lr: 0.001525
+  weight_decay: 0.05
+optimizer_name: AdamW
+run_name: RIC
+seed: 42

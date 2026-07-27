@@ -1,0 +1,80 @@
+method: grid
+metric:
+  goal: minimize
+  name: val_loss
+name: optimal-mnist-rot-test
+parameters:
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 64
+      data_dir:
+        value: data
+      normalize:
+        value: true
+      pad:
+        value: 0
+      to_complex:
+        value: false
+  dataset_name:
+    value: MnistRotTest
+  early_stopping:
+    value: 15
+  epochs:
+    value: 100
+  label_smoothing:
+    value: 0.1
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value:
+        - 30
+        - 50
+        - 70
+  lr_name:
+    value: MultiStepLR
+  m_param:
+    parameters:
+      channels:
+        value:
+        - 16
+        - 20
+        - 26
+      channels_masking:
+        value: true
+      drop_rate:
+        value: 0.2
+      in_channels:
+        value: 1
+      input_size:
+        value: 64
+      kernels_size:
+        value:
+        - 11
+        - 11
+        - 11
+      layers:
+        value:
+        - 1
+        - 2
+        - 2
+  model_name:
+    value: PrototypeOptimal
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.0015
+      weight_decay:
+        value: 0.05
+  optimizer_name:
+    value: AdamW
+  run_name:
+    value: optimal-mnist-rot-test
+  seed:
+    values:
+    - 42
+    - 7
+    - 123
+program: scripts/training.py
