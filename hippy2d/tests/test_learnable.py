@@ -12,13 +12,7 @@ from hippy2d.escnn_prototype import LearnableCesa, InvariantLayerMag
 import time
 import logging
 
-from hippy2d.escnn_moment_invariants import (
-    FixedFlusserMomentLayer,
-    FlexibleInvariantLayer,
-    MagnitudeInvariantLayer,
-    MomentInvariantModule,
-    flusser_basis,
-)
+
 
 torch.set_default_dtype(torch.float64)
 # NOTE: The tests will likely fail with float32 due to numerical precision issues. We should think of suitable normalization.

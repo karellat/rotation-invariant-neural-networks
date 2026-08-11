@@ -6,7 +6,11 @@ from einops import repeat
 import torchvision.transforms.v2 as transforms
 
 from hippy2d.utils import get_testing_img
-from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer, CompiledMomentO2Layer
+from hippy2d.opt_inv_layers import (
+    CompiledInvariantLayer,
+    CompiledMomentLayer,
+    CompiledMomentO2Layer,
+)
 from hippy2d.escnn_prototype import MomentLayer
 
 torch.set_default_dtype(torch.float32)
@@ -163,16 +167,29 @@ class TestCompiledInvariantLayer:
 
         self._test_90_module(layers, test_images, test_device)
 
-    def test_90_SO2_layer(self, test_images, test_device):
-        """Test the 90-degree rotation layer."""
+    @pytest.mark.parametrize(
+        "phase_function",
+        ["real", "polar", "angle", "circular"],
+    )
+    def test_90_SO2_layer(
+        self,
+        test_images,
+        test_device,
+        phase_function,
+    ):
+        """Test each phase representation under a 90-degree rotation."""
         orders = [0, 1, 2, 3]
+        invariant_layer = CompiledInvariantLayer(
+            orders=orders,
+            pre_norm_function="layer_norm",
+            phase_function=phase_function,
+            compile_functions=True,
+            magnitude_function="nicks",
+        )
+
         layers = torch.nn.Sequential(
             CompiledMomentLayer(max_order=4, orders=orders, in_channels=IMAGE_CHANNELS),
-            CompiledInvariantLayer(orders=orders,
-                                   pre_norm_function="layer_norm", 
-                                   phase_function="polar",
-                                   compile_functions=True,
-                                   magnitude_function="nicks"),
+            invariant_layer,
         ).to(test_device)
 
         self._test_90_module(layers, test_images, test_device)
