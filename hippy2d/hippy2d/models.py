@@ -787,6 +787,8 @@ class PrototypeOptimal(torch.nn.Module):
                    max_order,
                    channels_masking,
                    sensitive_to_reflection,
+                   phase_func,
+                   mag_func,
                    in_channels, 
                    out_channels): 
         stack = []
@@ -804,6 +806,8 @@ class PrototypeOptimal(torch.nn.Module):
                                       kernel_size=kernel_size, 
                                       sensitive_to_reflection=sensitive_to_reflection,
                                       downsample=use_downsample,
+                                      phase_func=phase_func,
+                                      mag_func=mag_func,
                                       channel_mask=channels_masking))
             
             # Update state for next block
@@ -822,6 +826,8 @@ class PrototypeOptimal(torch.nn.Module):
                     max_order: int = 3,
                     channels_masking:bool = False,
                     sensitive_to_reflection:bool = True,
+                    phase_func: str='polar',
+                    mag_func: str='nicks',
                     # Classifier settings
                     classification:bool = True, 
                     hidden_classifier_size:int = 64,
@@ -838,6 +844,8 @@ class PrototypeOptimal(torch.nn.Module):
                                  downsample=True, 
                                  max_order=max_order,
                                  channel_mask=channels_masking,
+                                 phase_func=phase_func,
+                                 mag_func=mag_func,
                                  sensitive_to_reflection=sensitive_to_reflection)
         in_channels = channels[0]
         current_size = input_size // 2
@@ -851,6 +859,8 @@ class PrototypeOptimal(torch.nn.Module):
                                                 sensitive_to_reflection=sensitive_to_reflection,
                                                 channels_masking=channels_masking,
                                                 layers=layers[stage_idx],
+                                                phase_func=phase_func,
+                                                mag_func=mag_func,
                                                 max_order=max_order)
             stages += block
             in_channels = channels[stage_idx]

@@ -106,6 +106,41 @@ def rotate_polar_self_n(
 
     return scaled_mag * torch.cos(nt_angle + n_angle)
 
+def rotate_polar_angle(
+    v: torch.Tensor,
+    mag: torch.Tensor,
+    o: torch.Tensor,
+    magnitude_fn: Callable,
+    eps: float = 1e-12,
+) -> torch.Tensor:
+    """Compute normalized real-valued invariants using polar angles.
+
+    Args:
+        v: Non-trivial moments shaped ``[B, S, O_nt, 2, H, W]``.
+        mag: Magnitudes of ``v`` with shape ``[B, S, O_nt, H, W]``.
+        o: Orders for moments excluding the first order-1 normalizer, shape
+            ``[O_nt - 1]``.
+        magnitude_fn: Callable ``f(mag1, mag2)`` for magnitude scaling.
+        eps: Clamp minimum used for angle stabilization.
+
+    Returns:
+        Tensor of phase-aligned real invariants with shape
+        ``[B, S, O_nt - 1, H, W]``.
+    """
+    safe_mag = mag.clamp(min=eps)
+    real, imag = v.unbind(dim=-3)
+    angle = SafeAtan2.apply(imag / safe_mag, real / safe_mag, eps)
+
+    n_angle = angle[:, :, 0:1] * -o[:, None, None]
+    n_mag = mag[:, :, 0:1]
+    nt_mag = mag[:, :, 1:]
+    nt_angle = angle[:, :, 1:]
+    scaled_mag = magnitude_fn(n_mag, nt_mag)
+    relative_angle = nt_angle + n_angle
+    wrapped_angle = torch.remainder(relative_angle + torch.pi, 2 * torch.pi) - torch.pi
+
+    return scaled_mag * wrapped_angle
+
 
 def rotate_complex_self_n(
     v: torch.Tensor,
@@ -174,6 +209,7 @@ def roxanas_magnitude(mag1, mag2):
 _PHASE_FUNCTIONS = {
     "real": rotate_real_self_n,
     "polar": rotate_polar_self_n,
+    "angle": rotate_polar_angle,
 }
 
 _MAGNITUDE_FUNCTIONS = {
