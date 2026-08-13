@@ -73,7 +73,43 @@ def rotate_real_self_n(
     return scaled_mag * (n_r * nt_r - n_i * nt_i)
 
 
+def _polar_relative_phase(
+    v: torch.Tensor,
+    mag: torch.Tensor,
+    o: torch.Tensor,
+    magnitude_fn: Callable,
+    eps: float = 1e-12,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return magnitude scaling and relative phases for target moments."""
+    safe_mag = mag.clamp(min=eps)
+    real, imag = v.unbind(dim=-3)
+    angle = SafeAtan2.apply(imag / safe_mag, real / safe_mag, eps)
+
+    n_angle = angle[:, :, 0:1] * -o[:, None, None]
+    n_mag = mag[:, :, 0:1]
+    nt_mag = mag[:, :, 1:]
+    nt_angle = angle[:, :, 1:]
+    scaled_mag = magnitude_fn(n_mag, nt_mag)
+
+    return scaled_mag, nt_angle + n_angle
+
+
 def rotate_polar_self_n(
+    v: torch.Tensor,
+    mag: torch.Tensor,
+    o: torch.Tensor,
+    magnitude_fn: Callable,
+    eps: float = 1e-12,
+) -> torch.Tensor:
+    """Compute one cosine projection of each relative invariant phase."""
+    scaled_mag, relative_angle = _polar_relative_phase(
+        v, mag, o, magnitude_fn, eps
+    )
+
+    return scaled_mag * torch.cos(relative_angle)
+
+
+def rotate_polar_angle(
     v: torch.Tensor,
     mag: torch.Tensor,
     o: torch.Tensor,
@@ -94,17 +130,38 @@ def rotate_polar_self_n(
         Tensor of phase-aligned real invariants with shape
         ``[B, S, O_nt - 1, H, W]``.
     """
-    safe_mag = mag.clamp(min=eps)
-    real, imag = v.unbind(dim=-3)
-    angle = SafeAtan2.apply(imag / safe_mag, real / safe_mag, eps)
+    scaled_mag, relative_angle = _polar_relative_phase(
+        v, mag, o, magnitude_fn, eps
+    )
+    wrapped_angle = torch.remainder(relative_angle + torch.pi, 2 * torch.pi) - torch.pi
 
-    n_angle = angle[:, :, 0:1] * -o[:, None, None]
-    n_mag = mag[:, :, 0:1]
-    nt_mag = mag[:, :, 1:]
-    nt_angle = angle[:, :, 1:]
-    scaled_mag = magnitude_fn(n_mag, nt_mag)
+    return scaled_mag * wrapped_angle
 
-    return scaled_mag * torch.cos(nt_angle + n_angle)
+
+def rotate_polar_components(
+    v: torch.Tensor,
+    mag: torch.Tensor,
+    o: torch.Tensor,
+    magnitude_fn: Callable,
+    eps: float = 1e-12,
+) -> torch.Tensor:
+    """Represent each relative phase by interleaved cosine/sine components.
+
+    Returns:
+        Tensor shaped ``[B, S, 2 * (O_nt - 1), H, W]`` with components ordered
+        as ``[cos(phi_1), sin(phi_1), cos(phi_2), sin(phi_2), ...]``.
+    """
+    scaled_mag, relative_angle = _polar_relative_phase(
+        v, mag, o, magnitude_fn, eps
+    )
+    components = torch.stack(
+        (
+            scaled_mag * torch.cos(relative_angle),
+            scaled_mag * torch.sin(relative_angle),
+        ),
+        dim=3,
+    )
+    return components.flatten(start_dim=2, end_dim=3)
 
 
 def rotate_complex_self_n(
@@ -174,6 +231,15 @@ def roxanas_magnitude(mag1, mag2):
 _PHASE_FUNCTIONS = {
     "real": rotate_real_self_n,
     "polar": rotate_polar_self_n,
+    "angle": rotate_polar_angle,
+    "circular": rotate_polar_components,
+}
+
+_PHASE_OUTPUT_MULTIPLIERS = {
+    "real": 1,
+    "polar": 1,
+    "angle": 1,
+    "circular": 2,
 }
 
 _MAGNITUDE_FUNCTIONS = {
@@ -188,7 +254,9 @@ class CompiledInvariantLayer(torch.nn.Module):
     Input moments shape: ``[B, S, O, H, W]`` where
     ``O = trivial_count + 2 * non_trivial_count``.
 
-    Output invariants shape: ``[B, S, trivial_count + non_trivial_count + (non_trivial_count - 1), H, W]``.
+    The output contains trivial moments, all non-trivial magnitudes, and one or
+    more phase features per non-normalizer moment. The ``"circular"`` phase
+    mode emits two phase features; all other built-in modes emit one.
     """
 
     def __init__(
@@ -207,7 +275,8 @@ class CompiledInvariantLayer(torch.nn.Module):
             orders: Ordered moment frequencies. Must be 1D and include at least
                 one ``0`` (trivial) and one non-trivial order. The first
                 non-trivial order must be ``1`` to act as normalizer.
-            phase_function: Either a key in ``{"real", "polar"}`` or a custom
+            phase_function: Either a key in
+                ``{"real", "polar", "angle", "circular"}`` or a custom
                 callable with signature ``fn(v, mag, o, magnitude_fn, eps=...)``.
             magnitude_function: Either a key in ``{"nicks", "roxanas"}`` or a
                 custom callable with signature ``fn(mag1, mag2)``.
@@ -242,7 +311,9 @@ class CompiledInvariantLayer(torch.nn.Module):
         # Orders for targets only; exclude the first order-1 normalizer moment.
         self.register_buffer("non_trivial_orders", orders[self.trivial_idx + 1 :])
 
-        self.phase_function = self._resolve_phase_function(phase_function)
+        self.phase_function, self.phase_output_multiplier = self._resolve_phase_function(
+            phase_function
+        )
         self.magnitude_function = self._resolve_magnitude_function(magnitude_function)
         self.layer_norm_function = self._resolve_norm_function(pre_norm_function)
 
@@ -251,17 +322,23 @@ class CompiledInvariantLayer(torch.nn.Module):
         else:
             self._compiled_forward = self._invariants_common
         
-        self.out_channels = self.trivial_idx + self.non_trivial_orders_count + (self.non_trivial_orders_count - 1)
+        self.out_channels = (
+            self.trivial_idx
+            + self.non_trivial_orders_count
+            + self.phase_output_multiplier * (self.non_trivial_orders_count - 1)
+        )
 
     @staticmethod
-    def _resolve_phase_function(phase_function: str | Callable) -> Callable:
-        """Resolve phase function from string alias or return callable as-is."""
+    def _resolve_phase_function(
+        phase_function: str | Callable,
+    ) -> tuple[Callable, int]:
+        """Resolve a phase function and its output count per target moment."""
         if isinstance(phase_function, str):
             key = phase_function.lower()
             if key not in _PHASE_FUNCTIONS:
                 raise ValueError(f"Unknown phase_function '{phase_function}'. Available: {list(_PHASE_FUNCTIONS)}")
-            return _PHASE_FUNCTIONS[key]
-        return phase_function
+            return _PHASE_FUNCTIONS[key], _PHASE_OUTPUT_MULTIPLIERS[key]
+        return phase_function, 1
 
     @staticmethod 
     def _resolve_norm_function(norm_function: str | Callable) -> Callable | None: 
@@ -289,14 +366,13 @@ class CompiledInvariantLayer(torch.nn.Module):
         return magnitude_function
     
     def _invariants_common(self, moments: torch.Tensor) -> torch.Tensor:
-        """Compute trivials, magnitudes, and phase-normalized real invariants.
+        """Compute trivials, magnitudes, and phase-normalized invariants.
 
         Args:
             moments: Input tensor shaped ``[B, S, O, H, W]``.
 
         Returns:
-            Tensor shaped
-            ``[B, S, trivial_count + non_trivial_count + (non_trivial_count - 1), H, W]``.
+            Tensor shaped ``[B, S * out_channels, H, W]``.
         """
         trivial = moments[:, :, : self.trivial_idx]
 
@@ -364,7 +440,12 @@ class CompiledMomentO2Layer(torch.nn.Module):
                                             self.out_type.representations,
                                             basis_generator=basis_2d_generator,
                                             points=get_grid_coords(d=2, kernel_size=kernel_size, dilation=1),
-                                            basis_filter=basis_filter)
+                                            basis_filter=basis_filter,
+                                            # ESCNN's global cache returns the same
+                                            # module object across layers. Moving one
+                                            # layer to CUDA would then move the basis
+                                            # out from under later CPU constructors.
+                                            recompute=True)
 
         # Learnable parameters
         self.weights = torch.nn.Parameter(torch.zeros(self.basisexpansion.dimension()), requires_grad=True)
@@ -429,7 +510,11 @@ class CompiledMomentLayer(torch.nn.Module):
                                             self.out_type.representations,
                                             basis_generator=basis_2d_generator,
                                             points=get_grid_coords(d=2, kernel_size=kernel_size, dilation=1),
-                                            basis_filter=basis_filter)
+                                            basis_filter=basis_filter,
+                                            # Keep the sampled basis owned by this
+                                            # layer so device transfers cannot mutate
+                                            # ESCNN's globally cached module.
+                                            recompute=True)
 
         # Learnable parameters
         self.weights = torch.nn.Parameter(torch.zeros(self.basisexpansion.dimension()), requires_grad=True)
@@ -456,4 +541,3 @@ class CompiledMomentLayer(torch.nn.Module):
         moments = rearrange(moments, 'b (ch o) h w -> b ch o h w', ch=self.in_channels)
         # TODO: 
         return moments
-
