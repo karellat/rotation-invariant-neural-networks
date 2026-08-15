@@ -33,7 +33,6 @@ def compute_padding(padding, kernel_size):
     else:
         raise TypeError("padding must be str or int")
 
-
 def rotate_real_self_n(
     v: torch.Tensor,
     mag: torch.Tensor,
@@ -72,7 +71,6 @@ def rotate_real_self_n(
     scaled_mag = magnitude_fn(mag1=n_mag, mag2=nt_mag) / nt_mag.clamp(min=eps)
     return scaled_mag * (n_r * nt_r - n_i * nt_i)
 
-
 def _polar_relative_phase(
     v: torch.Tensor,
     mag: torch.Tensor,
@@ -93,7 +91,6 @@ def _polar_relative_phase(
 
     return scaled_mag, nt_angle + n_angle
 
-
 def rotate_polar_self_n(
     v: torch.Tensor,
     mag: torch.Tensor,
@@ -107,7 +104,6 @@ def rotate_polar_self_n(
     )
 
     return scaled_mag * torch.cos(relative_angle)
-
 
 def rotate_polar_angle(
     v: torch.Tensor,
@@ -137,7 +133,6 @@ def rotate_polar_angle(
 
     return scaled_mag * wrapped_angle
 
-
 def rotate_polar_components(
     v: torch.Tensor,
     mag: torch.Tensor,
@@ -162,7 +157,6 @@ def rotate_polar_components(
         dim=3,
     )
     return components.flatten(start_dim=2, end_dim=3)
-
 
 def rotate_complex_self_n(
     v: torch.Tensor,
@@ -214,19 +208,15 @@ def shared_layer_norm(tuple_trivials_non_trivials, eps=1e-12):
     non_trivials_normed = non_trivials / shared_sigma
     return trivials_normed, non_trivials_normed
 
-
-
 @torch.compile
 def nicks_magnitude(mag1, mag2):
     """Bounded magnitude coupling: ``(mag1 * mag2) / (mag1 * mag2 + 1)``."""
     return (mag1 * mag2) / (mag1 * mag2 + 1)
 
-
 @torch.compile
 def roxanas_magnitude(mag1, mag2):
     """Product magnitude coupling: ``mag1 * mag2``."""
     return mag1 * mag2
-
 
 _PHASE_FUNCTIONS = {
     "real": rotate_real_self_n,
@@ -541,3 +531,121 @@ class CompiledMomentLayer(torch.nn.Module):
         moments = rearrange(moments, 'b (ch o) h w -> b ch o h w', ch=self.in_channels)
         # TODO: 
         return moments
+
+class CompiledReImLayer(torch.nn.Module):
+
+    def __init__(
+        self,
+        orders: Sequence[int] | torch.Tensor,
+        pre_norm_function: str | None = None,
+#        after_norm_function: str | None = None,
+        compile_functions: bool = False,
+        compile_kwargs: dict | None = dict(fullgraph=True),
+        eps=1e-7
+    ):
+        """Initialize the invariant projection layer.
+
+        Args:
+            orders: Ordered moment frequencies. Must be 1D and include at least
+                one ``0`` (trivial) and one non-trivial order. The first
+                non-trivial order must be ``1`` to act as normalizer.
+            phase_function: Either a key in
+                ``{"real", "polar", "angle", "circular"}`` or a custom
+                callable with signature ``fn(v, mag, o, magnitude_fn, eps=...)``.
+            magnitude_function: Either a key in ``{"nicks", "roxanas"}`` or a
+                custom callable with signature ``fn(mag1, mag2)``.
+            pre_norm_function: Optional string specifying the prenormalization method.
+            after_norm_function: Optional string specifying the afternormalization method.
+            compile_functions: If ``True``, compiles the forward invariant kernel.
+            compile_kwargs: Keyword args passed to ``torch.compile``.
+        """
+        super().__init__()
+
+        if compile_kwargs is None:
+            compile_kwargs = dict()
+
+        orders = torch.as_tensor(orders, dtype=torch.int32)
+        if orders.ndim != 1:
+            raise ValueError("orders must be a 1D sequence")
+
+        if int((orders == 0).sum().item()) == 0:
+            raise ValueError("orders must contain at least one trivial order (0)")
+
+        self.register_buffer("orders", orders)
+
+        self.trivial_idx = int((orders == 0).sum().item())
+        self.non_trivial_orders_count = int(orders.numel() - self.trivial_idx)
+        self.eps = eps 
+
+        if self.non_trivial_orders_count < 1:
+            raise ValueError("Need at least one non-trivial order for normalization")
+        
+        if orders[self.trivial_idx] != 1: 
+            raise ValueError("The first non-trivial order must be 1 for normalization")
+
+        # Orders for targets only; exclude the first order-1 normalizer moment.
+        self.register_buffer("non_trivial_orders", orders[self.trivial_idx + 1 :])
+
+        self.layer_norm_function = self._resolve_norm_function(pre_norm_function)
+
+        if compile_functions:
+            self._compiled_forward = torch.compile(self._flusser, **compile_kwargs)
+        else:
+            self._compiled_forward = self._flusser
+        
+        self.out_channels = (
+            self.trivial_idx
+            + 2 * (self.non_trivial_orders_count - 1)
+        )
+
+    
+    @staticmethod 
+    def _resolve_norm_function(norm_function: str | Callable) -> Callable | None: 
+        """Resolve normalization function from string alias or return callable as-is."""
+        if norm_function is None:
+            return torch.nn.Identity()
+        if isinstance(norm_function, str):
+            key = norm_function.lower()
+            if key == "layer_norm":
+                return shared_layer_norm
+            else:
+                raise ValueError(f"Unknown norm_function '{norm_function}'. Available: ['shared_layer_norm']")
+        return norm_function
+
+    def _flusser(self, moments: torch.Tensor) -> torch.Tensor:
+        """Compute trivials, magnitudes, and phase-normalized invariants.
+
+        Args:
+            moments: Input tensor shaped ``[B, S, O, H, W]``.
+
+        Returns:
+            Tensor shaped ``[B, S * out_channels, H, W]``.
+        """
+        trivial = moments[:, :, : self.trivial_idx]
+
+        non_trivial = rearrange(
+            moments[:, :, self.trivial_idx :],
+            "b s (o c) h w -> b s o c h w",
+            o=self.non_trivial_orders_count,
+            c=2,
+        )
+
+        mag = torch.linalg.vector_norm(non_trivial, dim=-3)
+        safe_mag = mag.clamp(min=self.eps)
+        real, imag = non_trivial.unbind(dim=-3)
+        angle = SafeAtan2.apply(imag / safe_mag, real / safe_mag, self.eps)
+        n_angle = angle[:, :, 0:1] * -self.non_trivial_orders[:, None, None]
+        nt_angle = angle[:, :, 1:]
+
+        rel_angle = nt_angle + n_angle
+        out_mag = mag[:, :, 0:1] * mag[:, :, 1:]
+        real = out_mag * torch.cos(rel_angle)
+        imag = out_mag * torch.sin(rel_angle)
+        
+        invariants = torch.cat((trivial, real, imag), dim=2)
+        invariants = rearrange(invariants, "b c i h w -> b (c i) h w")
+        return invariants
+
+    def forward(self, moments: torch.Tensor) -> torch.Tensor:
+        """Forward pass over input moments."""
+        return self._compiled_forward(moments)

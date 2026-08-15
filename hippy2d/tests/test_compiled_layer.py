@@ -10,6 +10,7 @@ from hippy2d.opt_inv_layers import (
     CompiledInvariantLayer,
     CompiledMomentLayer,
     CompiledMomentO2Layer,
+    CompiledReImLayer
 )
 from hippy2d.escnn_prototype import MomentLayer
 
@@ -223,3 +224,16 @@ class TestCompiledInvariantLayer:
 
         self._test_parity_module(layers, test_vparity_images, test_device, parity_type="vertical")
         self._test_parity_module(layers, test_hparity_images, test_device, parity_type="horizontal")
+
+    def test_ReIm_o2_layer(self, test_images, test_device):
+        """
+        """
+        orders = [0, 1, 2, 3]
+        layers = torch.nn.Sequential(
+            CompiledMomentO2Layer(max_order=4, orders=orders, in_channels=IMAGE_CHANNELS),
+            CompiledReImLayer(orders=orders,
+                              pre_norm_function="layer_norm", 
+                              compile_functions=False)
+        ).to(test_device)
+
+        self._test_90_module(layers, test_images, test_device)
