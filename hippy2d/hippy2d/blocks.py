@@ -9,7 +9,7 @@ from hippy2d.conv_factory import get_conv_layer
 from hippy2d.escnn_layers import InvariantLayer, EscnnInvariantLayer
 from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer, CompiledMomentO2Layer, CompiledReImLayer
 from hippy2d.learnable import flusser_basis_orders
-
+from escnn.group import IrreducibleRepresentation
 
 class ResnetBlock(torch.nn.Module):
     def __init__(self, 
@@ -411,6 +411,7 @@ class GatedBlock(escnn.nn.modules.EquivariantModule):
 
     def __init__(self, 
                  r2_act: escnn.gspaces.GSpace,
+                 feature_irreps: list[IrreducibleRepresentation],
                  in_type: escnn.nn.FieldType, 
                  out_channels: int, 
                  kernel_size: int,
@@ -419,7 +420,7 @@ class GatedBlock(escnn.nn.modules.EquivariantModule):
         super(GatedBlock, self).__init__()
         self.in_type = in_type
         irreps = []
-        for n, irr in enumerate(r2_act.fibergroup.irreps()):
+        for irr in feature_irreps:
             if not irr.is_trivial():
                 irreps += [irr] * int(irr.size // irr.sum_of_squares_constituents)
         irreps = list(irreps)

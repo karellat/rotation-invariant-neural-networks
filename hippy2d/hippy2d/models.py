@@ -1147,21 +1147,29 @@ class E2Cnn(torch.nn.Module):
         _trivial_pooling = getattr(escnn.nn, trivial_pooling_type)
 
         if sensitive_to_reflection:
+            self.irreps = self.r2_act.irreps[1:]
             self.r2_act = gspaces.rot2dOnR2(N=-1, maximum_frequency=max_order)
         else: 
-            self.r2_act = gspaces.flipRot2dOnR2(N=-1, maximum_frequency=max_order)
+            self.r2_act = gspaces.flipRot2dOnR2(N=-1, maximum_frequency=2*max_order)
+            group = self.r2_act.fibergroup
+            self.irreps = tuple(
+                    group.irrep(*irrep_id)
+                    for irrep_id in group.bl_irreps(max_order)
+                    if not group.irrep(*irrep_id).is_trivial()
+                    )
+
+        self.trivial = self.r2_act.trivial_repr
 
         self.in_channels = in_channels
         self.input_size = input_size
         self.pool_size = pool_size
-        self.trivial = self.r2_act.trivial_repr
-        self.irreps = self.r2_act.irreps[1:]
         self.drop_rate = drop_rate
 
         self.in_type = escnn.nn.FieldType(self.r2_act,
                                      self.in_channels * [self.trivial])
         self.stem = _block(r2_act=self.r2_act,
                            in_type=self.in_type,
+                           feature_irreps=self.irreps,
                            padding=0,
                            out_channels=stem_channels,
                            kernel_size=stem_kernel_size,
@@ -1175,6 +1183,7 @@ class E2Cnn(torch.nn.Module):
             for layer_idx in range(num_layers):
                 layer = _block(r2_act=self.r2_act,
                                in_type=out_type,
+                               feature_irreps=self.irreps,
                                padding=2 if (block_idx < len(blocks) -1) and (layer_idx < num_layers -1) else 0,
                                out_channels=channels[block_idx],
                                kernel_size=kernel_size[block_idx],
