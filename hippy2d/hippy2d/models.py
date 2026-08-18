@@ -787,6 +787,7 @@ class PrototypeOptimal(torch.nn.Module):
                    max_order,
                    channels_masking,
                    sensitive_to_reflection,
+                   activate_flusser,
                    phase_func,
                    mag_func,
                    in_channels, 
@@ -805,6 +806,7 @@ class PrototypeOptimal(torch.nn.Module):
                                       max_order=max_order,
                                       kernel_size=kernel_size, 
                                       sensitive_to_reflection=sensitive_to_reflection,
+                                      activate_flusser=activate_flusser,
                                       downsample=use_downsample,
                                       phase_func=phase_func,
                                       mag_func=mag_func,
@@ -826,6 +828,7 @@ class PrototypeOptimal(torch.nn.Module):
                     max_order: int = 3,
                     channels_masking:bool = False,
                     sensitive_to_reflection:bool = True,
+                    activate_flusser: bool = False,
                     phase_func: str='polar',
                     mag_func: str='nicks',
                     # Classifier settings
@@ -846,6 +849,7 @@ class PrototypeOptimal(torch.nn.Module):
                                  channel_mask=channels_masking,
                                  phase_func=phase_func,
                                  mag_func=mag_func,
+                                 activate_flusser=activate_flusser,
                                  sensitive_to_reflection=sensitive_to_reflection)
         in_channels = channels[0]
         current_size = input_size // 2
@@ -857,6 +861,7 @@ class PrototypeOptimal(torch.nn.Module):
                                                 stage_idx=stage_idx,
                                                 kernel_size=kernels_size[stage_idx],
                                                 sensitive_to_reflection=sensitive_to_reflection,
+                                                activate_flusser=activate_flusser,
                                                 channels_masking=channels_masking,
                                                 layers=layers[stage_idx],
                                                 phase_func=phase_func,
@@ -899,11 +904,6 @@ class PrototypeOptimal(torch.nn.Module):
         x = self.forward_features(x)
         x = self.forward_head(x)
         return x
- 
-            
-            
-        
-
 
 # Optimal Convolution
 class PrototypeOptimalInvCNN(torch.nn.Module): 
@@ -1129,6 +1129,7 @@ class E2Cnn(torch.nn.Module):
                  drop_rate: float = 0.0,
                  classifier_size: int = 64,
                  pool_size: int = 2, 
+                 sensitive_to_reflection: bool = False,
                  block_kwargs: Optional[dict] = None,
                  ):
         super(E2Cnn, self).__init__()
@@ -1145,7 +1146,11 @@ class E2Cnn(torch.nn.Module):
         assert hasattr(escnn.nn, trivial_pooling_type), f"Unknown trivial pooling type: {trivial_pooling_type}"
         _trivial_pooling = getattr(escnn.nn, trivial_pooling_type)
 
-        self.r2_act = gspaces.rot2dOnR2(N=-1, maximum_frequency=max_order)
+        if sensitive_to_reflection:
+            self.r2_act = gspaces.rot2dOnR2(N=-1, maximum_frequency=max_order)
+        else: 
+            self.r2_act = gspaces.flipRot2dOnR2(N=-1, maximum_frequency=max_order)
+
         self.in_channels = in_channels
         self.input_size = input_size
         self.pool_size = pool_size

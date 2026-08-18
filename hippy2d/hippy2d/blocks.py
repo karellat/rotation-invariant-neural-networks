@@ -7,7 +7,7 @@ from hippy2d import conv_factory
 from hippy2d.utils import tukey_2d
 from hippy2d.conv_factory import get_conv_layer
 from hippy2d.escnn_layers import InvariantLayer, EscnnInvariantLayer
-from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer, CompiledMomentO2Layer
+from hippy2d.opt_inv_layers import CompiledInvariantLayer, CompiledMomentLayer, CompiledMomentO2Layer, CompiledReImLayer
 from hippy2d.learnable import flusser_basis_orders
 
 
@@ -632,6 +632,7 @@ class OptimalBlock(torch.nn.Module):
                   channel_mask: bool=False,
                   downsample: bool=False,
                   sensitive_to_reflection: bool=True,
+                  activate_flusser: bool=False,
                   **kwargs):
         super().__init__()
         print(f"Got those extra arguments: {kwargs}")
@@ -663,11 +664,15 @@ class OptimalBlock(torch.nn.Module):
                                                kernel_size=kernel_size)
         
         # Construct invariants
-        self.invariants_layer = CompiledInvariantLayer(
-            orders=self.orders,
-            phase_function=phase_func,
-            magnitude_function=mag_func,
-            pre_norm_function=pre_norm_func)
+        if activate_flusser: 
+            self.invariants_layer = CompiledReImLayer(orders=self.orders, 
+                                                      pre_norm_function=pre_norm_func)
+        else: 
+            self.invariants_layer = CompiledInvariantLayer(
+                orders=self.orders,
+                phase_function=phase_func,
+                magnitude_function=mag_func,
+                pre_norm_function=pre_norm_func)
 
         inv_out_channels = self.invariants_layer.out_channels * in_channels
 
