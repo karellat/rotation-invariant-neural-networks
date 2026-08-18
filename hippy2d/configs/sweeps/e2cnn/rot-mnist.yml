@@ -1,0 +1,75 @@
+method: grid
+metric:
+  goal: minimize
+  name: val_loss
+name: e2cnn-rotmnist-se2-vs-e2
+parameters:
+  d_hparams:
+    parameters:
+      batch_size:
+        value: 32
+      data_dir:
+        value: data
+      test_batch_size:
+        value: 128
+      upscale_size:
+        value: 64
+  dataset_name:
+    value: RotMnist
+  early_stopping:
+    value: 15
+  epochs:
+    value: 100
+  label_smoothing:
+    value: 0.1
+  lr_hparams:
+    parameters:
+      gamma:
+        value: 0.1
+      milestones:
+        value:
+        - 10
+        - 50
+        - 90
+  lr_name:
+    value: MultiStepLR
+  m_param:
+    parameters:
+      block_type:
+        value: GatedBlock
+      channels:
+        value:
+        - 16
+        - 32
+        - 40
+      in_channels:
+        value: 1
+      input_size:
+        value: 64
+      max_order:
+        value: 3
+      stem_channels:
+        value: 16
+      trivial_pooling_type:
+        value:
+        - PointwiseMaxPoolAntialiased2D
+      sensitive_to_reflection:
+        values: 
+        - true
+        - false
+  model_name:
+    value: E2Cnn
+  optimizer_hparams:
+    parameters:
+      lr:
+        value: 0.001
+  optimizer_name:
+    value: AdamW
+  run_name:
+    value: e2cnn-rotmnist-se2-vs-e2
+  seed:
+    values:
+    - 42
+    - 7
+    - 123
+program: scripts/training.py
