@@ -50,13 +50,9 @@ parameters:
         value: 3
       stem_channels:
         value: 16
-      trivial_pooling_type:
-        value:
-        - PointwiseMaxPoolAntialiased2D
       sensitive_to_reflection:
         values: 
         - true
-        - false
   model_name:
     value: E2Cnn
   optimizer_hparams:
