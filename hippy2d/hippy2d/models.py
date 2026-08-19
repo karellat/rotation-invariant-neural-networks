@@ -1129,7 +1129,7 @@ class E2Cnn(torch.nn.Module):
                  drop_rate: float = 0.0,
                  classifier_size: int = 64,
                  pool_size: int = 2, 
-                 sensitive_to_reflection: bool = False,
+                 sensitive_to_reflection: bool = True,
                  block_kwargs: Optional[dict] = None,
                  ):
         super(E2Cnn, self).__init__()
@@ -1147,8 +1147,8 @@ class E2Cnn(torch.nn.Module):
         _trivial_pooling = getattr(escnn.nn, trivial_pooling_type)
 
         if sensitive_to_reflection:
-            self.irreps = self.r2_act.irreps[1:]
             self.r2_act = gspaces.rot2dOnR2(N=-1, maximum_frequency=max_order)
+            self.irreps = self.r2_act.irreps[1:]
         else: 
             self.r2_act = gspaces.flipRot2dOnR2(N=-1, maximum_frequency=2*max_order)
             group = self.r2_act.fibergroup
