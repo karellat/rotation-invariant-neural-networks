@@ -1125,7 +1125,7 @@ class E2Cnn(torch.nn.Module):
                  channels: list = [16, 32, 40],
                  kernel_size: List[int] = [5, 5, 5],
                  block_type: str = "GatedBlock",
-                 trivial_pooling_type: str = "PointwiseMaxPool",
+                 trivial_pooling_type: str = "NormMaxPool",
                  drop_rate: float = 0.0,
                  classifier_size: int = 64,
                  pool_size: int = 2, 
