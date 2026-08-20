@@ -444,7 +444,7 @@ class GatedBlock(escnn.nn.modules.EquivariantModule):
     
         modules = [
             (escnn.nn.InnerBatchNorm(trivials + gates), "trivial"),
-            (escnn.nn.IIDBatchNorm2d(gated), "gated")
+            (escnn.nn.NormBatchNorm(gated), "gated")
         ]
         self.norm = escnn.nn.MultipleModule(self.conv.out_type, labels, modules)
         # Gating Activations
