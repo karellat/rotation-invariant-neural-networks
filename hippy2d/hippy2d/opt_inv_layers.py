@@ -640,7 +640,7 @@ class CompiledReImLayer(torch.nn.Module):
         rel_angle = nt_angle + n_angle
         # TODO: This is a quick fix
         # This might cause exploding
-        out_mag = torch.sqrt(mag[:, :, 0:1] * mag[:, :, 1:])
+        out_mag = torch.sqrt(torch.clamp(mag[:, :, 0:1] * mag[:, :, 1:], min=self.eps))
         real = out_mag * torch.cos(rel_angle)
         imag = out_mag * torch.sin(rel_angle)
         
